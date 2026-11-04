@@ -1,3 +1,4 @@
+import {formatOaDateTime} from '../../../lib/oaDateTime';
 import { useEffect, useState } from 'react';
 import { ApiError } from '../../../api/client';
 import { useAuth } from '../../../auth/AuthContext';
@@ -5,7 +6,7 @@ import { Pager, money } from '../common';
 import { jstApi, type ArchiveJob, type CategoryPreview, type CategoryRun, type CategoryScope, type PriceLog, type PriceRow } from './jstApi';
 
 const msg = (e: unknown) => (e instanceof ApiError ? e.message : (e as Error).message || '操作失败');
-const when = (s: string) => new Date(s).toLocaleString('zh-CN', { hour12: false });
+const when = (s: string) => formatOaDateTime(s);
 const yuan = (c: number | null) => (c === null ? '—' : money(c));
 
 /** 同步队列页下半部分：基本售价同步、归档任务、分类同步。都只是“排队”，真正发送受总开关控制。 */
@@ -146,7 +147,7 @@ function CategorySync({ onQueued }: { onQueued: () => void }) {
       {error && <div role="alert" className="notice error">{error}</div>}
       {notice && <div role="status" className="notice ok">{notice}</div>}
       <div className="toolbar">
-        <select aria-label="分类类型" value={scope} onChange={(e) => { setScope(e.target.value as CategoryScope); setPreview(null); }}><option value="bundle">组合分类</option><option value="product">商品分类</option></select>
+        <select aria-label="分类类型" value={scope} onChange={(e) => { setScope(e.target.value as CategoryScope); setPreview(null); }}><option value="bundle">组合分类</option><option value="product">商品编码分类</option><option value="archive">商品档案分类</option></select>
         <button type="button" className="secondary-button" onClick={() => void look()}>查看差异</button>
       </div>
       {preview && (

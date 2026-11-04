@@ -26,7 +26,7 @@ export class OrgController {
     return this.org.departmentTree(user);
   }
 
-  /** 员工通讯录（只含 id/姓名/是否在职），资料页的“选择员工”要用；不含账号等信息 */
+  /** 员工通讯录（id/姓名/是否在职/部门名称），资料页的选择员工要用；不含账号等信息 */
   @AuthenticatedOnly()
   @Get('users')
   users(@CurrentUser() user: AuthUser) {

@@ -29,3 +29,7 @@ describe('申请中心：SKU 规格独立办理', () => {
     await waitFor(() => expect(screen.getByText('详情 #31')).toBeTruthy());
   });
 });
+
+it('拆分全失败保留现普通申请表单与同一requestKey，不能打开空汇总',async()=>{
+ vi.mocked(flowApi.templates).mockResolvedValue([{key:'sku-batch-apply',label:'SKU 批量申请',description:'',active:true,fields:[],steps:[]}]as never);vi.mocked(skuApi.startSplit).mockResolvedValueOnce({batchKey:'Bempty',runs:[],failed:[{specName:'A',message:'合成失败'}]}).mockResolvedValueOnce({batchKey:'Bdone',runs:[{id:88,specName:'A'}],failed:[]});render(<MemoryRouter><ApplyPage/></MemoryRouter>);fireEvent.click(await screen.findByText('发起申请'));fireEvent.click(screen.getByText('填好'));fireEvent.click(screen.getByRole('button',{name:'提交申请'}));await screen.findByText(/所有规格均未发起成功/);expect(screen.getByRole('dialog',{name:/发起SKU/})).toBeTruthy();fireEvent.click(screen.getByRole('button',{name:'提交申请'}));await screen.findByText('详情 #88');expect(vi.mocked(skuApi.startSplit).mock.calls[1]).toEqual(vi.mocked(skuApi.startSplit).mock.calls[0]);
+});

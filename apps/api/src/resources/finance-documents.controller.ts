@@ -1,9 +1,9 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { FilesService, MAX_UPLOAD_BYTES, type UploadedFile as Upload } from '../integrations/files.service';
+import { FilesService, sniffFile, type UploadedFile as Upload } from '../integrations/files.service';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, ArrayUnique, Equals, IsBoolean, IsArray, IsIn, MinLength, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
-import { OPENING_PREPAYMENT_PERMISSION, CONFIRM_TRANSFER_PERMISSION, DOC_TYPES, type DocType } from '@kudesi/shared';
+import { OPENING_PREPAYMENT_PERMISSION, OPENING_PREPAYMENT_VOUCHERS, DOC_LINE_UNIT_MAX_LENGTH, DOC_LINE_RELATED_NAME_MAX_LENGTH, DOC_LINE_ITEM_NAME_MAX_LENGTH, CONFIRM_TRANSFER_PERMISSION, DOC_TYPES, type DocType } from '@kudesi/shared';
 import { AuthUser, AuthenticatedOnly, CurrentUser, RequirePermission } from '../common/auth.decorators';
 import { OPENING_VOUCHER_TYPE, FinanceDocumentsService } from './finance-documents.service';
 import { FinanceVoucherHintsService } from './finance-voucher-hints.service';
@@ -12,6 +12,9 @@ const TYPES = DOC_TYPES.map((d) => d.type);
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 class LineDto {
+  @IsOptional() @IsInt() @Min(1) id?: number;
+  @IsOptional() @IsBoolean() refreshRelatedName?:boolean;
+  @IsOptional() @IsBoolean() refreshItemName?:boolean;
   @IsOptional() @IsInt() @Min(1) productId?: number | null;
   @IsOptional() @IsInt() @Min(1) feeItemId?: number | null;
   @IsNumber({ maxDecimalPlaces: 4 }) qty!: number;
@@ -20,9 +23,9 @@ class LineDto {
   @IsOptional() @IsString() @MaxLength(200) memo?: string;
   @IsOptional() @IsString() @MaxLength(20) relatedNode?: string | null;
   @IsOptional() @IsInt() @Min(1) relatedId?: number | null;
-  @IsOptional() @IsString() @MaxLength(100) relatedName?: string | null;
-  @IsOptional() @IsString() @MaxLength(100) itemName?: string | null;
-  @IsOptional() @IsString() @MaxLength(20) unit?: string | null;
+  @IsOptional() @IsString() @MaxLength(DOC_LINE_RELATED_NAME_MAX_LENGTH) relatedName?: string | null;
+  @IsOptional() @IsString() @MaxLength(DOC_LINE_ITEM_NAME_MAX_LENGTH) itemName?: string | null;
+  @IsOptional() @IsString() @MaxLength(DOC_LINE_UNIT_MAX_LENGTH) unit?: string | null;
 }
 class AccountDto {
   @IsIn(['out', 'in']) role!: 'out' | 'in';
@@ -52,6 +55,7 @@ class DocDto {
   @Matches(DATE) date!: string;
   @IsOptional() @IsInt() @Min(1) partyId?: number | null;
   @IsOptional() @IsIn(['customer', 'store', 'supplier', 'employee']) partyKind?: 'customer' | 'store' | 'supplier' | 'employee' | null;
+  @IsOptional() @IsIn(['full', 'part', 'credit', 'offset', 'debt']) settlementMode?: 'full' | 'part' | 'credit' | 'offset' | 'debt' | null;
   @IsOptional() @IsInt() @Min(0) paidCents?: number | null;
   @IsOptional() @IsString() @MaxLength(60) handler?: string | null;
   @IsOptional() @IsString() @MaxLength(60) department?: string | null;
@@ -59,6 +63,7 @@ class DocDto {
   @IsOptional() @IsInt() @Min(1) bankAccountId?: number | null;
   @IsOptional() @IsInt() @Min(1) toBankAccountId?: number | null;
   @IsOptional() @IsInt() @Min(1) warehouseId?: number | null;
+  @IsOptional() @IsString() @MaxLength(200) warehouseName?: string | null;
   @IsOptional() @IsInt() @Min(1) storeId?: number | null;
   @IsOptional() @IsString() @MaxLength(80) refNo?: string | null;
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => AccountDto) accounts?: AccountDto[] | null;
@@ -71,13 +76,16 @@ class DocDto {
   @IsOptional() @IsInt() @Min(1) handlerId?: number | null;
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => LineDto) lines?: LineDto[];
   @IsOptional() @IsString() @MaxLength(500) memo?: string;
+  @IsOptional() @IsString() @MaxLength(160) counterpartyName?: string | null;
+  @IsOptional() @IsString() @MaxLength(255) summary?: string | null;
 }
 class OpeningPrepaymentDto {
   @IsString() @MinLength(1) @MaxLength(500) reason!: string;
-  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(10) @ArrayUnique() @IsInt({ each: true }) @Min(1, { each: true }) fileIds!: number[];
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(OPENING_PREPAYMENT_VOUCHERS.maxFiles) @ArrayUnique() @IsInt({ each: true }) @Min(1, { each: true }) fileIds!: number[];
   @Equals(true) confirmed!: boolean;
 }
 class HeaderDto {
+  @IsOptional() @IsString() @MaxLength(255) summary?: string | null;
   @IsOptional() @Matches(DATE) date?: string;
   @IsOptional() @IsInt() @Min(1) handlerId?: number | null;
   @IsOptional() @IsString() @MaxLength(60) handler?: string | null;
@@ -95,6 +103,7 @@ class ConfirmTransferDto {
 class ReasonDto { @IsString() @MaxLength(500) reason!: string }
 class ListDto {
   @IsString() scope!: string;
+  @IsOptional() @IsIn(['yes']) includeDrafts?: 'yes';
   @IsOptional() @IsIn(['draft', 'issued', 'posted', 'reversed']) status?: string;
   @IsOptional() @IsIn(['in', 'out', 'internal']) direction?: 'in' | 'out' | 'internal';
   @IsOptional() @Matches(DATE) from?: string;
@@ -108,15 +117,17 @@ class ListDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(200) pageSize?: number;
 }
 class InvDto {
+  @IsOptional() @IsString() @MaxLength(160) warehouse?: string;
   @IsOptional() @Matches(DATE) asOf?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) warehouseId?: number;
-  @IsOptional() @IsString() @MaxLength(60) keyword?: string;
+  @IsOptional() @IsString() @MaxLength(200) keyword?: string;
   @IsOptional() @IsIn(['normal', 'out']) stockStatus?: 'normal' | 'out';
 }
 class InvLedgerDto {
   @Type(() => Number) @IsInt() @Min(1) productId!: number;
   @Type(() => Number) @IsInt() @Min(1) warehouseId!: number;
   @IsOptional() @Matches(DATE) asOf?: string;
+  @IsOptional() @IsString() @MaxLength(DOC_LINE_UNIT_MAX_LENGTH) unit?: string;
 }
 class PartyBalanceDto {
   @IsIn(['customer', 'store', 'supplier', 'employee']) partyKind!: 'customer' | 'store' | 'supplier' | 'employee';
@@ -125,6 +136,7 @@ class PartyBalanceDto {
 class LineHintsDto {
   @IsString() @Matches(/^\d+(,\d+)*$/) productIds!: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) warehouseId?: number;
+  @IsOptional() @IsString() @MaxLength(200) warehouseName?: string;
 }
 class LedgerDto {
   @IsOptional() @Matches(DATE) from?: string;
@@ -140,7 +152,7 @@ export class FinanceDocumentsController {
 
   @AuthenticatedOnly() @Get('docs')
   list(@CurrentUser() u: AuthUser, @Query() q: ListDto) {
-    return this.docs.list(u, { scope: q.scope as never, direction: q.direction, status: q.status, from: q.from, to: q.to, keyword: q.keyword, creatorId: q.creatorId, audited: q.audited, transit: q.transit, docType: q.docType, page: q.page ?? 1, pageSize: q.pageSize ?? 20 });
+    return this.docs.list(u, { scope: q.scope as never, includeDrafts:q.includeDrafts === 'yes', direction: q.direction, status: q.status, from: q.from, to: q.to, keyword: q.keyword, creatorId: q.creatorId, audited: q.audited, transit: q.transit, docType: q.docType, page: q.page ?? 1, pageSize: q.pageSize ?? 20 });
   }
   @AuthenticatedOnly() @Get('docs/:id')
   get(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.docs.get(u, id); }
@@ -167,9 +179,11 @@ export class FinanceDocumentsController {
   registerOpening(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: OpeningPrepaymentDto) { return this.docs.registerOpeningPrepayment(u, id, b); }
 
   @RequirePermission(OPENING_PREPAYMENT_PERMISSION) @Post('docs/:id/opening-vouchers')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } }))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: OPENING_PREPAYMENT_VOUCHERS.maxBytes, files: 1 } }))
   async uploadOpeningVoucher(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @UploadedFile() file: Upload) {
     await this.docs.checkOpeningPrepayment(u, id);
+    const kind=file?.buffer&&sniffFile(file.buffer);
+    if(!file?.size||file.size>OPENING_PREPAYMENT_VOUCHERS.maxBytes||!kind||!OPENING_PREPAYMENT_VOUCHERS.mimeTypes.some(mime=>mime===kind.mime))throw new BadRequestException('支持PNG、JPG、WebP、PDF，单文件不超过2MB');
     return this.files.putBlob(u.companyId, u.id, OPENING_VOUCHER_TYPE, 'voucher', file);
   }
 
@@ -208,7 +222,7 @@ export class FinanceDocumentsController {
   partyBalance(@CurrentUser() u: AuthUser, @Query() q: PartyBalanceDto) { return this.hints.partyBalance(u, q.partyKind, q.partyId); }
 
   @AuthenticatedOnly() @Get('line-hints')
-  lineHints(@CurrentUser() u: AuthUser, @Query() q: LineHintsDto) { return this.hints.lineHints(u, q.productIds.split(',').map(Number), q.warehouseId); }
+  lineHints(@CurrentUser() u: AuthUser, @Query() q: LineHintsDto) { return this.hints.lineHints(u, q.productIds.split(',').map(Number), q.warehouseId, q.warehouseName); }
 
   @AuthenticatedOnly() @Get('settlement-detail')
   settlementDetail(@CurrentUser() u: AuthUser, @Query() q: SettlementQueryDto) { return this.docs.settlementDetail(u, q); }

@@ -115,3 +115,16 @@ describe('网格模型', () => {
     expect(parts.map((p) => (p.updates?.length ?? 0) + (p.creates?.length ?? 0))).toEqual([3, 3, 2]);
   });
 });
+
+
+describe('档案规格粘贴与编辑类型', () => {
+  const product = getResourceDef('finance-products')!;
+  const col = pickCandidates(product, [], { can: all, canSecret: true, canDisable: true, canView: all }).find(c => c.key === 'specQty')!.col;
+  it('文字规格按当前行类型保留，原料同列仍验证数字', async () => {
+    const shipping = rowFromDto({ ...dto(1, { archiveType: 'shipping_material', specQty: '25*33+4' }), type: 'finance-products' });
+    expect(await textToChange(col, shipping, 0, '115*170mm', {})).toMatchObject({ value: '115*170mm' });
+    const raw = rowFromDto({ ...dto(2, { archiveType: 'raw', specQty: 1 }), type: 'finance-products' });
+    expect(await textToChange(col, raw, 1, '115*170mm', {})).toHaveProperty('invalid');
+    expect(await textToChange(col, raw, 1, '2.5', {})).toMatchObject({ value: 2.5 });
+  });
+});

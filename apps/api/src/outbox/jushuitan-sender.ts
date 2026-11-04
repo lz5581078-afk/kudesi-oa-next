@@ -1,3 +1,4 @@
+import {createHash} from 'crypto';
 import { assertJstNormalPricePrecision } from './jst-price-precision';
 import { Injectable } from '@nestjs/common';
 import { ExternalConfigService } from '../integrations/external-config.service';
@@ -9,7 +10,7 @@ const aliases: Record<string, string> = { shortName: 'short_name', propertiesVal
 export class CompanyJstSender implements OutboxSender {
   readonly configured = true;
   readonly confirmationDelays = [1000, 2000, 4000];
-  constructor(private readonly client: JushuitanClient, readonly targetKey: string, private readonly expectedCoid?: string, private readonly persist?: (key: string, payload: JsonRow) => Promise<void>) {}
+  constructor(private readonly client: JushuitanClient, readonly targetKey: string, private readonly expectedCoid?: string, private readonly persist?: (key: string, payload: JsonRow) => Promise<void>,readonly categoryTarget?:{key:string;name:string;coid:string}) {}
   private async assertCompany() {
     if (!this.expectedCoid) return;
     const shops = await this.client.pages('/open/shops/query', {}, 'datas');
@@ -37,6 +38,19 @@ export class CompanyJstSender implements OutboxSender {
     return { ...hit, ...price[0], c_name: categoryName };
   }
   async read(code: string, kind?: string) { await this.assertCompany(); if (kind) return this.readAt(code, kind === 'bundle'); return await this.readAt(code, true) ?? await this.readAt(code, false); }
+  async searchNormal(identity: { skuId: string; styleId: string; name: string }) {
+    await this.assertCompany();
+    // 官方普通商品查询参数：sku_ids、i_ids（数组）、exactly_name；不使用默认修改时间窗口。
+    // https://openweb.jushuitan.com/dev-doc?docId=14&docType=2
+    const queries = [{ sku_ids: identity.skuId }, { i_ids: [identity.styleId] }, { exactly_name: identity.name }];
+    const batches = await Promise.all(queries.map(query => this.client.pages('/open/sku/query', query, 'datas')));
+    const rows = [...new Map(batches.flat().map(row => [JSON.stringify([row.sku_id, row.i_id, row.name, row.properties_value, row.c_name ?? row.category]), row])).values()];
+    const normalized = (value: unknown) => text(value).trim().toLowerCase();
+    return rows.filter(row => [
+      [row.sku_id, identity.skuId], [row.i_id ?? row.style_id, identity.styleId], [row.name, identity.name],
+    ].some(([value, wanted]) => normalized(wanted) && normalized(value) === normalized(wanted)))
+      .map(row => ({ skuId: text(row.sku_id), styleId: text(row.i_id ?? row.style_id), name: text(row.name), spec: text(row.properties_value), category: text(row.c_name ?? row.category) }));
+  }
   async readCategories(): Promise<RemoteCategory[]> {
     await this.assertCompany();
     const rows = await this.client.pages('/open/category/query', {}, 'datas');
@@ -172,6 +186,6 @@ export class JushuitanSenderFactory implements OutboxSender {
   async forCompany(companyId: number): Promise<OutboxSender> { const cfg = await this.settings.jst(companyId); return new CompanyJstSender(new JushuitanClient(cfg), cfg.targetKey, String(cfg.coid), async (key, payload) => {
       const r = await this.settings.ds.query("UPDATE outbox_jobs SET payload_json=? WHERE company_id=? AND channel='jushuitan' AND idempotency_key=? AND status='sending'", [JSON.stringify(payload), companyId, key]);
       if (!r.affectedRows) throw new Error('改码任务意图未保存，停止外部写入');
-    }); }
+    },{key:createHash('sha256').update(JSON.stringify([cfg.targetKey,String(cfg.coid),cfg.appKey,String(cfg.baseUrl).replace(/\/$/,'')])).digest('hex'),name:String(cfg.name||''),coid:String(cfg.coid)}); }
   async send(): Promise<void> { throw new Error('必须先选择公司授权账户'); }
 }

@@ -1,14 +1,21 @@
+import type { DocLineInput } from '@kudesi/shared';
 /** 开单页的明细行状态（界面里的字符串，保存时才转成分/数量） */
 export interface LineState {
+  id?:number;
+  refreshRelatedName?:boolean;
+  refreshItemName?:boolean;
   unit: string;
   productId: number | null; productName: string; feeItemId: number | null; feeItemName: string; qty: string; price: string; memo: string;
+  /** 选择器展示名，不代替单据商品名称或进入保存字段。 */
+  productLabel?: string;
+  feeItemLabel?: string;
   /** 赠品：单价强制为 0，不能改价（管家婆 F7） */
   gift: boolean;
   /** 费用/收入行的挂账节点和对象 */
   node: string; relatedId: number | null; relatedName: string; needObject: boolean;
 }
 export interface AcctState { id: number; name: string; amount: string }
-export interface MoneyLine { item: string; amount: string; memo: string }
+export interface MoneyLine { item: string; amount: string; memo: string; original?: Pick<DocLineInput, 'id' | 'feeItemId' | 'relatedNode' | 'relatedId' | 'relatedName'> }
 export const emptyMoney = (): MoneyLine => ({ item: '', amount: '', memo: '' });
 export const emptyLine = (): LineState => ({ unit: '', productId: null, productName: '', feeItemId: null, feeItemName: '', qty: '1', price: '', memo: '', gift: false, node: '', relatedId: null, relatedName: '', needObject: false });
 export const emptyLines = (n: number) => Array.from({ length: n }, emptyLine);

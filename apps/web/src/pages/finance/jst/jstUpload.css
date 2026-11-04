@@ -1,0 +1,62 @@
+.jst-maintenance-page { display: grid; gap: 14px; min-width: 0; color: #172033; font: 16px/normal Inter,'PingFang SC','Microsoft YaHei',Arial,sans-serif; }
+.jst-maintenance-panel { min-width: 0; padding: 16px; border: 1px solid #dce4ef; border-radius: 8px; background: #fff; box-shadow: 0 10px 30px #0f172a0d; }
+.jst-maintenance-panel > header { display: block; margin: 0; }
+.jst-maintenance-panel h2 { margin: 0; font-size: 24px; line-height: normal; font-weight: 700; }
+.jst-maintenance-panel h3 { margin: 1em 0; font-size: 1.17em; line-height: normal; font-weight: 700; }
+.jst-maintenance-panel header p { margin: 0; color: inherit; font-size: 16px; line-height: normal; }
+.jst-maintenance-page .row-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+.jst-maintenance-page .secondary-button, .jst-maintenance-page .primary-button, .jst-upload-dialog .secondary-button, .jst-upload-dialog .primary-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 38px; min-height: 0; padding: 0 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #334155; font: inherit; cursor: pointer; }
+.jst-maintenance-page .primary-button, .jst-upload-dialog .primary-button { border-color: #166534; background: #0e8062; color: #fff; font-weight: 700; }
+.jst-maintenance-page .secondary-button:disabled, .jst-upload-dialog button:disabled { cursor: not-allowed; opacity: .55; }
+.jst-upload-search { display: block; margin: 0 0 12px; }
+.jst-upload-search > .secondary-button { margin: 0; }
+.jst-upload-search .qk-reference-search { display: block; width: 100%; max-width: none; }
+.jst-upload-search .qk-reference-search-shell { min-height: 38px; }
+.jst-upload-search .qk-reference-search-shell input { height: auto; min-height: 0; padding: 0; font-size: 14px; }
+.jst-upload-pagination { display: block; margin: 0; color: inherit; font-size: 16px; }
+.jst-upload-empty { padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fbfdfb; }
+.jst-upload-empty span { display: block; margin-top: 5px; color: #64748b; font-size: 13px; }
+.jst-maintenance-panel .data-table { min-width: 100%; width: 100%; border-collapse: collapse; font-size: 14px; line-height: normal; }
+.jst-maintenance-panel .data-table th, .jst-maintenance-panel .data-table td { padding: 11px 10px; border-bottom: 1px solid #e5eaf1; font-size: 14px; line-height: normal; white-space: nowrap; vertical-align: middle; }
+.jst-maintenance-panel .data-table th { background: #f8fafc; color: #64748b; font-weight: 700; }
+.jst-upload-badge { display: inline-flex; align-items: center; min-height: 24px; padding: 3px 10px; border-radius: 999px; background: #fef3c7; color: #b45309; font-size: 12px; font-weight: 900; white-space: nowrap; }
+.jst-upload-badge.success { background: #dcfce7; color: #047857; }
+.jst-upload-badge.failed { background: #fee2e2; color: #b91c1c; }
+.modal.jst-upload-dialog.finance-reference-modal { display: block; max-height: calc(100vh - 48px); min-height: 0; width: min(1120px,94vw); max-width: min(1120px,94vw); background: #fff; }
+.jst-upload-dialog .modal-body { display: block; padding: 0; max-height: none; overflow: visible; }
+.jst-upload-dialog .jst-upload-toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+.jst-upload-layout { display: grid; gap: 12px; }
+.jst-upload-layout > fieldset { display: grid; gap: 14px; max-height: 62vh; overflow: auto; padding: 0 4px 0 0; margin: 0; border: 0; min-width: 0; }
+.jst-upload-layout > footer { display: block; padding: 0; }
+.jst-upload-field-section { display: grid; gap: 10px; padding: 12px; border: 1px solid #dce9e2; border-radius: 10px; background: #fff; }
+.jst-upload-field-section > header, .jst-upload-duplicate > header { display: flex; align-items: baseline; gap: 10px; border-bottom: 1px solid #edf2f7; padding-bottom: 8px; }
+.jst-upload-field-section strong { color: #0f172a; font-size: 15px; }
+.jst-upload-field-section header span, .jst-upload-duplicate header span { color: #64748b; font-size: 12px; font-weight: 700; }
+.jst-upload-field-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; }
+.jst-upload-field-grid > label { min-width: 0; display: grid; gap: 6px; padding: 10px; border: 1px solid #dce9e2; border-radius: 8px; background: #f8fbf9; font-size: 16px; line-height: normal; }
+.jst-upload-field-grid > label.wide { grid-column: 1 / -1; }
+.jst-upload-field-grid label > span { display: flex; gap: 6px; align-items: center; color: #334155; font-size: 12px; font-weight: 900; }
+.jst-upload-field-grid em { margin-left: 8px; padding: 2px 7px; border-radius: 999px; background: #fee2e2; color: #b91c1c; font-size: 11px; font-style: normal; font-weight: 700; }
+.jst-upload-field-grid input, .jst-upload-field-grid textarea { min-width: 0; width: 100%; height: auto; min-height: 36px; padding: 7px 9px; border: 1px solid #cbd8ea; border-radius: 7px; color: #0f172a; background: #fff; font: inherit; }
+.jst-upload-field-grid select { all: revert; min-width: 0; font: inherit; }
+.jst-upload-field-grid textarea { min-height: 96px; margin-bottom: 12px; resize: vertical; }
+.jst-upload-message { padding: 10px 12px; border-radius: 8px; font-size: 13px; font-weight: 800; line-height: normal; }
+.jst-upload-message.error { color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; }
+.jst-upload-message.success { color: #047857; background: #ecfdf5; border: 1px solid #bbf7d0; }
+.jst-upload-duplicate { display: grid; gap: 12px; padding: 12px; border-radius: 10px; min-width: 0; }
+.jst-upload-duplicate.high-risk { border: 1px solid #fecaca; background: #fef2f2; }
+.jst-upload-duplicate.warning { border: 1px solid #fde68a; background: #fffbeb; }
+.jst-upload-duplicate.clear { border: 1px solid #bbf7d0; background: #ecfdf5; }
+.jst-upload-duplicate p { margin: 0; }
+.jst-upload-dialog .row-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+.jst-upload-duplicate > header > strong { color: #0f172a; font-size: 15px; }
+.jst-upload-duplicate-block { display: grid; gap: 8px; min-width: 0; }
+.jst-upload-duplicate-block > strong { color: #0f172a; font-size: 13px; }
+.jst-upload-duplicate .data-table { width: 100%; min-width: 0; table-layout: auto; border-collapse: collapse; font-size: 12px; line-height: normal; }
+.jst-upload-duplicate .data-table th, .jst-upload-duplicate .data-table td { max-width: none; overflow: visible; text-overflow: clip; white-space: nowrap; padding: 8px 10px; font-size: 12px; line-height: normal; }
+.jst-upload-duplicate .data-table th { color: #64748b; background: #f8fafc; font-weight: 700; }
+.jst-upload-dialog .jst-upload-continue { all: revert; font: inherit; }
+.jst-upload-result { padding: 14px; border: 1px solid #cce7d5; background: #f1fbf4; }
+.jst-upload-result p { margin: 8px 0 0; font-size: 13px; }
+/* The original button row stretches its native continue button to its neighbour. */
+.jst-upload-duplicate > .row-actions { align-items:stretch; gap:10px; }

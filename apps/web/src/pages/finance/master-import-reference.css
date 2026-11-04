@@ -1,0 +1,35 @@
+.master-data-import-page{display:grid;gap:18px;color:#24352c;font:16px Inter,'PingFang SC','Microsoft YaHei',Arial,sans-serif}
+.master-data-import-page>.page-head{margin:0}.master-data-import-page>.mdi-subtitle{margin:0;color:#637169}
+.master-data-import-page .mdi-card{padding:20px;border:1px solid #dfe7e2;border-radius:14px;background:#fff;box-shadow:0 4px 16px #1636280d}
+.master-data-import-page .mdi-card-title{display:flex;align-items:flex-start;gap:12px}
+.master-data-import-page .mdi-card-title>svg{width:24px;height:24px;flex:none;color:#168354}
+.master-data-import-page .mdi-card-title h3{margin:0 0 5px;font-size:18px;line-height:normal}
+.master-data-import-page .mdi-card-title p{margin:0;color:#637169}
+.master-data-import-page .mdi-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-top:18px}
+.master-data-import-page .mdi-toolbar label{display:grid;gap:6px;min-width:260px;margin:0;font-size:16px;font-weight:400}
+.master-data-import-page .mdi-toolbar select,.master-data-import-page .mdi-reset-preview input{height:38px;border:1px solid #ccd8d1;border-radius:8px;background:#fff;padding:0 10px;font:inherit}
+.master-data-import-page .mdi-toolbar button,.master-data-import-page .mdi-card>button,.master-data-import-page .mdi-preview button,.master-data-import-page .mdi-reset-preview button{display:inline-flex;flex-direction:row;align-items:center;justify-content:center;gap:7px;min-height:38px;border:1px solid #cbd8d1;border-radius:8px;padding:0 13px;background:#fff;color:inherit;font:inherit;cursor:pointer}
+.master-data-import-page .mdi-toolbar button svg,.master-data-import-page .mdi-card>button svg,.master-data-import-page .mdi-reset-preview button svg{width:16px;height:16px;flex:none}
+.master-data-import-page button.primary{color:#fff;background:#168354;border-color:#168354}
+.master-data-import-page .mdi-message{padding:11px 14px;border-radius:9px}.master-data-import-page .mdi-message.success{background:#eaf8f0;color:#12653f}.master-data-import-page .mdi-message.error{background:#fff0ef;color:#a72b22}
+.master-data-import-page .mdi-progress{display:flex;align-items:center;gap:8px;margin-top:16px;color:#53625a}.master-data-import-page .spin{width:20px;animation:master-import-spin 1s linear infinite}
+@keyframes master-import-spin{to{transform:rotate(360deg)}}
+.master-data-import-page .mdi-preview{margin-top:16px;border:1px solid #d8e4dd;border-radius:10px;padding:14px}.master-data-import-page .mdi-preview>div:first-child{display:flex;flex-wrap:wrap;gap:18px}.master-data-import-page .mdi-preview.failed{background:#fffafa;border-color:#efb7b2}
+.master-data-import-page .mdi-errors{max-height:260px;overflow:auto;margin:12px 0;padding:8px 12px;background:#fff;border-radius:8px}.master-data-import-page .mdi-errors p{margin:5px 0;font-size:13px}
+.master-data-import-page .mdi-check{display:flex;flex-direction:row;align-items:center;gap:8px;margin:16px 0;font-size:16px;font-weight:400}.master-data-import-page .mdi-check input{width:auto}
+.master-data-import-page .danger-zone{border-color:#efc2bd}.master-data-import-page .danger-zone .mdi-card-title>svg{color:#b7352c}
+.master-data-import-page .mdi-reset-preview{margin-top:14px;border-top:1px solid #eee;padding-top:12px}.master-data-import-page .mdi-counts{display:flex;flex-wrap:wrap;gap:7px;margin:10px 0}.master-data-import-page .mdi-counts span{padding:5px 8px;background:#f3f6f4;border-radius:6px;font-size:12px}
+.master-data-import-page .mdi-reset-preview label{display:grid;gap:7px;max-width:520px;margin:12px 0}.master-data-import-page .mdi-reset-preview code{color:#a72b22}.master-data-import-page button.danger{border-color:#b7352c;background:#b7352c;color:#fff}
+.master-data-import-page button:disabled{opacity:.5;cursor:not-allowed}.master-data-import-page input[hidden]{display:none}
+@media(max-width:720px){.master-data-import-page .mdi-toolbar{display:grid}.master-data-import-page .mdi-toolbar label{min-width:0}}
+
+.master-data-import-page{padding:2px 4px 18px;line-height:normal}.master-data-import-page>.mdi-page-title{padding:16px}.master-data-import-page>.mdi-page-title h1{margin:0 0 7px;font-size:25px;line-height:normal;color:#111827}.master-data-import-page>.mdi-page-title p{margin:0;color:#64748b}
+.master-data-import-page .mdi-check input{width:13px;height:13px;min-height:0;padding:0;margin:3px 3px 3px 4px;flex:none}
+.content:has(.master-data-import-page){background:#f4f7f6}
+.master-data-import-page button.primary{font-weight:700}
+
+.master-data-import-page .mdi-toolbar select{width:max-content;min-width:260px;max-width:100%}
+.master-data-import-page{color:#172033}
+.master-data-import-page>.mdi-page-title h1{color:inherit}
+.master-data-import-page .mdi-reset-preview>p{margin:0}
+.master-data-import-page :is(input,select):focus{outline:revert;outline-offset:revert}

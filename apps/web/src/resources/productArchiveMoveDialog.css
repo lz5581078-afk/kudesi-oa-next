@@ -1,0 +1,12 @@
+.product-archive-move-backdrop{position:fixed;inset:0;z-index:60;display:grid;place-items:center;padding:24px;background:#0f172a85}
+.product-archive-move-dialog{box-sizing:border-box;width:min(760px,calc(100vw - 48px));max-height:calc(100vh - 48px);padding:18px;margin:0;border:0;border-radius:8px;background:#fff;overflow:auto;box-shadow:0 24px 70px #0f172a3d;color:#172033;font-family:Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif;font-size:16px;line-height:normal;letter-spacing:0}
+.product-archive-move-dialog>header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding-bottom:14px;border-bottom:1px solid #e5eaf1}
+.product-archive-move-dialog h2{margin:0;font-size:24px;line-height:normal}.product-archive-move-dialog p{margin:0;line-height:normal}
+.product-archive-move-dialog button{display:inline-flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;flex-shrink:0;box-sizing:border-box;height:38px;padding:0 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#334155;font:inherit;line-height:normal;cursor:pointer}
+.product-archive-move-dialog button:disabled{cursor:not-allowed;opacity:.55}
+.product-archive-move-dialog .product-archive-move-field{all:revert;margin-bottom:18px;font:inherit}
+.product-archive-move-field>span{all:revert;font:inherit}
+.product-archive-move-field>select{all:revert;min-width:0;font:inherit}
+.product-archive-move-dialog>footer{margin-top:20px;padding-top:16px;border-top:1px solid #e2e8f0}
+.product-archive-move-dialog .product-archive-move-confirm{border-color:#166534;background:#0e8062;color:#fff;font-weight:700}
+.product-archive-move-dialog .product-archive-move-feedback{margin:10px 0;color:#64748b;font-size:13px}.product-archive-move-dialog .product-archive-move-feedback.error{color:#dc2626}

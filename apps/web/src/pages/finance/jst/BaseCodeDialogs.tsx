@@ -23,7 +23,7 @@ export function ChangeTable({ changes, baselineMissing }: { changes: Change[]; b
  * 核对并验证：逐条看资料问题、二次验证的变化和要上传聚水潭的内容，可上一条/下一条；
  * 勾选“已核对”之后才能批量验证。只有管理员能同时加入聚水潭同步队列（只排队，不直接发送）。
  */
-export function VerifyDialog({ ids, isAdmin, onClose, onDone }: { ids: number[]; isAdmin: boolean; onClose: () => void; onDone: () => void }) {
+export function VerifyDialog({ ids, isAdmin, onClose, onDone, readOnly = false }: { ids: number[]; isAdmin: boolean; onClose: () => void; onDone: () => void; readOnly?: boolean }) {
   const [reports, setReports] = useState<Record<number, BaseCodeReport>>({});
   const [index, setIndex] = useState(0);
   const [ack, setAck] = useState(false);
@@ -51,10 +51,12 @@ export function VerifyDialog({ ids, isAdmin, onClose, onDone }: { ids: number[];
 
   const list = ids.map((id) => reports[id]).filter(Boolean);
   const ready = list.filter((r) => r.issueCount === 0 && ['pending', 'reverify'].includes(r.status));
+  const inspectionOnly = readOnly || list.length === ids.length && list.every(report => report.status === 'verified');
   const cur = reports[ids[index]];
   const anyReplace = sync && ready.some((r) => r.replacing);
 
   async function submit() {
+    if (inspectionOnly) return;
     setBusy(true); setError('');
     try {
       const r = await jstApi.baseVerify(ready.map((x) => ({ id: x.id, signature: x.signature, uploadSignature: x.uploadSignature })), ack, sync, replaceOk);
@@ -68,8 +70,8 @@ export function VerifyDialog({ ids, isAdmin, onClose, onDone }: { ids: number[];
 
   return (
     <div className="modal-backdrop" role="presentation">
-      <div className="modal card wide" role="dialog" aria-label="核对并验证基础编码">
-        <div className="modal-head between"><strong>核对并验证（共 {ids.length} 条）</strong><button type="button" className="icon-button" aria-label="关闭" onClick={onClose}>✕</button></div>
+      <div className="modal card wide" role="dialog" aria-label={inspectionOnly ? "检查基础编码资料" : "核对并验证基础编码"}>
+        <div className="modal-head between"><strong>{inspectionOnly ? '检查资料' : '核对并验证'}（共 {ids.length} 条）</strong><button type="button" className="icon-button" aria-label="关闭" onClick={onClose}>✕</button></div>
         <div className="modal-body">
           {error && <div role="alert" className="notice error">{error}</div>}
           {result && <div role="status" className="notice ok">{result}</div>}
@@ -106,14 +108,14 @@ export function VerifyDialog({ ids, isAdmin, onClose, onDone }: { ids: number[];
               <p className="muted">聚水潭状态：{({ not_synced: '未同步', pending: '排队中', synced: '已同步', failed: '同步失败' } as Record<string, string>)[cur.jstStatus] ?? cur.jstStatus}</p>
             </div>
           )}
-          <hr />
+          {!inspectionOnly && <><hr />
           <label className="check"><input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} /> 我已核对以上 {ready.length} 条的资料和上传内容，确认无误</label>
           {isAdmin && <label className="check"><input type="checkbox" checked={sync} onChange={(e) => setSync(e.target.checked)} /> 验证后加入聚水潭同步队列（只排队；总开关打开并接入接口后才会真正发送）</label>}
-          {anyReplace && <label className="check"><input type="checkbox" checked={replaceOk} onChange={(e) => setReplaceOk(e.target.checked)} /> 已处理旧编码的库存、在途订单、组合装及店铺映射关联，确认禁用旧编码并创建新编码</label>}
+          {anyReplace && <label className="check"><input type="checkbox" checked={replaceOk} onChange={(e) => setReplaceOk(e.target.checked)} /> 已处理旧编码的库存、在途订单、组合装及店铺映射关联，确认禁用旧编码并创建新编码</label>}</>}
         </div>
         <div className="modal-foot">
           <button type="button" className="secondary-button" onClick={onClose}>关闭</button>
-          <button type="button" className="primary-button" disabled={busy || !ack || ready.length === 0 || (anyReplace && !replaceOk)} onClick={() => void submit()}>验证 {ready.length} 条</button>
+          {!inspectionOnly && <button type="button" className="primary-button" disabled={busy || !ack || ready.length === 0 || (anyReplace && !replaceOk)} onClick={() => void submit()}>验证 {ready.length} 条</button>}
         </div>
       </div>
       {editProduct !== null && getResourceDef('finance-products') && (

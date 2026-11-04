@@ -3,7 +3,7 @@ import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 import { AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
 import { CategorySyncService, type CategoryScope } from './category-sync.service';
-import { OutboxService } from './outbox.service';
+import { OutboxService, parseSyncItemIds } from './outbox.service';
 import { PriceSyncService } from './price-sync.service';
 
 class SwitchDto { @IsBoolean() enabled!: boolean; @IsOptional() @IsString() @MaxLength(200) note?: string }
@@ -21,10 +21,13 @@ class PriceLogsDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) pageSize?: number;
 }
-class CategoryScopeDto { @IsIn(['product', 'bundle']) scope!: CategoryScope }
-class CategoryExecuteDto { @IsIn(['product', 'bundle']) scope!: CategoryScope; @IsString() @MaxLength(80) signature!: string; @IsBoolean() confirmed!: boolean }
+class CategoryScopeDto { @IsIn(['product', 'bundle','archive']) scope!: CategoryScope }
+class CategoryExecuteDto { @IsIn(['product', 'bundle','archive']) scope!: CategoryScope; @IsString() @MaxLength(80) signature!: string; @IsBoolean() confirmed!: boolean }
+class CategoryAutomaticDto extends CategoryScopeDto { @IsBoolean() enabled!:boolean; @IsOptional() @IsBoolean() confirmed?:boolean; @IsOptional() @IsString() @MaxLength(80) targetKey?:string }
+class CategoryStatusDto extends CategoryScopeDto { @IsOptional() @Type(()=>Number) @IsInt() @Min(1) @Max(10000) page?:number }
 class PageDto { @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number }
 class ItemsDto {
+  @IsOptional() @IsString() @MaxLength(1000) ids?: string;
   @IsIn(['finance-base-codes', 'finance-bundles']) type!: string;
   @IsOptional() @IsString() @MaxLength(60) keyword?: string;
   @IsOptional() @IsIn(['not_synced', 'queued', 'confirming', 'synced', 'failed', 'incomplete']) state?: string;
@@ -61,7 +64,7 @@ export class OutboxController {
 
   @RequirePermission('finance.jst-sync.view')
   @Get('items')
-  items(@CurrentUser() u: AuthUser, @Query() q: ItemsDto) { return this.outbox.items(u, { type: q.type, keyword: q.keyword, state: q.state, page: q.page ?? 1, pageSize: q.pageSize ?? 20 }); }
+  items(@CurrentUser() u: AuthUser, @Query() q: ItemsDto) { return this.outbox.items(u, { type: q.type, keyword: q.keyword, state: q.state, ids:parseSyncItemIds(q.ids), page: q.page ?? 1, pageSize: q.pageSize ?? 20 }); }
 
   @RequirePermission('finance.jst-sync.view')
   @Get('items/summary')
@@ -117,6 +120,17 @@ export class OutboxController {
   @RequirePermission('finance.jst-sync.view')
   @Get('price/logs')
   priceLogs(@CurrentUser() u: AuthUser, @Query() q: PriceLogsDto) { return this.price.logs(u, { bundleId: q.bundleId, page: q.page ?? 1, pageSize: q.pageSize ?? 20 }); }
+
+  @RequirePermission('finance.jst-sync.view')
+  @Get('category/status')
+  categoryStatus(@CurrentUser() u:AuthUser,@Query() q:CategoryStatusDto){return this.category.status(u,q.scope,q.page??1);}
+  @RequirePermission('finance.jst-sync.view')
+  @Put('category/automatic')
+  categoryAutomatic(@CurrentUser() u:AuthUser,@Body() b:CategoryAutomaticDto){return this.category.automatic(u,b.scope,b.enabled,b.confirmed===true,b.targetKey);}
+  @RequirePermission('finance.jst-sync.view')
+  @Post('category/retry')
+  @HttpCode(200)
+  categoryRetry(@CurrentUser() u:AuthUser,@Body() b:CategoryScopeDto){return this.category.retryAutomatic(u,b.scope);}
 
   // ---------- 聚水潭分类同步（只有公司管理员；先预览差异，确认后只入队） ----------
   @RequirePermission('finance.jst-sync.view')

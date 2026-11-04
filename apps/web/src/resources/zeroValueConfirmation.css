@@ -1,0 +1,4 @@
+.zero-value-confirmation { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.zero-value-confirmation input { flex: 1 1 180px; min-width: 0; }
+.zero-value-confirmation span { color: #0c7046; font-size: 12px; }
+.zero-value-confirmation small { flex-basis: 100%; }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query, BadRequestException } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Length, MaxLength, Min, ValidateNested } from 'class-validator';
 import { AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
@@ -8,7 +8,8 @@ class LineDto {
   @IsIn(['main', 'gift', 'auxiliary', 'package', 'label', 'instruction', 'other', 'labor']) role!: string;
   @IsOptional() @IsInt() @Min(1) baseCodeId?: number;
   @IsOptional() @IsInt() @Min(1) laborId?: number;
-  @IsNumber() @Min(0.001) qty!: number;
+  @IsOptional() @IsInt() @Min(1) productId?: number;
+  @IsNumber() @Min(0.000001) qty!: number;
   // 旧系统 BOM 行字段（单位、损耗率、必需、进聚水潭、成本归集/处理、排序、生效失效日、备注）；取值和范围由 normalizeLineExtras 再检查
   @IsOptional() @IsString() @MaxLength(20) unit?: string;
   @IsOptional() @IsNumber() @Min(0) lossRate?: number;
@@ -22,6 +23,8 @@ class LineDto {
   @IsOptional() @IsString() @MaxLength(200) note?: string;
 }
 class TargetDto {
+  @IsOptional() @IsInt() @Min(1) sourceBundleId?:number;
+  @IsOptional() @IsString() @Length(64,64) sourceToken?:string;
   @IsInt() @Min(1) platformId!: number;
   @IsInt() @Min(1) scenarioId!: number;
   @IsOptional() @IsString() @MaxLength(8) configNo?: string;
@@ -31,15 +34,29 @@ class TargetDto {
   @IsOptional() @IsString() @MaxLength(300) manualName?: string;
   @IsOptional() @IsString() @MaxLength(160) manualShortName?: string;
   @IsOptional() @IsString() @MaxLength(500) manualReason?: string;
+  @IsOptional() @IsString() @MaxLength(120) manualStyleCode?:string;
+  @IsOptional() @IsString() @MaxLength(255) manualPropertiesValue?:string;
+  @IsOptional() @IsString() @MaxLength(60) baseUnit?:string;
+  @IsOptional() @IsIn(['auto','manual']) weightMode?:'auto'|'manual';
+  @IsOptional() @IsNumber() @Min(0.000001) manualWeightG?:number;
+  @IsOptional() @IsString() @MaxLength(500) overrideReason?:string;
 }
+class NamingSampleDto { @Type(()=>Number) @IsInt() @Min(1) baseCodeId!:number; @Type(()=>Number) @IsNumber() @Min(0.000001) qty!:number }
 class PlanDto {
-  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(50) @ValidateNested({ each: true }) @Type(() => LineDto) lines!: LineDto[];
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(300) @ValidateNested({ each: true }) @Type(() => LineDto) lines!: LineDto[];
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(30) @ValidateNested({ each: true }) @Type(() => TargetDto) targets!: TargetDto[];
 }
-class RevisionDto {
-  @IsString() @Length(2, 500) reason!: string;
-  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(50) @ValidateNested({ each: true }) @Type(() => LineDto) lines!: LineDto[];
+class RevisionWeightDto {
+  @IsIn(['auto','manual']) mode!:'auto'|'manual';
+  @IsNumber() @Min(0.000001) grams!:number;
 }
+class RevisionDto {
+  @IsString() @Length(2,500) reason!:string;
+  @IsString() @Length(64,64) sourceToken!:string;
+  @IsOptional() @ValidateNested() @Type(()=>RevisionWeightDto) weight?:RevisionWeightDto;
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(300) @ValidateNested({each:true}) @Type(()=>LineDto) lines!:LineDto[];
+}
+
 class ReasonDto { @IsString() @Length(2, 500) reason!: string }
 class VerifyItemDto {
   @IsInt() @Min(1) id!: number;
@@ -77,6 +94,17 @@ export class BundleToolsController {
   @Get('overview')
   overview(@CurrentUser() u: AuthUser) { return this.tools.overview(u); }
 
+  @RequirePermission('resource.finance-bundles.view')
+  @Get('summaries')
+  summaries(@CurrentUser() u: AuthUser, @Query('ids') value: unknown) {
+    if (typeof value !== 'string' || !/^[1-9]\d*(?:,[1-9]\d*)*$/.test(value)) throw new BadRequestException('组合ID必须是逗号分隔的正整数');
+    return this.tools.summaries(u, value.split(',').map(Number));
+  }
+
+  @RequirePermission('resource.finance-bundles.view')
+  @Get('naming-sample')
+  namingSample(@CurrentUser() u:AuthUser,@Query() q:NamingSampleDto){return this.tools.namingSample(u,q.baseCodeId,q.qty);}
+
   @RequirePermission('resource.finance-bundles.create')
   @Post('preview')
   @HttpCode(200)
@@ -106,10 +134,18 @@ export class BundleToolsController {
   @Get(':id/report')
   report(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.tools.report(u, id); }
 
+  @Get(':id/bom-versions')
+  @RequirePermission('resource.finance-bundles.view')
+  bomVersions(@CurrentUser() user:AuthUser,@Param('id',ParseIntPipe) id:number){return this.tools.bomVersions(user,id);}
+
+  @Get(':id/composition')
+  @RequirePermission('resource.finance-bundles.view')
+  composition(@CurrentUser() user:AuthUser,@Param('id',ParseIntPipe) id:number){return this.tools.composition(user,id);}
+
   @RequirePermission('resource.finance-bundles.edit')
   @Post(':id/revisions')
   @HttpCode(200)
-  revise(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: RevisionDto) { return this.tools.createRevision(u, id, b.reason, b.lines); }
+  revise(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() b: RevisionDto) { return this.tools.createRevision(u,id,b.reason,b.lines,{sourceToken:b.sourceToken,weight:b.weight}); }
 
   @RequirePermission('resource.finance-bundles.edit')
   @Post(':id/revisions/cancel')

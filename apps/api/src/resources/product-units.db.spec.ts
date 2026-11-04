@@ -7,6 +7,7 @@ import { buildDataSourceOptions } from '../database/data-source';
 import { Company, User } from '../entities';
 import { buildServices } from '../test-support';
 import { ResourcesService } from './resources.service';
+import { PRODUCT_SYSTEM_SPEC_KINDS } from '@kudesi/shared';
 
 const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
 
@@ -43,6 +44,40 @@ d('单位与规格（真实数据库）', () => {
     expect(opts.spec_unit.find((o) => o.value === 'KG')?.label).toBe('千克');
     expect(opts.dimension_unit.map((o) => o.value)).toEqual(['mm', 'cm', 'm']); // 包装类别、尺寸单位的内置编码保持小写
     expect(opts.system_spec.map((o) => o.label)).toContain('斤');
+  });
+
+  it('默认名称单位的选项顺序按公司排序值，停用项不进入可选第一项', async () => {
+    const first = await svc.create(boss, 'finance-product-units', { kind: 'shipping_unit', name: '合成优先单位', code: 'FIRST', sortOrder: 0 });
+    expect((await svc.unitOptions(boss)).shipping_unit[0]).toEqual({ value: 'FIRST', label: '合成优先单位' });
+    await svc.changeStatus(boss, 'finance-product-units', first.id, 'inactive', '合成停用');
+    expect((await svc.unitOptions(boss)).shipping_unit.some(option => option.value === 'FIRST')).toBe(false);
+  });
+
+  it('各档案系统规格独立维护，历史使用名仅回到所属档案的选项且仍可用于新增', async () => {
+    const brand = await svc.create(boss, 'finance-brands', { name: '合成规格品牌' });
+    const seen: Array<{ type: string; kind: string; used: string; configured: string }> = [];
+    for (const [type, kind] of Object.entries(PRODUCT_SYSTEM_SPEC_KINDS)) {
+      const category = type === 'raw' ? catId : (await svc.create(boss, 'finance-categories', { archiveType: type === 'purchased' ? 'original_purchase' : type, name: `合成规格分类${type}`, code: `S${seen.length}` })).id;
+      const used = `合成历史规格${type}`, configured = `合成维护规格${type}`;
+      await svc.create(boss, 'finance-product-units', { kind, name: configured });
+      const input = { archiveType: type, ...(type === 'purchased' ? { supplyMode: 'original_purchase' } : {}), categoryId: category, brandId: brand.id, name: `合成规格${seen.length}`, purchaseSpec: used, specQty: 1, specUnit: 'KG', productPackagingSpec: '1', productPackagingUnit: 'B', packagingCategory: 'bag', capacities: '1KG', weightG: 10, weightManual: true, purchasePrice: 100, freight: 1, handlingFee: 1 };
+      const first = await svc.create(boss, 'finance-products', input);
+      expect(first.data.purchaseSpec).toBe(used);
+      expect((await svc.create(boss, 'finance-products', { ...input, name: `合成复用${seen.length}` })).data.purchaseSpec).toBe(used);
+      seen.push({ type, kind, used, configured });
+    }
+    const options = await svc.unitOptions(boss);
+    for (const item of seen) {
+      const values = options[item.kind].map(option => option.value);
+      expect(values).toEqual(expect.arrayContaining([item.used, item.configured]));
+      for (const other of seen.filter(other => other.kind !== item.kind)) {
+        expect(values).not.toContain(other.used); expect(values).not.toContain(other.configured);
+      }
+      const maintenance = await svc.list(boss, 'finance-product-units', { tab: item.kind, pageSize: 200 } as never);
+      expect(maintenance.items.some(row => row.data.name === item.used)).toBe(false);
+    }
+    const alien = await svc.unitOptions({ ...boss, companyId: boss.companyId + 999999 });
+    expect(JSON.stringify(alien)).not.toContain('合成历史规格');
   });
 
   it('新增自定义单位：编码自动生成，商品能选；基础信息全称用名称', async () => {

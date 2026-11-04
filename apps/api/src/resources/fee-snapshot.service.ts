@@ -1,9 +1,9 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
-import { createChecker } from '@kudesi/shared';
+import { createChecker,EXPENSE_SORT_KEY,normalizeExpenseSortPreference } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { AuditLog, FeeArchiveSnapshot, ResourceRecord } from '../entities';
+import { AuditLog, FeeArchiveSnapshot, ResourceRecord,UserPreference } from '../entities';
 import { ResourcesService } from './resources.service';
 
 const CAT = 'finance-fee-categories';
@@ -31,11 +31,13 @@ export class FeeSnapshotService {
   }
 
   private async capture(em: EntityManager, user: AuthUser, name: string, remark: string | undefined, auto: boolean) {
+    const preference=await em.findOneBy(UserPreference,{companyId:user.companyId,userId:user.id,preferenceKey:EXPENSE_SORT_KEY});
     const rows = await em.find(ResourceRecord, { where: [{ companyId: user.companyId, type: CAT }, { companyId: user.companyId, type: ITEM }], order: { id: 'ASC' } });
     const snap: Row[] = rows.map((r) => ({ id: r.id, type: r.type, title: r.title, uniqueKey: r.uniqueKey, status: r.status, statusReason: r.statusReason, searchText: r.searchText, data: r.data, createdBy: r.createdBy }));
     return em.save(FeeArchiveSnapshot, em.create(FeeArchiveSnapshot, {
       companyId: user.companyId, name, remark: remark?.trim() || null, auto, createdBy: user.id,
-      categoryCount: snap.filter((r) => r.type === CAT).length, itemCount: snap.filter((r) => r.type === ITEM).length, snapshotJson: JSON.stringify(snap),
+      categoryCount: snap.filter((r) => r.type === CAT).length, itemCount: snap.filter((r) => r.type === ITEM&&r.status==='active').length, snapshotJson: JSON.stringify(snap),
+      sortPreference:{...normalizeExpenseSortPreference(preference?.value)},
     }));
   }
 
@@ -61,7 +63,10 @@ export class FeeSnapshotService {
     return {
       id: s.id, name: s.name, remark: s.remark ?? '', createdAt: s.createdAt,
       categories: [...cats.values()].map((c) => path(c.id)).sort((a, b) => a.localeCompare(b, 'zh-CN')),
-      items: rows.filter((r) => r.type === ITEM).map((r) => ({ code: String(r.data.code ?? ''), name: r.title, category: path(r.data.categoryId), status: r.status })),
+      items: rows.filter((r) => r.type === ITEM).map((r) => ({ code: String(r.data.code ?? ''), name: r.title, category: path(r.data.categoryId), status: r.status,
+        defaultObject: Array.isArray(r.data.defaultObject) ? r.data.defaultObject.filter((value):value is string=>typeof value==='string') : typeof r.data.defaultObject==='string'?r.data.defaultObject:'',
+        relationRequirement: typeof r.data.relationRequirement==='string'?r.data.relationRequirement:'',
+      })),
     };
   }
 
@@ -92,6 +97,8 @@ export class FeeSnapshotService {
         stopped++;
       }
       await em.update(FeeArchiveSnapshot, { id }, { restoredAt: () => 'NOW()' } as never);
+      // 旧快照没有个人顺序事实时保留当前偏好，不凭空清空历史。
+      if(s.sortPreference!==null&&s.sortPreference!==undefined)await em.upsert(UserPreference,{companyId:user.companyId,userId:user.id,preferenceKey:EXPENSE_SORT_KEY,value:{...normalizeExpenseSortPreference(s.sortPreference)}},['companyId','userId','preferenceKey']);
       await em.insert(AuditLog, { companyId: user.companyId, actorId: user.id, action: 'finance.fee-archive.restore', resourceType: 'finance-fee-snapshot', resourceId: String(id), detail: { restored, stopped } } as never);
       return { restored, stopped };
     });

@@ -1,0 +1,24 @@
+/* Version create/edit/copy use the source version modal; project forms keep their own layout. */
+.labor-version-form-host .modal.rf.rf-sectioned,.modal.rf.rf-sectioned.labor-version-editor{display:block;width:min(780px,calc(100vw - 32px));height:auto;max-height:92vh;padding:18px;overflow:auto;border:0;border-radius:8px;background:#fff;box-shadow:0 24px 70px #0f172a3d;font-family:Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif;font-size:16px;line-height:normal}
+:is(.labor-version-form-host .rf-sectioned,.labor-version-editor) .rf-head{display:grid;grid-template-columns:40px minmax(0,1fr) auto;align-items:start;gap:12px;margin:0;padding:0 0 14px;border-bottom:1px solid #e5ebf2;background:#fff}
+:is(.labor-version-form-host .rf-sectioned,.labor-version-editor) .rf-head>.rf-gap{display:none}
+:is(.labor-version-form-host .rf-sectioned,.labor-version-editor) .rf-sectioned-icon{width:40px;height:40px;border-radius:8px;background:#effbf4}
+:is(.labor-version-form-host .rf-sectioned,.labor-version-editor) .rf-sectioned-heading{gap:3px}
+:is(.labor-version-form-host .rf-sectioned,.labor-version-editor) .rf-sectioned-heading h2{margin:0;font-size:21px;line-height:normal}
+:is(.labor-version-form-host .rf-sectioned,.labor-version-editor) .rf-sectioned-heading p{margin:0;font-size:12px;line-height:normal}
+:is(.labor-version-form-host .rf-sectioned,.labor-version-editor) .rf-head>.icon-button{height:38px;width:auto;min-width:42px;padding:8px 10px;border:1px solid #dce5df;border-radius:8px;background:#fff;color:#475569}
+:is(.labor-version-form-host .rf-sectioned,.labor-version-editor) .rf-main{display:block;flex:none;min-height:auto;overflow:visible}
+:is(.labor-version-form-host .rf-sectioned,.labor-version-editor) .rf-scroll{display:block;padding:0;overflow:visible;background:#fff}
+:is(.labor-version-form-host .rf-sectioned,.labor-version-editor) .rf-configured-section{margin:14px 0 0;padding:14px;border:1px solid #e1e7ef;border-radius:8px;background:#fbfcfe;box-shadow:none}
+:is(.labor-version-form-host .rf-sectioned,.labor-version-editor) .rf-configured-section>header{padding:0;margin-bottom:12px;border:0}
+:is(.labor-version-form-host .rf-sectioned,.labor-version-editor) .rf-configured-section>header h3{font-size:14px}
+:is(.labor-version-form-host .rf-sectioned,.labor-version-editor) .rf-configured-section .form-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+:is(.labor-version-form-host .rf-sectioned,.labor-version-editor) .rf-field{display:grid;gap:6px;margin:0;color:#475569;font-size:12px;font-weight:700}
+:is(.labor-version-form-host .rf-sectioned,.labor-version-editor) .rf-label{display:block;min-height:0;font-size:12px;color:#475569;font-weight:700}
+:is(.labor-version-form-host .rf-sectioned,.labor-version-editor) .rf-field input,:is(.labor-version-form-host .rf-sectioned,.labor-version-editor) .rf-field select,:is(.labor-version-form-host .rf-sectioned,.labor-version-editor) .rf-field textarea{width:100%;min-height:40px;height:auto;margin:0;padding:8px 10px;border:1px solid #cbd5e1;border-radius:7px;background:#fff;color:#0f172a;font:inherit;line-height:normal}
+:is(.labor-version-form-host .rf-sectioned,.labor-version-editor) .rf-field textarea{height:70px;min-height:70px;resize:vertical}
+:is(.labor-version-form-host .rf-sectioned,.labor-version-editor) .rf-foot{position:sticky;bottom:-18px;display:flex;justify-content:flex-start;gap:8px;margin:16px 0 0;padding:14px 0 18px;border:0;background:#fff;box-shadow:0 -4px 12px #0f172a0d}
+:is(.labor-version-form-host .rf-sectioned,.labor-version-editor) .rf-foot button{height:38px;padding:8px 10px;font-size:16px;line-height:normal}
+@media(max-width:560px){:is(.labor-version-form-host .rf-sectioned,.labor-version-editor) .rf-configured-section .form-grid{grid-template-columns:1fr}:is(.labor-version-form-host .rf-sectioned,.labor-version-editor) .rf-configured-section>header{align-items:flex-start;flex-direction:column}}
+
+:is(.labor-version-form-host .rf-sectioned,.labor-version-editor) .rf-foot .primary-button{font-weight:700}

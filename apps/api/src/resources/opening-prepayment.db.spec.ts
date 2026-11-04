@@ -81,7 +81,7 @@ d('期初预付登记（真实数据库）', () => {
 
   it.each([
     ['空说明', { reason: '  ' }], ['超长说明', { reason: '字'.repeat(501) }], ['未确认', { confirmed: false }],
-    ['无凭证', { fileIds: [] }], ['重复凭证', { fileIds: [1, 1] }], ['超额凭证', { fileIds: Array.from({ length: 11 }, (_, i) => i + 1) }],
+    ['无凭证', { fileIds: [] }], ['重复凭证', { fileIds: [1, 1] }], ['超额凭证', { fileIds: Array.from({ length: 13 }, (_, i) => i + 1) }],
   ])('拒绝%s', async (_name, patch) => {
     const doc = await issued(), file = await voucher();
     await expect(docs.registerOpeningPrepayment(boss, doc.id, { ...payload(file.id), ...patch })).rejects.toThrow();
@@ -113,7 +113,7 @@ d('期初预付登记（真实数据库）', () => {
   });
 
   it.each([
-    { resourceType: 'withdrawal-voucher' }, { fieldKey: 'other' }, { resourceId: 999999 }, { uploadedBy: null }, { mime: 'text/html' },
+    { resourceType: 'withdrawal-voucher' }, { fieldKey: 'other' }, { resourceId: 999999 }, { uploadedBy: null }, { mime: 'text/html' }, { mime:'image/gif' }, { size:2*1024*1024+1 },
   ])('拒绝非法附件 %j，并回滚所有入账状态', async (patch) => {
     const doc = await issued(), file = await voucher(patch), before = await balance();
     await expect(docs.registerOpeningPrepayment(boss, doc.id, payload(file.id))).rejects.toThrow(/凭证/);
@@ -144,4 +144,12 @@ d('期初预付登记（真实数据库）', () => {
     await docs.post(boss, doc.id);
     expect(await balance()).toBe(before - 10000);
   });
+  it('原12份凭证和2MB边界可原子登记，所有权及银行不再扣款保持',async()=>{
+    const doc=await issued(),before=await balance();
+    const files=await Promise.all(Array.from({length:12},(_,i)=>voucher(i===0?{size:2*1024*1024}:{})));
+    const saved=await docs.registerOpeningPrepayment(boss,doc.id,{reason:'核对12份合成凭证',fileIds:files.map(file=>file.id),confirmed:true});
+    expect(saved.openingVouchers).toHaveLength(12);expect(saved.entries).toHaveLength(2);expect(await balance()).toBe(before);
+    expect(await ds.manager.count(ResourceFile,{where:{companyId:boss.companyId,resourceType:OPENING_VOUCHER_TYPE,resourceId:doc.id}})).toBe(12);
+  });
+
 });

@@ -151,14 +151,18 @@ d('成本表与定价调试表（真实数据库）', () => {
     const snaps = await ds.manager.find(FinanceCostSnapshot, { where: { companyId: boss.companyId, bundleId: ids.bundle }, order: { id: 'DESC' } });
     expect(snaps[0].reason).toBe('大客户专价');
     expect(snaps[0].marginPercent).toBe(33.333333); // 数据库里也保留 6 位小数
+    expect(snaps[0].context?.explicitMarginPercent).toBe(33.333333);
     expect(snaps[0].minPriceCents).toBe(after.minPriceCents);
     const pricing = await maintain.pricingHistory(boss, { bundleId: ids.bundle, page: 1, pageSize: 20 });
     expect(pricing.total).toBe(1);
     expect(pricing.rows[0]).toMatchObject({ afterCarrier: '顺丰', beforeCarrier: '', afterPercent: 33.333333, beforePercent: null, reason: '大客户专价' });
-    // 只改快递、不改价格：不会多出成本快照，但售价维护记录里有
+    // 旧版成本历史也留存使用快递：只改快递应登记，金额保持原值
     const snapCount = snaps.length;
     await maintain.savePricing(boss, ids.bundle, { revision: after.revision, carrierName: '中通', profitPercent: 33.333333, reason: '换快递' });
-    expect(await ds.manager.count(FinanceCostSnapshot, { where: { companyId: boss.companyId, bundleId: ids.bundle } })).toBe(snapCount);
+    expect(await ds.manager.count(FinanceCostSnapshot, { where: { companyId: boss.companyId, bundleId: ids.bundle } })).toBe(snapCount + 1);
+    const carrierSnapshot = await ds.manager.findOneOrFail(FinanceCostSnapshot, { where: { companyId: boss.companyId, bundleId: ids.bundle }, order: { id: 'DESC' } });
+    expect(carrierSnapshot.context?.carrierName).toBe('中通');
+    expect(carrierSnapshot.preShipCostCents).toBe(snaps[0].preShipCostCents);
     expect((await maintain.pricingHistory(boss, { bundleId: ids.bundle, page: 1, pageSize: 20 })).total).toBe(2);
     const logs = await ds.manager.count(ResourceChangeLog, { where: { companyId: boss.companyId, resourceType: 'finance-bundles', resourceId: ids.bundle } });
     expect(logs).toBeGreaterThan(2);
@@ -169,6 +173,18 @@ d('成本表与定价调试表（真实数据库）', () => {
     expect(back.marginOverride).toBe(false);
     expect(back.marginPercent).toBe(15);
     expect(back.carrierName).toBe('');
+    const historyTools = new DataToolsService(ds, cost);
+    const inheritedCount = await ds.manager.count(FinanceCostSnapshot, { where: { companyId: boss.companyId, bundleId: ids.bundle } });
+    await maintain.savePricing(boss, ids.bundle, { revision: back.revision, carrierName: '', profitPercent: 15, reason: '合成将继承15明确设为单品15' });
+    const explicit = await bundleRow();
+    expect(explicit.minPriceCents).toBe(back.minPriceCents);
+    expect(await ds.manager.count(FinanceCostSnapshot, { where: { companyId: boss.companyId, bundleId: ids.bundle } })).toBe(inheritedCount + 1);
+    let history = await historyTools.costHistory(boss, { bundleId: ids.bundle, page: 1, pageSize: 20 });
+    expect(history.rows[0].changes).toContainEqual({ field: 'explicitMarginPercent', label: '利润率', before: null, after: 15 });
+    await maintain.savePricing(boss, ids.bundle, { revision: explicit.revision, carrierName: '', profitPercent: null, reason: '合成再次恢复继承15' });
+    expect((await bundleRow()).minPriceCents).toBe(back.minPriceCents);
+    history = await historyTools.costHistory(boss, { bundleId: ids.bundle, page: 1, pageSize: 20 });
+    expect(history.rows[0].changes).toContainEqual({ field: 'explicitMarginPercent', label: '利润率', before: 15, after: null });
   });
 
   it('同时点保存只有一个人成功；归档的组合不能再维护售价；从资料页直接改单品利润率也会让旧令牌失效', async () => {
@@ -228,6 +244,18 @@ d('成本表与定价调试表（真实数据库）', () => {
     const comps = await debug.components(boss, { categoryId: ids.rootCat, page: 1 });
     expect(comps.rows.some((r) => r.id === bc)).toBe(true);
     expect(comps.categories.some((c) => c.id === ids.leaf)).toBe(true);
+    expect(comps.categories.some((c) => c.id === ids.bcat || c.id===ids.broot)).toBe(false);
+  });
+
+  it('定价筛选目录排除已删除/禁用和隐藏真实编码，保留马甲并支持简称搜索',async()=>{
+    const insert=async(code:string,status:string,data:Record<string,unknown>={})=>ds.manager.save(ResourceRecord,ds.manager.create(ResourceRecord,{companyId:boss.companyId,type:'finance-base-codes',title:code,status,data:{code,name:code,...data}}));
+    const real=await insert('SYN-COMP-REAL','verified');
+    const alias=await insert('SYN-COMP-ALIAS','verified',{canonicalId:real.id});
+    await insert('SYN-COMP-DELETED','deleted');await insert('SYN-COMP-DISABLED','disabled');
+    const visible=await insert('SYN-COMP-PENDING','pending',{shortName:'合成目录专属简称'});
+    const result=await debug.components(boss,{keyword:'SYN-COMP-',page:1});
+    expect(result.rows.map(row=>row.id).sort()).toEqual([alias.id,visible.id].sort());
+    expect((await debug.components(boss,{keyword:'合成目录专属简称',page:1})).rows.map(row=>row.id)).toEqual([visible.id]);
   });
 
   it('公司低价独立权限仅增加低价字段及导出，不开放成本或改变试算；撤销后立即脱敏',async()=>{
@@ -319,18 +347,32 @@ d('成本表与定价调试表（真实数据库）', () => {
     const branch = await svc.create(boss, 'finance-express-branches', { carrierId: carrier.id, name: '总部' });
     const version = await svc.create(boss, 'finance-express-versions', { branchId: branch.id, versionName: 'v1', shippingWeightMax: 5 });
     await svc.update(boss, 'finance-express-versions', version.id, { cooperationStatus: 'active' });
-    await svc.create(boss, 'finance-express-prices', { versionId: version.id, province: 'ALL', shipWeightMin: 0, fixedPrice: 1000 });
+    // 网点已自动建立创始版本；本用例明确切换至用于报价核对的自建版本。
+    await svc.update(boss, 'finance-express-branches', branch.id, { currentVersionId: version.id });
+    const quote = await svc.create(boss, 'finance-express-prices', { versionId: version.id, province: 'ALL', shipWeightMin: 0, fixedPrice: 1000 });
     const live = async (g: number) => (await cost.freightEstimate(boss, g)).cents;
     const page = async (kg: number) => (await ex.getEstimates(boss)).rows.find((r) => kg > r.start && kg <= r.end && !r.parcels)!;
+    // 首次尚无已确认样本；只读成本或预估页面都不自行重算。
+    expect((await ex.getEstimates(boss)).rows).toEqual([]);expect(await live(4000)).toBeNull();
+    await ex.recalculate(boss);
     // 与预估运费一览页同一个金额（固定价 10 元 ×1.1）
     const auto = (await page(4)).autoAmount;
     expect(auto).toBe(1100);
     expect(await live(4000)).toBe(auto);
     expect((await cost.freightEstimate(boss, 4000)).method).toMatch(/provincial/);
+    // 上游报价变动不暗中重建已确认快递样本；成本页与预估页保持同一旧样本。
+    const calculatedAt=(await ex.getEstimates(boss)).calculatedAt;
+    await svc.update(boss,'finance-express-prices',quote.id,{fixedPrice:2000});
+    expect(await live(4000)).toBe(1100);expect((await page(4)).autoAmount).toBe(1100);
+    expect((await ex.getEstimates(boss)).calculatedAt).toBe(calculatedAt);
+    await ex.recalculate(boss);expect(await live(4000)).toBe(2200);
+    await svc.update(boss,'finance-express-prices',quote.id,{fixedPrice:1000});await ex.recalculate(boss);
     // 版本只能发 5kg 以内：8kg 没有价格，不猜
     expect(await live(8000)).toBeNull();
     // 手工金额：成本表立刻跟着走
+    const beforeManual=(await ex.getEstimates(boss)).calculatedAt;
     await ex.setOverride(boss, 3, 4, 5000, '测试手工');
+    expect((await ex.getEstimates(boss)).calculatedAt).toBe(beforeManual);
     expect(await live(4000)).toBe(5000);
     expect((await cost.freightEstimate(boss, 4000)).method).toBe('manual_override');
     expect(await live(3500)).toBe(5000);
@@ -374,11 +416,12 @@ d('成本表与定价调试表（真实数据库）', () => {
   });
   it('组合核对包含人工和手工重量，和成本表一致；人工单价变化后旧核对签名失效', async () => {
     const before = await cost.one(boss, ids.bundle);
-    const versionId = (await svc.create(boss, 'finance-labor-versions', { versionCode: 'REPORT', versionName: '核对人工', effectiveFrom: '2026-01-01' }, 'active')).id;
+    const versionId = (await svc.create(boss, 'finance-labor-versions', { versionCode: 'REPORT', versionName: '核对人工', effectiveFrom: '2026-01-01' })).id;
     const archiveCategoryId = (await svc.create(boss, 'finance-labor-categories', { versionId, name: '包装' })).id;
     const workTypeId = (await svc.create(boss, 'finance-labor-work-types', { name: '核对包装' })).id;
     const unitId = (await svc.create(boss, 'finance-labor-units', { name: '元/个' })).id;
     const labor = await svc.create(boss, 'finance-labor-costs', { versionId, archiveCategoryId, workTypeId, unitId, workName: '装箱', unitPrice: 150 });
+    await svc.changeStatus(boss, 'finance-labor-versions', versionId, 'active');
     await svc.create(boss, 'finance-bundle-lines', { bundleId: ids.bundle, role: 'labor', laborId: labor.id, qty: 2 });
     await svc.update(boss, 'finance-bundles', ids.bundle, { weightMode: 'manual', manualWeightG: 0.01, overrideReason: '核对手工重量精度' });
     const tools = new BundleToolsService(ds, svc, new OutboxService(ds, svc));
@@ -387,6 +430,8 @@ d('成本表与定价调试表（真实数据库）', () => {
     expect(report.totalCost).toBe((await cost.one(boss, ids.bundle)).preShipCostCents);
     expect(report.totalWeightG).toBe(0.01); expect(report.outbound.weight).toBe(0.00001);
     expect(report.components.find(c => c.role === 'labor')!.cost).toBe(150);
+    expect((await cost.one(boss,ids.bundle)).lines.find(line=>line.role==='labor')).toMatchObject({unitName:'个',unitCostCents:150,subtotalCents:300});
+    expect((await ds.manager.findOneByOrFail(ResourceRecord,{companyId:boss.companyId,id:labor.id})).data).not.toHaveProperty('unitName');
     const hidden = await tools.report(ops, ids.bundle);
     expect(hidden.totalCost).toBeUndefined(); expect(hidden.outbound.cost_price).toBeUndefined();
     expect(hidden.components.every(c => c.cost === undefined)).toBe(true);

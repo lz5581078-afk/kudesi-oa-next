@@ -18,4 +18,8 @@ describe('往来档案相似检测', () => {
     expect(archiveTextSimilarity('abc 公司', 'ABC公司')).toBe(1);
     expect(archiveTextSimilarity('', 'x')).toBe(0);
   });
+  it('原提示先排真正名称相似程度，再按名称；同电话的无关名称不挤掉完全同名项',()=>{
+    const result=inspectArchiveSimilarity({name:'玉米原材料',phone:'0000001',code:'NEW'},[ex(1,{name:'阿凡达',phone:'0000001',code:'OLD-1'}),ex(2,{name:'玉米原材料',phone:'0000001',code:'OLD-2'})]);
+    expect(result.warnings.map(row=>row.id)).toEqual([2,1]);
+  });
 });

@@ -1,9 +1,22 @@
-import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Length, MaxLength, Min, ValidateNested } from 'class-validator';
-import { AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsNumber, IsString, Length, MaxLength, Min, ValidateNested } from 'class-validator';
+import { AuthUser, CurrentUser, RequirePermission, AuthenticatedOnly } from '../common/auth.decorators';
 import { BaseCodeToolsService } from './base-code-tools.service';
 
+class DictionaryScopeDto { @IsIn(['brand','spec_unit','product_category']) kind!:'brand'|'spec_unit'|'product_category'; @IsOptional() @IsIn(['spec_unit','archive_unit','packaging_unit','shipping_unit']) unitKind?:'spec_unit'|'archive_unit'|'packaging_unit'|'shipping_unit'; }
+class DictionaryPreviewDto extends DictionaryScopeDto {
+ @IsString() @MaxLength(160) name!:string;
+ @IsOptional() @Type(()=>Number) @IsInt() @Min(1) id?:number;
+ @IsOptional() @Type(()=>Number) @IsInt() @Min(1) parentId?:number;
+}
+class DefinitionPreviewDto {
+ @IsOptional() @Type(()=>Number) @IsInt() @Min(1) codeDictionaryCategoryId?:number;
+ @IsOptional() @Type(()=>Number) @IsInt() @Min(1) codeBrandId?:number;
+ @IsOptional() @IsString() @MaxLength(160) varietyName?:string;
+ @IsOptional() @Type(()=>Number) @IsNumber() @Min(0) codeSpecQty?:number;
+ @IsOptional() @IsString() @MaxLength(60) codeSpecUnit?:string;
+}
 class VerifyItemDto {
   @IsInt() @Min(1) id!: number;
   @IsString() @MaxLength(64) signature!: string;
@@ -34,6 +47,18 @@ class ExecuteDto {
 @Controller('finance/base-codes')
 export class BaseCodeToolsController {
   constructor(private readonly tools: BaseCodeToolsService) {}
+
+  @AuthenticatedOnly()
+  @Get('dictionary-context')
+  dictionaryContext(@CurrentUser() u:AuthUser,@Query() q:DictionaryScopeDto){return this.tools.dictionaryContext(u,q.kind,q.unitKind);}
+
+  @AuthenticatedOnly()
+  @Get('dictionary-preview')
+  dictionaryPreview(@CurrentUser() u:AuthUser,@Query() q:DictionaryPreviewDto){return this.tools.dictionaryPreview(u,{...q});}
+
+  @RequirePermission('resource.finance-base-codes.create')
+  @Get('definition-preview')
+  definitionPreview(@CurrentUser() u:AuthUser,@Query() q:DefinitionPreviewDto){return this.tools.definitionPreview(u,{...q});}
 
   @RequirePermission('resource.finance-base-codes.view')
   @Get('overview')

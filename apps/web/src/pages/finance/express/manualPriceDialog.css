@@ -1,0 +1,12 @@
+.express-manual-dialog { width: min(1100px, calc(100vw - 32px)); }
+.express-manual-dialog .modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.express-manual-dialog .modal-head p { margin: 6px 0 0; color: #5e7180; font-size: 12px; }
+.express-manual-province { border-bottom: 1px solid #dce5eb; padding: 14px 0; }
+.express-manual-province > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.express-manual-rule-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-top: 12px; }
+.express-manual-rule { min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 14px; border: 1px solid #dce5eb; }
+.express-manual-rule label { min-width: 0; display: grid; gap: 5px; font-size: 12px; }
+.express-manual-rule input, .express-manual-rule select { width: 100%; min-width: 0; }
+.express-manual-note { grid-column: 1 / -1; }
+@media (max-width: 600px) { .express-manual-province > header { align-items: flex-start; flex-direction: column; } }
+.express-manual-dialog { background: #fff; border-radius: 8px; opacity: 1; }

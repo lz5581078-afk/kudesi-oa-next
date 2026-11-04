@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { Check, ChevronDown, ChevronRight, Folder, Search, X } from 'lucide-react';
+import './pricing-reference.css';
 import { ApiError } from '../../api/client';
 import { financeApi, type DebugComponents } from './financeApi';
 
@@ -8,19 +10,21 @@ export interface ComponentFilterValue { categoryId?: number; baseCodeId?: number
 /** 商品编码目录：左边分类树，右边该分类下的商品；挑一个分类或一个商品，用来筛出“用到了它”的组合。 */
 export function PricingComponentFilter({ value, onChange, disabled }: { value: ComponentFilterValue | null; onChange: (v: ComponentFilterValue | null) => void; disabled?: boolean }) {
   const [open, setOpen] = useState(false);
+  const opener = useRef<HTMLButtonElement>(null);
   return (
     <div className="pricing-component-filter">
-      <button type="button" className="secondary-button" disabled={disabled} aria-label="选择商品分类或商品" title={value?.label || '全部商品'} onClick={() => setOpen(true)}>
-        📁 {value?.baseCodeId ? value.label : value?.label?.split(' / ').at(-1) || '全部商品'}
+      <button ref={opener} type="button" className="secondary-button" disabled={disabled} aria-label="选择商品分类或商品" title={value?.label || '全部商品'} onClick={() => setOpen(true)}>
+        <Folder size={16}/><span>{value?.baseCodeId ? value.label : value?.label?.split(' / ').at(-1) || '全部商品'}</span><ChevronRight size={16}/>
       </button>
-      {value && <button type="button" className="link-button" disabled={disabled} aria-label="清空商品筛选" onClick={() => onChange(null)}>清空</button>}
-      {open && <ComponentDialog value={value} onSelect={(v) => { onChange(v); setOpen(false); }} onClose={() => setOpen(false)} />}
+      {value && <button type="button" className="link-button" disabled={disabled} aria-label="清空商品筛选" onClick={() => onChange(null)}><X size={15}/></button>}
+      {open && <ComponentDialog returnFocus={() => opener.current?.focus()} value={value} onSelect={(v) => { onChange(v); setOpen(false); }} onClose={() => setOpen(false)} />}
     </div>
   );
 }
 
-function ComponentDialog({ value, onSelect, onClose }: { value: ComponentFilterValue | null; onSelect: (v: ComponentFilterValue | null) => void; onClose: () => void }) {
+function ComponentDialog({ value, onSelect, onClose, returnFocus }: { returnFocus: () => void; value: ComponentFilterValue | null; onSelect: (v: ComponentFilterValue | null) => void; onClose: () => void }) {
   const serial = useRef(0);
+  const dialog = useRef<HTMLDialogElement>(null);
   const [categoryId, setCategoryId] = useState<number | null>(value?.categoryId ?? null);
   const [keyword, setKeyword] = useState('');
   const [page, setPage] = useState(1);
@@ -32,10 +36,13 @@ function ComponentDialog({ value, onSelect, onClose }: { value: ComponentFilterV
   const initialized = useRef(false);
 
   useEffect(() => {
-    const close = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', close);
-    return () => document.removeEventListener('keydown', close);
-  }, [onClose]);
+    const element = dialog.current!;
+    element.showModal?.();
+    // Older embedded browsers still receive an accessible dialog.
+    if (!element.open) element.setAttribute('open', '');
+    element.querySelector<HTMLButtonElement>('[aria-label="关闭商品选择"]')?.focus();
+    return () => { element.close?.(); returnFocus(); };
+  }, []);
 
   useEffect(() => {
     const current = ++serial.current;
@@ -76,11 +83,11 @@ function ComponentDialog({ value, onSelect, onClose }: { value: ComponentFilterV
       const hasKids = data.categories.some((k) => k.parentId === c.id), isOpen = expanded.has(c.id);
       return (
         <div key={c.id}>
-          <div className={`cost-category${categoryId === c.id ? ' selected' : ''}`} style={{ paddingLeft: Math.min(depth, 5) * 14 }}>
+          <div className={`pricing-component-tree-row${categoryId === c.id ? ' active' : ''}`} style={{ paddingLeft: Math.min(depth, 5) * 14 }}>
             {hasKids
-              ? <button type="button" className="cost-category-toggle" aria-label={`${isOpen ? '收起' : '展开'}${c.name}`} aria-expanded={isOpen} onClick={() => setExpanded((old) => { const next = new Set(old); if (isOpen) next.delete(c.id); else next.add(c.id); return next; })}>{isOpen ? '▾' : '▸'}</button>
-              : <span className="cost-category-toggle" />}
-            <button type="button" className="cost-category-select" aria-pressed={categoryId === c.id} onClick={() => navigate(c.id)}><span>{c.name}</span></button>
+              ? <button type="button" className="pricing-component-toggle" aria-label={`${isOpen ? '收起' : '展开'}${c.name}`} aria-expanded={isOpen} onClick={() => setExpanded((old) => { const next = new Set(old); if (isOpen) next.delete(c.id); else next.add(c.id); return next; })}>{isOpen ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}</button>
+              : <span className="pricing-component-tree-spacer" />}
+            <button type="button" className="cost-category-select" aria-pressed={categoryId === c.id} onClick={() => navigate(c.id)}><Folder size={15}/><span>{c.name}</span></button>
           </div>
           {hasKids && isOpen && branch(c.id, depth + 1, new Set([...seen, c.id]))}
         </div>
@@ -88,42 +95,39 @@ function ComponentDialog({ value, onSelect, onClose }: { value: ComponentFilterV
     });
 
   return (
-    <div className="modal-backdrop" role="presentation"><div className="modal card wide" role="dialog" aria-label="选择商品分类或商品">
-      <div className="modal-head between"><strong>商品编码目录</strong><button type="button" className="icon-button" aria-label="关闭商品选择" onClick={onClose}>✕</button></div>
-      <div className="modal-body">
-        <input autoFocus type="search" aria-label="搜索商品分类、名称或编码" placeholder="搜索全部分类、商品名称或编码" value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} />
+    <dialog ref={dialog} className="pricing-component-dialog pricing-reference-picker" aria-label="选择商品分类或商品" aria-modal="true" onCancel={e => { e.preventDefault(); onClose(); }} onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose(); } }}>
+      <header><h2>商品编码目录</h2><button type="button" className="icon-button" aria-label="关闭商品选择" onClick={onClose}><X size={18}/></button></header>
+      <label className="pricing-component-search"><Search size={17}/><input autoFocus type="search" aria-label="搜索商品分类、名称或编码" placeholder="搜索全部分类、商品名称或编码" value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} />{keyword && <button type="button" aria-label="清空搜索" onClick={() => { setKeyword(''); setPage(1); }}><X size={16}/></button>}</label>
         {error && <div role="alert" className="notice error">{error} <button type="button" className="link-button" onClick={() => setAttempt((n) => n + 1)}>重试</button></div>}
         <div className="pricing-component-columns" aria-busy={loading}>
           <section>
             <h3>{term ? '匹配分类' : '分类目录'}</h3>
             <div className="pricing-component-categories">
-              <button type="button" className={`cost-category-select${categoryId === null && !term ? ' active' : ''}`} onClick={() => navigate(null)}>全部商品</button>
+              <button type="button" className={`cost-category-select${categoryId === null && !term ? ' active' : ''}`} onClick={() => navigate(null)}><Folder size={16}/><span>全部商品</span></button>
               {term ? matches.map((c) => <button type="button" key={c.id} className="cost-category-select" onClick={() => navigate(c.id)}>{pathFor(c.id).map((p) => p.name).join(' / ')}</button>) : branch(null, 0, new Set())}
               {term && matches.length === 0 && <p className="muted">没有匹配分类</p>}
             </div>
           </section>
           <section>
-            <h3>{term ? '全部搜索结果' : label || '全部商品'} <small className="muted">{loading ? '加载中…' : `${data.total} 项`}</small></h3>
+            <h3><span title={label}>{term ? '全部搜索结果' : label || '全部商品'}</span><small className="muted">{loading ? '加载中…' : `${data.total} 项`}</small></h3>
             <div className="pricing-component-products">
               {!loading && !error && data.rows.map((r) => (
                 <button type="button" key={r.id} className={`cost-category-select${value?.baseCodeId === r.id ? ' active' : ''}`} onClick={() => onSelect({ baseCodeId: r.id, categoryId: r.categoryId ?? undefined, label: r.name })}>
-                  <span><strong>{r.name}</strong> <small>{r.code}</small></span>
-                  <small>{pathFor(r.categoryId).map((p) => p.name).join(' / ')}</small>
+                  <span><strong>{r.name}</strong><small>{r.code}</small><small>{pathFor(r.categoryId).map((p) => p.name).join(' / ')}</small></span>{value?.baseCodeId === r.id ? <Check size={16}/> : <ChevronRight size={16}/>}
                 </button>
               ))}
               {loading ? <p className="muted" role="status">正在查找商品…</p> : !error && data.rows.length === 0 && <p className="muted">没有匹配商品</p>}
             </div>
-            <div className="row-actions"><span className="muted">{page}/{pages} 页</span>
+            <div className="pricing-component-pagination"><span className="muted">{page}/{pages} 页</span>
               <button type="button" className="secondary-button small" disabled={loading || page <= 1} onClick={() => setPage(page - 1)}>上一页</button>
               <button type="button" className="secondary-button small" disabled={loading || page >= pages} onClick={() => setPage(page + 1)}>下一页</button></div>
           </section>
         </div>
-      </div>
-      <div className="modal-foot">
+      <footer>
         <span className="muted">{term ? '搜索全部商品' : label || '全部商品'}</span>
         {!term && <button type="button" className="primary-button" disabled={loading || Boolean(error) || (categoryId !== null && !index.has(categoryId))}
-          onClick={() => onSelect(categoryId !== null ? { categoryId, label } : null)}>{categoryId !== null ? '选择此分类' : '选择全部商品'}</button>}
-      </div>
-    </div></div>
+          onClick={() => onSelect(categoryId !== null ? { categoryId, label } : null)}><Check size={16}/>{categoryId !== null ? '选择此分类' : '选择全部商品'}</button>}
+      </footer>
+    </dialog>
   );
 }

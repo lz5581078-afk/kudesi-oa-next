@@ -1,6 +1,9 @@
+import {inBaseCodeForm} from './base-code-form-scope';
+import { codeVerificationState, codeVerificationSignature } from './finance-code-lifecycle';
+import { trustedResourceImport } from './resource-import-capability';
 import { BadRequestException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
-import { ResourceRecord } from '../entities';
+import { Company,ResourceRecord } from '../entities';
 import { AuthUser } from '../common/auth.decorators';
 import { buildSnapshot, byField, composedFacts } from './base-code-support';
 import type { AfterSaveContext, BeforeSaveContext, RuleHost } from './resource-rules';
@@ -71,7 +74,7 @@ export async function inspectBaseCodeReferences(em: EntityManager, companyId: nu
 
 const LOCK_MSG = '该商品编码已有生效引用，只允许修改商品名称、简称、颜色及规格和启停状态';
 /** 身份字段：编码、款式编码、来源商品、多构成的分类/品牌/规格 */
-export const BASE_CODE_IDENTITY_FIELDS = ['code', 'styleCode', 'productId', 'canonicalId', 'origin', 'varietyName', 'codeCategoryId', 'codeBrandId', 'codeSpecQty', 'codeSpecUnit'] as const;
+export const BASE_CODE_IDENTITY_FIELDS = ['code', 'styleCode', 'productId', 'canonicalId', 'origin', 'varietyName', 'codeCategoryId', 'codeBrandId', 'codeSpecQty', 'codeSpecUnit', 'codeDictionaryCategoryId','varietyDictionaryId','externalCost','externalPurchasePrice'] as const;
 const IDENTITY: readonly string[] = BASE_CODE_IDENTITY_FIELDS;
 
 /** 保存基础编码前：已有生效引用时，身份字段不能变；被已验证组合引用时不能停用。 */
@@ -91,7 +94,7 @@ export async function refreshComposedTotals(host: RuleHost, em: EntityManager, u
   if (!bc || !isComposed(bc)) return;
   const f = await composedFacts(em, user.companyId, baseCodeId);
   await host.patchData(em, user, 'finance-base-codes', baseCodeId, {
-    categoryId: bc.data.profileCategoryOverride ?? bc.data.codeCategoryId, weightG: bc.data.profileWeightOverride ?? (f.count ? f.weightG : undefined), cost: f.cost ?? undefined, purchasePrice: f.purchasePrice ?? undefined,
+    categoryId: bc.data.profileCategoryOverride ?? (bc.data.codeDictionaryCategoryId ? bc.data.categoryId : bc.data.codeCategoryId), weightG: bc.data.profileWeightOverride ?? (f.count ? f.weightG : undefined), cost: f.cost ?? undefined, purchasePrice: f.purchasePrice ?? undefined,
   }, '按构成重新汇总重量和成本');
 }
 
@@ -111,23 +114,26 @@ export async function baseCodesUsingProduct(host: RuleHost, em: EntityManager, c
 /** 构成行保存前的检查。 */
 export async function beforeBaseCodeLine(ctx: BeforeSaveContext): Promise<void> {
   const { em, host, user, data, existing } = ctx;
-  const bc = await rec(em, user.companyId, 'finance-base-codes', data.baseCodeId);
+  await em.findOneOrFail(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}});
+  const bc = typeof data.baseCodeId==='number' ? await em.findOne(ResourceRecord,{where:{companyId:user.companyId,type:'finance-base-codes',id:data.baseCodeId},lock:{mode:'pessimistic_write'}}) : null;
   if (!bc) throw new BadRequestException('基础编码不存在');
-  if (!isComposed(bc)) throw new BadRequestException('只有“多构成”的基础编码才有构成行');
+  if (!isComposed(bc) && bc.data.origin!=='external_import') throw new BadRequestException('只有“多构成”的基础编码才有构成行');
   if (existing && existing.data.baseCodeId !== data.baseCodeId) throw new BadRequestException('构成行不能换到别的基础编码');
   const product = await rec(em, user.companyId, 'finance-products', data.productId);
   if (!product) throw new BadRequestException('商品档案不存在');
-  if (product.status !== 'active') throw new BadRequestException(`「${product.title}」不是正常状态，不能作为构成`);
+  if (product.status !== 'active'||product.archivedAt) throw new BadRequestException(`「${product.title}」不是正常状态，不能作为构成`);
   const qty = num(data.qty);
   if (qty === null || !(qty > 0)) throw new BadRequestException('数量必须大于 0');
   data.role = data.role === 'main' ? 'main' : 'auxiliary';
-  const dup = (await host.findWhere(em, user.companyId, 'finance-base-code-lines', 'baseCodeId', bc.id)).find((l) => l.id !== existing?.id && l.data.productId === product.id);
-  if (dup) throw new BadRequestException('同一个商品档案不能重复添加，请直接修改数量');
+  const currentLines=await em.createQueryBuilder(ResourceRecord,'r').where('r.companyId=:company AND r.type=:type',{company:user.companyId,type:'finance-base-code-lines'}).andWhere("JSON_EXTRACT(r.data, '$.baseCodeId')=:id",{id:bc.id}).setLock('pessimistic_write').getMany();
+  const dup = currentLines.find((l) => l.id !== existing?.id && l.data.productId === product.id);
+  if (dup && !trustedResourceImport(em,user,'base_codes')) throw new BadRequestException('同一个商品档案不能重复添加，请直接修改数量');
   if (existing && bc.data.productId === existing.data.productId && product.id !== bc.data.productId) throw new BadRequestException('这是基础编码的主要商品档案，不能换成别的商品');
   if (!em.queryRunner?.data.legacyImport) {
-    const changed = !existing || existing.data.productId !== data.productId || existing.data.qty !== data.qty;
+    const changed = !existing || ['productId','qty','role','unit'].some(key=>JSON.stringify(existing.data[key]??null)!==JSON.stringify(data[key]??null));
     if (changed && (await inspectBaseCodeReferences(em, user.companyId, bc)).level === 'effective') throw new BadRequestException(LOCK_MSG);
   }
+  if(data.unit==null)data.unit=product.data.specUnit??product.data.purchaseSpecUnit??product.data.purchaseSpec;
   data.label = `${bc.title} ← ${product.title} ×${qty}`.slice(0, 200);
 }
 
@@ -141,11 +147,12 @@ export async function afterBaseCodeLineChange(
   markBundles: (baseCodeId: number) => Promise<void>,
 ): Promise<void> {
   const { em, host, user } = ctx;
+  if(inBaseCodeForm(em))return;
   await refreshComposedTotals(host, em, user, baseCodeId);
   const bc = await rec(em, user.companyId, 'finance-base-codes', baseCodeId);
-  if (!bc || bc.status !== 'verified' || !bc.data.snapshot) return;
+  if (!bc || codeVerificationState(bc) !== 'verified' || !bc.data.snapshot) return;
   const { signature } = await buildSnapshot(em, user.companyId, bc);
-  if (signature === bc.data.signature) return;
+  if (signature === (bc.status==='verified'?bc.data.signature:codeVerificationSignature(bc))) return;
   await host.setStatusDirect(em, user, 'finance-base-codes', bc.id, 'reverify', '基础编码的商品组成变了，需要重新验证');
   await markBundles(bc.id);
 }
@@ -173,7 +180,7 @@ export async function afterBaseCodeLineDelete(
 
 /** 新建多构成基础编码后：把主要商品档案自动加成第一行（数量 1，主要商品），后面在详情里继续加。 */
 export async function seedMainLine(host: RuleHost, em: EntityManager, user: AuthUser, record: ResourceRecord): Promise<void> {
-  if (!isComposed(record) || typeof record.data.productId !== 'number') return;
+  if (inBaseCodeForm(em) || !isComposed(record) || typeof record.data.productId !== 'number') return;
   if ((await host.findWhere(em, user.companyId, 'finance-base-code-lines', 'baseCodeId', record.id)).length) return;
   await host.createRecord(em, user, 'finance-base-code-lines', { baseCodeId: record.id, productId: record.data.productId, qty: 1, role: 'main' }, '多构成基础编码：主要商品档案自动加为第一行');
 }

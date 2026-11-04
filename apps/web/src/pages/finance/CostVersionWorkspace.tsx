@@ -6,6 +6,7 @@ import { resourceApi, type ResourceDto } from '../../resources/api';
 import { RecordForm, ReasonDialog } from '../../resources/RecordForm';
 import { useResourceCan } from '../../resources/RecordDetail';
 import { ImportDialog } from '../../resources/ImportDialog';
+import { useCostIdentityKey } from './CostIdentityBoundary';
 import { FinanceModal } from './FinanceModal';
 import { CostVersionRecords } from './CostVersionRecords';
 import { CostSkuEditor } from './CostSkuEditor';
@@ -20,6 +21,11 @@ const STATUS: Record<string,string> = {draft:'草稿',active:'已启用并锁定
 const errorText = (e: unknown) => (e as Error).message || '操作失败';
 
 export function CostVersionWorkspace() {
+  const identity = useCostIdentityKey();
+  return <CostVersionWorkspaceContent key={identity}/>;
+}
+
+function CostVersionWorkspaceContent() {
   const {can: has} = useAuth();
   const can = useResourceCan('finance-cost-versions');
   const writable = has('product.cost.edit');
@@ -34,13 +40,19 @@ export function CostVersionWorkspace() {
   const [deleteSku,setDeleteSku] = useState<VersionCostRow | null>(null),[clearing,setClearing] = useState(false),[clearCode,setClearCode] = useState(''),[clearReason,setClearReason] = useState('');
   const [recalculation,setRecalculation] = useState<RecalculationPreview | null>(null);
   const serial = useRef(0);
+  const versionsSerial = useRef(0);
+  const mounted = useRef(true);
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;versionsSerial.current++;};},[]);
   const selectedRef = useRef(selected); selectedRef.current = selected;
   const version = versions.find(v=>v.id===selected);
   const locked = !!version?.data.lockedAt || version?.status !== 'draft';
   const loadVersions = useCallback(async()=>{
+    const token=++versionsSerial.current;
     const rows:ResourceDto[]=[];
-    for(let p=1;;p++){const result=await resourceApi.list('finance-cost-versions',{page:p,pageSize:200,showHidden:true});rows.push(...result.items);if(rows.length>=result.total || !result.items.length)break;}
-    setVersions(rows);
+    try {
+      for(let p=1;;p++){const result=await resourceApi.list('finance-cost-versions',{page:p,pageSize:200,showHidden:true});if(token!==versionsSerial.current)return;rows.push(...result.items);if(rows.length>=result.total || !result.items.length)break;}
+      if(token===versionsSerial.current)setVersions(rows);
+    } catch(error) { if(token===versionsSerial.current)throw error; }
   },[]);
   const canViewVersions = can('view') && has('product.cost.view');
   useEffect(()=>{if(canViewVersions)void loadVersions().catch(e=>setError(errorText(e)));},[loadVersions,canViewVersions]);
@@ -51,7 +63,7 @@ export function CostVersionWorkspace() {
   },[selected]);
   useEffect(()=>{setKeyword('');setSkuType('');setPage(1);void loadPreview();return()=>{serial.current++;};},[loadPreview]);
   async function run(fn:()=>Promise<unknown>,message?:string){if(busy)return;setBusy(true);setError('');try{await fn();if(message)setNotice(message);await loadVersions();await loadPreview();}catch(e){setError(errorText(e));}finally{setBusy(false);}}
-  const enter=(v:ResourceDto,tab='floor')=>{setSelected(v.id);setSection(tab);setGlobalView(null);setError('');};
+  const enter=(v:ResourceDto,tab='floor')=>{setSources(null);setRecalculation(null);setSkuForm(null);setDetail(null);setAdjust(null);setSelected(v.id);setSection(tab);setGlobalView(null);setError('');};
   const featured=versions.find(v=>v.status==='active' && v.data.isDefault) ?? versions.find(v=>v.status==='active');
   const rows=(preview?.rows ?? []).filter(r=>(!skuType || r.skuType===skuType) && (!keyword.trim() || `${r.code} ${r.name}`.toLowerCase().includes(keyword.trim().toLowerCase())));
   const shown=rows.slice((page-1)*20,page*20);
@@ -81,18 +93,18 @@ export function CostVersionWorkspace() {
           <input type="search" aria-label="搜索版本SKU" placeholder="SKU编码 / 商品名称" value={keyword} onChange={e=>{setKeyword(e.target.value);setPage(1);}}/>
           <select aria-label="SKU类型" value={skuType} onChange={e=>{setSkuType(e.target.value);setPage(1);}}><option value="">全部SKU</option><option value="base_code">商品基础编码</option><option value="bundle">商品组合编码</option></select>
           {!locked && writable && can('create') && <button type="button" className="primary-button" onClick={()=>setSkuForm({record:null})}>选择SKU设置</button>}
-          {!locked && writable && can('create') && can('edit') && <button type="button" className="secondary-button" disabled={busy} onClick={()=>void run(async()=>{setRecalculation(await costVersionsApi.recalculatePreview(version.id));})}>预检自动重算</button>}
-          {!locked && writable && can('create') && <button type="button" className="secondary-button" disabled={busy} onClick={()=>void run(async()=>setSources(await costVersionsApi.sources(version.id)))}>补齐未登记SKU</button>}
+          {!locked && writable && can('create') && can('edit') && <button type="button" className="secondary-button" disabled={busy} onClick={()=>void run(async()=>{const target=version.id;const result=await costVersionsApi.recalculatePreview(target);if(mounted.current && selectedRef.current===target)setRecalculation(result);})}>预检自动重算</button>}
+          {!locked && writable && can('create') && <button type="button" className="secondary-button" disabled={busy} onClick={()=>void run(async()=>{const target=version.id;const result=await costVersionsApi.sources(target);if(mounted.current && selectedRef.current===target)setSources(result);})}>补齐未登记SKU</button>}
           {!locked && writable && can('import') && <button type="button" className="secondary-button" onClick={()=>setImporting(true)}>导入SKU成本</button>}
           {!locked && writable && can('delete') && <button type="button" className="secondary-button danger" disabled={busy || !preview} onClick={()=>{setClearCode('');setClearReason('');setClearing(true);}}>清空版本成本</button>}
-          <button type="button" className="secondary-button" disabled={busy} onClick={()=>void run(async()=>downloadCostWorkbook(await costVersionsApi.export(version.id)))}>导出当前版本</button>
+          <button type="button" className="secondary-button" disabled={busy} onClick={()=>void run(async()=>{const target=version.id;const result=await costVersionsApi.export(target);if(mounted.current && selectedRef.current===target)downloadCostWorkbook(result);})}>导出当前版本</button>
           <button type="button" className="secondary-button" disabled={busy} onClick={()=>void loadPreview()}>刷新</button>
         </div>
         {!locked && <p className="muted">草稿显示已保存成本；来源或辅助成本修改后，先预检自动重算，再确认更新。</p>}{locked && <p className="muted">显示启用时锁定的成本，来源商品后续修改不会覆盖此版本。</p>}
         <div className="table-scroll"><table className="data-table"><thead><tr><th>SKU类型</th><th>SKU编码 / 名称</th><th>重量（g）</th>{section==='sku' && Object.values(BUCKETS).map(label=><th key={label}>{label}</th>)}<th>发货前成本</th><th>含快递成本</th><th>加价率</th><th>公司底价</th><th>检查</th><th>操作</th></tr></thead><tbody>
           {shown.map(row=><tr key={row.settingId}><td>{row.skuType==='base_code'?'基础编码':'组合编码'}</td><td><strong>{row.code}</strong><div>{row.name}</div></td><td>{row.weightG ?? '—'}</td>{section==='sku' && Object.keys(BUCKETS).map(key=><td key={key}>{money(row.buckets[key])}</td>)}<td>{money(row.preShipCostCents)}</td><td>{money(row.costIncludingFreightCents)}</td><td>{row.markupPercent}%</td><td><strong>{money(row.minPriceCents)}</strong></td><td>{[...row.issues,...(row.warnings ?? [])].join('；') || '检查通过'}</td><td className="row-actions">
             <button type="button" className="link-button" onClick={()=>setDetail(row)}>查看</button>
-            {!locked && writable && can('edit') && <><button type="button" className="link-button" onClick={()=>void run(async()=>setSkuForm({record:await resourceApi.get('finance-cost-skus',row.settingId)}))}>编辑成本</button><button type="button" className="link-button" onClick={()=>setAdjust({row,type:'finance-cost-assignments'})}>辅助成本分摊</button><button type="button" className="link-button" onClick={()=>setAdjust({row,type:'finance-cost-overrides'})}>成本调整</button></>}
+            {!locked && writable && can('edit') && <><button type="button" className="link-button" onClick={()=>void run(async()=>{const target=version.id;const record=await resourceApi.get('finance-cost-skus',row.settingId);if(mounted.current && selectedRef.current===target)setSkuForm({record});})}>编辑成本</button><button type="button" className="link-button" onClick={()=>setAdjust({row,type:'finance-cost-assignments'})}>辅助成本分摊</button><button type="button" className="link-button" onClick={()=>setAdjust({row,type:'finance-cost-overrides'})}>成本调整</button></>}
             {!locked && writable && can('delete') && <button type="button" className="link-button danger" onClick={()=>setDeleteSku(row)}>删除SKU成本</button>}
           </td></tr>)}
           {preview && !rows.length && <tr><td colSpan={section==='sku'?15:9} className="empty-state muted">暂无SKU成本。选择SKU设置，或预检后补齐已验证SKU。</td></tr>}

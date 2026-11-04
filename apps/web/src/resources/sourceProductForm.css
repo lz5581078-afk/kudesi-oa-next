@@ -1,0 +1,53 @@
+.rf.rf-reference.reference-self_made .reference-section-result{padding:0;overflow:hidden}
+.rf.rf-reference.reference-self_made .reference-section-result>.rf-sec-title{margin:0;padding:14px 16px;border-bottom:1px solid #e1e7ed}
+.rf.rf-reference.reference-self_made .reference-section-result>.form-grid{gap:0}
+.rf.rf-reference .reference-result-strip.is-source-settlement{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr) auto) minmax(150px,1.15fr);align-items:stretch;gap:8px;margin:0;padding:14px 16px;border-bottom:1px solid #e1e7ed;background:#fff}
+.rf.rf-reference .reference-result-strip.is-source-settlement>div{min-height:64px;gap:3px;padding:10px 12px;border-radius:7px;background:#f9fbfc}
+.rf.rf-reference .reference-result-strip.is-source-settlement small,.rf.rf-reference .reference-result-strip.is-source-settlement span{font-size:10px;color:#718095}
+.rf.rf-reference .reference-result-strip.is-source-settlement strong{font-size:15px;color:#26384d}
+.rf.rf-reference .reference-result-strip.is-source-settlement>i{align-self:center;color:#9aa7b7;font-style:normal;font-weight:900}
+.rf.rf-reference .reference-result-strip.is-source-settlement>.is-total{border-color:#9ed2b7;background:#eaf7f0}.rf.rf-reference .reference-result-strip.is-source-settlement>.is-total strong{font-size:17px;color:#087346}
+.rf.rf-reference .reference-source-metric-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:14px 16px 0;min-width:0}
+.rf.rf-reference .reference-source-metric-grid>div{grid-column:auto;min-width:0;padding:13px;border:1px solid #dbe4ec;border-radius:8px;background:#fbfcfe}
+.rf.rf-reference .reference-source-metric-grid .rf-label{font-size:12px;font-weight:800;color:#40516a}
+.rf.rf-reference .reference-source-formula{display:grid;grid-template-columns:repeat(4,minmax(0,1fr) auto) minmax(0,1.15fr);align-items:center;gap:6px;min-height:62px;padding:8px;border:1px solid #dce5ed;border-radius:8px;background:#fff}
+.rf.rf-reference .reference-source-formula.is-weight{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr);margin-top:7px}
+.rf.rf-reference .reference-source-formula>span{display:grid;gap:2px;min-width:0}.rf.rf-reference .reference-source-formula small{margin:0;font-size:10px;color:#7b8797;white-space:nowrap}.rf.rf-reference .reference-source-formula b{font-size:12px;color:#5f4a2d;white-space:nowrap}
+.rf.rf-reference .reference-source-formula>i{font-style:normal;color:#91a0b1;font-weight:900}.rf.rf-reference .reference-source-formula>.is-total{padding:5px 7px;border-radius:6px;background:#eaf8f1}.rf.rf-reference .reference-source-formula>.is-total b{color:#087346}
+.rf.rf-reference .reference-source-weight-hint{display:block;margin-top:7px;color:#7a8798;font-size:11px}
+.rf.rf-reference .reference-source-spec-help{display:block;margin:7px 0 0;color:#7a8798;font-size:11px}
+.rf.rf-reference .reference-purchased-metric-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;min-width:0}
+.rf.rf-reference .reference-purchased-metric-grid>div{grid-column:auto;min-width:0}
+.rf.rf-reference .reference-purchased-metric-grid .rf-weight{display:flex;gap:8px;align-items:center}
+.rf.rf-reference .reference-purchased-metric-grid .rf-weight>.rf-weight-row{order:1;flex:1;min-width:0}
+.rf.rf-reference .reference-purchased-metric-grid .reference-weight-toggle{order:2;height:40px;margin:0;white-space:nowrap;padding:0 11px;border:1px solid #cfd9e4;border-radius:8px;background:#fff}
+.rf.rf-reference .reference-source-formula.is-price.is-oem{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr)}
+.rf.rf-reference .reference-section-pricing>.base-source-purchase-history{margin-top:14px}
+.rf.rf-reference.reference-purchased_original .reference-section-pricing .base-source-purchase-stats.has-price-field{grid-template-columns:minmax(175px,1fr) repeat(2,minmax(125px,1fr)) auto}
+.rf.rf-reference.reference-purchased_oem .reference-section-pricing .base-source-purchase-stats.has-price-field{grid-template-columns:minmax(175px,.85fr) minmax(330px,1.7fr) repeat(2,minmax(125px,.65fr)) auto}
+.rf.rf-reference .reference-section-pricing .base-source-purchase-stats>.reference-source-price-field{display:block;padding:0;border:0;background:transparent}
+.rf.rf-reference .reference-package-weight-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;min-width:0}
+.rf.rf-reference .reference-package-weight-fields>label{display:grid;gap:8px;min-width:0}
+.modal.rf.rf-reference.reference-package .reference-section-production>.form-grid,.modal.rf.rf-reference.reference-oem_package .reference-section-production>.form-grid{grid-template-columns:minmax(240px,1.5fr) minmax(140px,.75fr) minmax(140px,.75fr);gap:14px}
+.modal.rf.rf-reference.reference-package .reference-section-production>.form-grid>.rf-field,.modal.rf.rf-reference.reference-oem_package .reference-section-production>.form-grid>.rf-field{grid-column:auto}
+.modal.rf.rf-reference.reference-package .reference-package-weight-fields,.modal.rf.rf-reference.reference-oem_package .reference-package-weight-fields{display:contents}
+.modal.rf.rf-reference.reference-package .reference-section-stock>.form-grid,.modal.rf.rf-reference.reference-oem_package .reference-section-stock>.form-grid{grid-template-columns:minmax(120px,.7fr) minmax(120px,.7fr) minmax(230px,1.3fr) minmax(150px,.8fr)}
+.modal.rf.rf-reference.reference-package .reference-section-stock>.form-grid>div,.modal.rf.rf-reference.reference-oem_package .reference-section-stock>.form-grid>div{grid-column:auto}
+.rf.rf-reference.reference-purchased_oem .reference-purchased-metric-grid>div{padding:12px;border:1px solid #e1e7ed;border-radius:10px;background:#fbfcfd}
+.rf.rf-reference.reference-self_made .reference-section-result>.base-source-purchase-history{margin:12px 16px 16px;padding:13px;border:1px solid #dbe4ec;border-radius:8px;background:#fbfcfe}
+.rf.rf-reference.reference-self_made .reference-section-result .base-source-purchase-stats.has-price-field{grid-template-columns:minmax(165px,.7fr) minmax(420px,2fr) repeat(2,minmax(118px,.55fr)) auto;gap:12px}
+.rf.rf-reference.reference-self_made .reference-section-result .base-source-purchase-stats>.reference-source-formula{display:grid;padding:8px;background:#fff}
+.rf.rf-reference .reference-source-total{display:grid;grid-template-columns:repeat(3,minmax(170px,1fr));align-items:end;gap:12px}
+.rf.rf-reference .reference-source-total>div{min-height:62px;display:grid;align-content:center;gap:5px;padding:9px 12px;border:1px solid #dce6e1;border-radius:8px;background:#fff}
+.rf.rf-reference .reference-source-total small{font-size:10px;color:#7a8898}.rf.rf-reference .reference-source-total strong{font-size:13px;color:#24364a}.rf.rf-reference .reference-source-total>.is-total{border-color:#9ed2b7;background:#eaf7f0}.rf.rf-reference .reference-source-total>.is-total strong{font-size:16px;color:#087346}
+@media(max-width:720px){.rf.rf-reference .reference-source-metric-grid,.rf.rf-reference.reference-self_made .reference-section-result .base-source-purchase-stats.has-price-field,.rf.rf-reference .reference-source-total{grid-template-columns:1fr}.rf.rf-reference .reference-source-formula.is-price{grid-column:1/-1}}
+@media(max-width:720px){.rf.rf-reference .reference-purchased-metric-grid,.rf.rf-reference.reference-purchased_original .reference-section-pricing .base-source-purchase-stats.has-price-field,.rf.rf-reference.reference-purchased_oem .reference-section-pricing .base-source-purchase-stats.has-price-field{grid-template-columns:1fr}}
+@media(max-width:560px){.rf.rf-reference .reference-result-strip.is-source-settlement{grid-template-columns:1fr}.rf.rf-reference .reference-result-strip.is-source-settlement>i{display:none}}
+@media(max-width:900px){.modal.rf.rf-reference.reference-package .reference-section-production>.form-grid,.modal.rf.rf-reference.reference-oem_package .reference-section-production>.form-grid,.modal.rf.rf-reference.reference-package .reference-section-stock>.form-grid,.modal.rf.rf-reference.reference-oem_package .reference-section-stock>.form-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:620px){.modal.rf.rf-reference.reference-package .reference-section-production>.form-grid,.modal.rf.rf-reference.reference-oem_package .reference-section-production>.form-grid,.modal.rf.rf-reference.reference-package .reference-section-stock>.form-grid,.modal.rf.rf-reference.reference-oem_package .reference-section-stock>.form-grid{grid-template-columns:1fr}}
+
+/* Source seven-family create footer uses tracks rather than flex bases. */
+.modal.rf.rf-reference.rf-p:not(.reference-custom) .rf-foot:has(.finance-form-next){display:grid;grid-template-columns:minmax(170px,1.2fr) repeat(4,minmax(104px,.8fr));align-items:center;gap:14px}
+.modal.rf.rf-reference.rf-p:not(.reference-custom) .rf-foot>button{font-weight:800;line-height:normal}
+.modal.rf.rf-reference.rf-p:is(.reference-raw,.reference-shipping_material) .reference-code>input:disabled{color:#728095;background:#f0f3f6;border-color:transparent;font-weight:750;opacity:1}
+@media(max-width:650px){.modal.rf.rf-reference.rf-p:not(.reference-custom) .rf-foot:has(.finance-form-next){grid-template-columns:1fr 1fr;gap:10px;padding:12px 18px}.modal.rf.rf-reference.rf-p:not(.reference-custom) .rf-foot:has(.finance-form-next)>.primary-button{grid-column:1/-1;grid-row:1}}

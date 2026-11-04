@@ -1,3 +1,8 @@
+import type {FlowConfirmation} from './flow-confirmation.dto';
+import { CryptoService } from '../common/crypto.service';
+import { FlowApplicationHeaderStore } from './flow-application-header';
+import { FlowApplicationDrafts, type DraftCreateInput } from './flow-application-drafts';
+import { listSkuApplications } from './sku-application-list';
 import { LiveOrderSource } from '../live/live-order-source';
 import { writeNotification } from '../outbox/write-notification';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
@@ -8,7 +13,7 @@ import {
   type CustomSchema, type FieldDef, type FlowAction, type FlowTemplate, type StarterScope, type StarterWho, type StepDef,
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { AuditLog, Department, FlowCc, FlowDefinition, FlowEvent, FlowRun, FlowStep, FlowTemplateRow, Notification, Position, ResourceFile, ResourceRecord, User, WorkItem } from '../entities';
+import { Company, AuditLog, Department, FlowCc, FlowDefinition, FlowEvent, FlowRun, FlowStep, FlowTemplateRow, Notification, Position, ResourceFile, ResourceRecord, User, WorkItem } from '../entities';
 import { FinanceDocumentsService } from '../resources/finance-documents.service';
 import { BundleToolsService } from '../resources/bundle-tools.service';
 import { ResourcesService } from '../resources/resources.service';
@@ -27,7 +32,7 @@ type Def = { steps: StepDef[]; escalateUserIds: number[] };
 /** 批量办理时不逐条发的站内通知种类（改发一条汇总）；飞书入队不受影响 */
 const QUIET_KINDS = new Set(['todo', 'returned', 'result']);
 /** 同一张申请单拆开办理的规格之间的批次标记（payload 里下划线开头的业务痕迹） */
-export const BATCH_MARKS = ['_batchKey', '_splitIndex', '_splitTotal'];
+export const BATCH_MARKS = ['_batchKey', '_splitIndex', '_splitTotal','_splitRequestHash','_applicationDraftOrigin','_draftCreateHash','_draftSubmission'];
 
 /** 把模板的字段包成一个“资料定义”，复用资料的字段校验（必填、日期、金额整数分、选项……） */
 const pseudoDef = (key: string, fields: FlowTemplate['fields']) =>
@@ -51,6 +56,7 @@ export class FlowService {
     @Optional() private readonly outbox?: OutboxService,
     @Optional() private readonly feishu?: FeishuNoticeService,
     @Optional() private readonly liveOrders?: LiveOrderSource,
+    @Optional() private readonly applicationCrypto?:CryptoService,
   ) {}
   private readonly log = new Logger('Flow');
   private readonly quietEms = new WeakSet<EntityManager>();
@@ -61,7 +67,21 @@ export class FlowService {
   private need(user: AuthUser, key: string, msg: string) { if (!this.can(user, key)) throw new ForbiddenException(msg); }
   /** 解析模板（内置或自建）；在办流程传 run 以使用启动时的版本 */
   private tpl(em: EntityManager, companyId: number, key: string, definitionId?: number | null) { return loadTemplate(em, companyId, key, definitionId); }
-  private runTpl(em: EntityManager, run: FlowRun) { return loadTemplate(em, run.companyId, run.templateKey, run.definitionId); }
+  private async runTpl(em: EntityManager, run: FlowRun) {
+    const template=await loadTemplate(em,run.companyId,run.templateKey,run.definitionId),adapt=adapterFor(template);
+    return adapt.stepFields?{...template,stepFields:Object.fromEntries(Object.entries(template.stepFields).map(([key,fields])=>[key,adapt.stepFields!(run,key,fields)]))}:template;
+  }
+  /** Adapter opt-in uses the existing transaction; immutable run policy is read outside its RR snapshot. */
+  private async runCommandTransaction<T>(user:AuthUser,id:number,work:(em:EntityManager)=>Promise<T>):Promise<T>{
+    const candidate=await this.dataSource.manager.findOne(FlowRun,{where:{companyId:user.companyId,id}});
+    if(!candidate)throw new NotFoundException('流程不存在');
+    const adapter=adapterFor(await this.runTpl(this.dataSource.manager,candidate)),serialize=adapter.companyTransactionLock?.(candidate)===true;
+    return this.dataSource.transaction(async em=>{
+      if(serialize)await em.findOneOrFail(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}});
+      return work(em);
+    });
+  }
+
   private svc() { return { liveOrders:this.liveOrders, resources: this.resources, docs: this.docs, bundles: this.bundles, outbox: this.outbox }; }
   /** 字段权限（FieldDef.permission，如成本字段要 product.cost.view）：这个人没有权限的字段。服务端强制，看不到也填不了。 */
   private restricted(user: AuthUser, fields: readonly FieldDef[]): Set<string> { return restrictedFieldKeys({ fields } as never, createChecker(user.permissions)); }
@@ -415,47 +435,78 @@ export class FlowService {
 
   // ================= 发起 =================
 
+  private applicationDrafts(){
+    return new FlowApplicationDrafts(this.dataSource,{
+      template:(em,company,key,id)=>this.tpl(em,company,key,id),
+      starterAllowed:(em,user,scope)=>this.canStartWith(em,user,scope),services:this.svc(),
+      event:(em,run,user,action,step,note)=>this.event(em,run,user,action,step,note),
+      activate:(em,user,run,steps,first,comment)=>this.activateStartIn(em,user,run,steps,first,comment),
+      detail:(em,user,id)=>this.detailIn(em,user,id),
+      visible:(em,user,run)=>this.canSeeRun(em,user,run),
+      handlers:async(em,user,step)=>{const ids=await this.resolveRecipients(em,user.companyId,step,user.id);const names=await this.userNames(em,user.companyId,ids);return ids.map(id=>names.get(id)??'').filter(Boolean);},
+    },this.applicationCrypto?new FlowApplicationHeaderStore(this.applicationCrypto):undefined);
+  }
+  applicationDraftTemplates(user:AuthUser,key:string){return this.applicationDrafts().templates(user,key);}
+  createApplicationDrafts(user:AuthUser,input:DraftCreateInput){return this.applicationDrafts().create(user,input);}
+  applicationDraftHeader(user:AuthUser,key:string,ref:string){return this.applicationDrafts().read(user,key,ref);}
+  addApplicationDrafts(user:AuthUser,key:string,ref:string,version:string,requestKey:string,payloads:Record<string,unknown>[],copySource?:{id:number;revision:number}){return this.applicationDrafts().add(user,key,ref,version,requestKey,payloads,copySource);}
+  removeApplicationDraftBatch(user:AuthUser,key:string,ref:string,version:string,expected:Array<{id:number;revision:number}>,reason:string){return this.applicationDrafts().removeApplication(user,key,ref,version,expected,reason);}
+
+  saveApplicationDraft(user:AuthUser,id:number,revision:number,payload:Record<string,unknown>){return this.applicationDrafts().save(user,id,revision,payload);}
+  saveApplicationDraftShared(user:AuthUser,key:string,ref:string,expected:Array<{id:number;revision:number}>,payload:Record<string,unknown>,headerVersion:string){return this.applicationDrafts().shared(user,key,ref,expected,payload,headerVersion);}
+  submitApplicationDraft(user:AuthUser,id:number,revision:number,requestKey:string,confirmation?:FlowConfirmation,comment?:string){return this.applicationDrafts().submit(user,id,revision,requestKey,confirmation,comment);}
+  submitApplicationDrafts(user:AuthUser,key:string,ref:string,items:Array<{id:number;revision:number;confirmation?:FlowConfirmation}>,requestKey:string,comment?:string){return this.applicationDrafts().submitMany(user,key,ref,items,requestKey,comment);}
+  stopApplicationDraft(user:AuthUser,id:number,revision:number,kind:'cancel'|'reject',reason:string){return this.applicationDrafts().stop(user,id,revision,kind,reason);}
+  removeApplicationDraft(user:AuthUser,id:number,revision:number,reason:string){return this.applicationDrafts().remove(user,id,revision,reason);}
+
   async start(user: AuthUser, templateKey: string, payloadIn: Record<string, unknown>, requestKey?: string, opts: { internal?: boolean } = {}) {
+    return this.dataSource.transaction(em=>this.startIn(em,user,templateKey,payloadIn,requestKey,opts));
+  }
+
+  /** 同一现入场内核；批量业务传入外层事务，不另外开启连接或流程引擎。 */
+  async startIn(em:EntityManager,user:AuthUser,templateKey:string,payloadIn:Record<string,unknown>,requestKey?:string,opts:{internal?:boolean}={}){
+    if(!em.queryRunner?.isTransactionActive)throw new BadRequestException('流程入场必须在事务中执行');
     if (!opts.internal) {
       // 有专门业务页面的流程（售后、申诉）：权限由业务模块自己判断，申请中心/接口不能绕过业务页面直接发起
-      const t0 = await this.tpl(this.dataSource.manager, user.companyId, templateKey);
+      const t0 = await this.tpl(em, user.companyId, templateKey);
       if (t0.entry) throw new BadRequestException(`这条流程要${t0.entry.label}`);
       this.need(user, 'flow.apply.view', '没有发起流程的权限');
     }
     if (requestKey !== undefined && !/^[A-Za-z0-9_-]{12,80}$/.test(requestKey)) throw new BadRequestException('requestKey 要 12 到 80 位字母数字');
-    return this.dataSource.transaction(async (em) => {
-      if (requestKey) {
-        const dup = await em.findOne(FlowRun, { where: { companyId: user.companyId, requestKey } });
-        if (dup) return this.detailIn(em, user, dup.id);
-      }
-      const def = await em.findOne(FlowDefinition, { where: { companyId: user.companyId, templateKey: templateKey, status: 'active' } });
-      if (!def) {
-        await this.tpl(em, user.companyId, templateKey); // 不存在的流程给“没有这种流程”
-        throw new BadRequestException('这条流程还没有启用，请管理员先在“流程配置”里配置办理人并发布');
-      }
-      if (!(await this.canStartWith(em, user, def.starterScope))) throw new ForbiddenException('你不在这条流程的发起人范围内，不能发起；需要发起请联系管理员调整发起人范围');
-      const t = await this.tpl(em, user.companyId, templateKey, def.id);
-      const adapter = adapterFor(t);
-      const checked = validateResourceInput(pseudoDef(t.key, t.fields), this.without(payloadIn, this.restricted(user, t.fields)), { status: '' });
-      if (checked.errors.length) throw new BadRequestException(checked.errors.join('；'));
-      const payload = Object.fromEntries(Object.entries(checked.values).filter(([, v]) => v !== null && v !== undefined));
-      await adapter.validateStart?.({ em, user, payload, ...this.svc() });
-      const title = await adapter.title(em, user.companyId, payload);
-      const steps = def.steps as StepDef[];
-      const ins = await em.insert(FlowRun, {
-        companyId: user.companyId, definitionId: def.id, templateKey: t.key, title, status: 'running', requesterId: user.id,
-        currentStepKey: steps[0].key, payload, stepsSnapshot: steps, escalateUserIds: def.escalateUserIds, requestKey: requestKey ?? null,
-      } as never);
-      const run = (await em.findOne(FlowRun, { where: { id: Number(ins.identifiers[0].id) } }))!;
-      const first = await em.insert(FlowStep, {
-        companyId: user.companyId, runId: run.id, seq: 1, stepKey: steps[0].key, stepName: steps[0].name, stepType: steps[0].type,
-        status: 'done', recipients: [user.id], handledBy: user.id, action: 'submit', finishedAt: new Date(),
-      });
-      await this.event(em, run, user.id, 'submit', Number(first.identifiers[0].id));
-      await adapter.onStart?.({ em, user, payload, run, ...this.svc() });
-      await this.enter(em, user, run, steps, 1, 'normal');
-      return this.detailIn(em, user, run.id);
-    });
+    if (requestKey) {
+      const dup = await em.findOne(FlowRun, { where: { companyId: user.companyId, requestKey } });
+      if (dup) return this.detailIn(em, user, dup.id);
+    }
+    const def = await em.findOne(FlowDefinition, { where: { companyId: user.companyId, templateKey: templateKey, status: 'active' } });
+    if (!def) {
+      await this.tpl(em, user.companyId, templateKey); // 不存在的流程给“没有这种流程”
+      throw new BadRequestException('这条流程还没有启用，请管理员先在“流程配置”里配置办理人并发布');
+    }
+    if (!(await this.canStartWith(em, user, def.starterScope))) throw new ForbiddenException('你不在这条流程的发起人范围内，不能发起；需要发起请联系管理员调整发起人范围');
+    const t = await this.tpl(em, user.companyId, templateKey, def.id);
+    const adapter = adapterFor(t);
+    const checked = validateResourceInput(pseudoDef(t.key, t.fields), this.without(payloadIn, this.restricted(user, t.fields)), { status: '' });
+    if (checked.errors.length) throw new BadRequestException(checked.errors.join('；'));
+    const payload = Object.fromEntries(Object.entries(checked.values).filter(([, v]) => v !== null && v !== undefined));
+    await adapter.validateStart?.({ em, user, payload, ...this.svc() });
+    const title = await adapter.title(em, user.companyId, payload);
+    const steps = def.steps as StepDef[];
+    const ins = await em.insert(FlowRun, {
+      companyId: user.companyId, definitionId: def.id, templateKey: t.key, title, status: 'running', requesterId: user.id,
+      currentStepKey: steps[0].key, payload, stepsSnapshot: steps, escalateUserIds: def.escalateUserIds, requestKey: requestKey ?? null,
+    } as never);
+    const run = (await em.findOne(FlowRun, { where: { id: Number(ins.identifiers[0].id) } }))!;
+    await this.activateStartIn(em,user,run,steps);
+    return this.detailIn(em, user, run.id);
+  }
+
+  private async activateStartIn(em:EntityManager,user:AuthUser,run:FlowRun,steps:StepDef[],pending?:FlowStep,comment?:string){
+    const t=await this.runTpl(em,run),adapter=adapterFor(t);let firstId:number;
+    if(pending){pending.status='done';pending.action='submit';pending.comment=comment??null;pending.handledBy=user.id;pending.finishedAt=new Date();await em.save(FlowStep,pending);firstId=pending.id;}
+    else{const inserted=await em.insert(FlowStep,{companyId:run.companyId,runId:run.id,seq:1,stepKey:steps[0].key,stepName:steps[0].name,stepType:steps[0].type,status:'done',recipients:[user.id],handledBy:user.id,action:'submit',finishedAt:new Date()});firstId=Number(inserted.identifiers[0].id);}
+    await this.event(em,run,user.id,'submit',firstId,comment);
+    await adapter.onStart?.({em,user,payload:run.payload,run,...this.svc()});
+    await this.enter(em,user,run,steps,1,'normal');
   }
 
   /** 进入第 idx 步：解析办理人、建步骤记录和待办、抄送、通知；end 步直接完成流程 */
@@ -497,6 +548,13 @@ export class FlowService {
   /** 开启一个办理步骤：找办理人、建待办、通知、抄送；返回它的到期时间 */
   private async openStep(em: EntityManager, run: FlowRun, t: FlowTemplate, def: StepDef, via: string, keepDue?: Date | null, recipientsOverride?: number[]): Promise<Date | null> {
     const adapter = adapterFor(t);
+    if(run.payload._applicationDraftOrigin===true && t.applicationDraft && def.type!=='submit' && def.type!=='end'){
+      const live=await em.findOneBy(FlowDefinition,{companyId:run.companyId,templateKey:run.templateKey,status:'active'});
+      const current=(live?.steps as StepDef[]|undefined)?.find(step=>step.key===def.key && step.type===def.type);
+      if(!current)throw new ConflictException('节点配置已变化或流程未启用，原申请已保留，请联系管理员');
+      // 路径仍来自原快照，只在节点入场时读取当前处理人和时限。
+      def={...def,assignee:current.assignee,dueMinutes:current.dueMinutes,remind:current.remind};
+    }
     const prev = def.assignee?.source === 'previous_handler' ? await em.findOne(FlowStep, { where: { runId: run.id, status: 'done', handledBy: Not(0) }, order: { seq: 'DESC' } }) : null;
     const recipients = recipientsOverride ?? await this.resolveRecipients(em, run.companyId, def, run.requesterId, prev?.handledBy, run.payload);
     const last = await em.findOne(FlowStep, { where: { runId: run.id }, order: { seq: 'DESC' } });
@@ -560,9 +618,32 @@ export class FlowService {
     await this.event(em, run, user.id, action, step.id, comment);
   }
 
-  async pass(user: AuthUser, runId: number, p: { revision: number; stepId: number; form?: Record<string, unknown>; comment?: string }, opts: { quiet?: boolean } = {}) {
+  /** Save only the current handler's declared form; no transitions or side effects. */
+  async saveStepDraft(user:AuthUser,runId:number,p:{revision:number;stepId:number;form?:Record<string,unknown>;draftContext?:Record<string,unknown>}) {
+    return this.dataSource.transaction(async em=>{
+      const run=await this.lockRun(em,user,runId,p.revision);
+      if(run.status!=='running')throw new ConflictException('当前流程不能保存办理资料');
+      const step=await this.activeStep(em,run,p.stepId);
+      if(!await this.myOpenItem(em,user,step))throw new ForbiddenException('这一步不是你办理的');
+      const template=await this.runTpl(em,run),adapter=adapterFor(template),ctx=this.stepCtx(em,user,run,step,{});
+      if(!adapter.stepDraftEnabled?.(ctx)||!adapter.validateStepDraft)throw new BadRequestException('此步骤不支持暂存办理资料');
+      const fields=template.stepFields[step.stepKey]??[];
+      const checked=validateResourceInput(pseudoDef(`${template.key}.${step.stepKey}`,fields.map(field=>({...field,required:false}))),this.without(p.form,this.restricted(user,fields)),{status:''});
+      if(checked.errors.length)throw new BadRequestException(checked.errors.join('；'));
+      ctx.form=Object.fromEntries(Object.entries(checked.values).filter(([,value])=>value!==null&&value!==undefined));
+      if(p.draftContext&&Buffer.byteLength(JSON.stringify(p.draftContext))>4096)throw new BadRequestException('暂存上下文过大');
+      await adapter.validateStepDraft(ctx,{previousForm:step.form??await adapter.initialStepDraft?.(ctx)??null,context:p.draftContext});
+      step.form=ctx.form;await em.save(FlowStep,step);
+      run.revision+=1;await em.save(FlowRun,run);
+      await this.event(em,run,user.id,'draft_save',step.id,'保存当前步骤资料');
+      return this.detailIn(em,user,run.id);
+    });
+  }
+
+  async pass(user: AuthUser, runId: number, p: { revision: number; stepId: number; form?: Record<string, unknown>; comment?: string;confirmation?:FlowConfirmation }, opts: { quiet?: boolean } = {}) {
+    if(p.comment!==undefined&&(typeof p.comment!=='string'||p.comment.length>500))throw new BadRequestException('备注最多500字');
     let after: (() => Promise<void>) | null = null;
-    const result = await this.dataSource.transaction(async (em) => {
+    const result = await this.runCommandTransaction(user,runId,async (em) => {
       if (opts.quiet) this.markQuiet(em);
       const run = await this.lockRun(em, user, runId, p.revision);
       if (run.status !== 'running') throw new ConflictException('这条流程已经结束了');
@@ -585,7 +666,7 @@ export class FlowService {
           return this.detailIn(em, user, run.id);
         }
       }
-      const ctx = this.stepCtx(em, user, run, step, form);
+      const ctx = {...this.stepCtx(em, user, run, step, form),confirmation:p.confirmation};
       await adapter.beforePass?.(ctx);
       await adapter.onPass?.(ctx);
       if (t.posting && t.posting.at === step.stepKey) await postDeclared(ctx, t); // 模板声明的自动记账
@@ -622,6 +703,7 @@ export class FlowService {
   }
 
   async returnBack(user: AuthUser, runId: number, p: { revision: number; stepId: number; reason: string }, opts: { quiet?: boolean } = {}) {
+    if(typeof p.reason!=='string'||p.reason.length>500)throw new BadRequestException('原因最多500字');
     if (!p.reason?.trim()) throw new BadRequestException('退回要写原因');
     return this.dataSource.transaction(async (em) => {
       if (opts.quiet) this.markQuiet(em);
@@ -632,6 +714,7 @@ export class FlowService {
 
   /** 退回的实际动作，在调用者的事务里执行（整单退回要把很多条流程放进同一个事务） */
   async returnBackIn(em: EntityManager, user: AuthUser, runId: number, p: { revision: number; stepId: number; reason: string }) {
+    if(typeof p.reason!=='string'||p.reason.length>500)throw new BadRequestException('原因最多500字');
     if (!p.reason?.trim()) throw new BadRequestException('退回要写原因');
     {
       const run = await this.lockRun(em, user, runId, p.revision);
@@ -660,6 +743,7 @@ export class FlowService {
 
   /** 办理人废除/拒绝：流程以对应状态结束，原因必填 */
   async stop(user: AuthUser, runId: number, kind: 'cancel' | 'reject', p: { revision: number; stepId: number; reason: string }, opts: { quiet?: boolean } = {}) {
+    if(typeof p.reason!=='string'||p.reason.length>500)throw new BadRequestException('原因最多500字');
     if (!p.reason?.trim()) throw new BadRequestException(`${kind === 'cancel' ? '废除' : '拒绝'}要写原因`);
     return this.dataSource.transaction(async (em) => {
       if (opts.quiet) this.markQuiet(em);
@@ -711,7 +795,8 @@ export class FlowService {
     });
   }
 
-  async resubmit(user: AuthUser, runId: number, p: { revision: number; payload: Record<string, unknown> }, opts: { quiet?: boolean } = {}) {
+  async resubmit(user: AuthUser, runId: number, p: { revision: number; payload: Record<string, unknown>;confirmation?:FlowConfirmation;comment?:string }, opts: { quiet?: boolean } = {}) {
+    if(p.comment!==undefined&&(typeof p.comment!=='string'||p.comment.length>500))throw new BadRequestException('备注最多500字');
     return this.dataSource.transaction(async (em) => {
       if (opts.quiet) this.markQuiet(em);
       const run = await this.lockRun(em, user, runId, p.revision);
@@ -729,14 +814,15 @@ export class FlowService {
       const adapter = adapterFor(t);
       // 重新提交时，自己这条在办的流程不算“重复申请”：临时把它标成非 running 做检查
       await em.update(FlowRun, { id: run.id }, { status: 'cancelled' });
-      try { await adapter.validateStart?.({ em, user, payload, run, ...this.svc() }); } finally { await em.update(FlowRun, { id: run.id }, { status: 'running' }); }
+      try { await adapter.validateStart?.({ em, user, payload, run,confirmation:p.confirmation, ...this.svc() }); } finally { await em.update(FlowRun, { id: run.id }, { status: 'running' }); }
       // 申请单批次标记是业务痕迹（下划线开头），重新提交不能丢，否则退回又提交的规格会从申请单里掉出去
-      const kept = Object.fromEntries(Object.entries(run.payload).filter(([k]) => (adapter.keepStateOnResubmit && k.startsWith('_')) || BATCH_MARKS.includes(k) || (run.templateKey === 'sku-batch-apply' && ['_legacyWarehouseDraft','_legacySkuItemId'].includes(k))));
-      run.payload = { ...payload, ...kept };
+      const preserve=typeof adapter.keepStateOnResubmit==='function'?adapter.keepStateOnResubmit(run):adapter.keepStateOnResubmit===true;
+      const kept = Object.fromEntries(Object.entries(run.payload).filter(([k]) => (preserve && k.startsWith('_')) || BATCH_MARKS.includes(k) || (run.templateKey === 'sku-batch-apply' && ['_legacyWarehouseDraft','_legacySkuItemId'].includes(k))));
+      run.payload = typeof adapter.keepStateOnResubmit==='function'&&preserve?{...kept,...payload}:{ ...payload, ...kept };
       run.title = await adapter.title(em, run.companyId, payload);
       await em.save(FlowRun, run);
       await adapter.onResubmit?.({ em, user, payload, run, ...this.svc() });
-      await this.closeStep(em, run, step, user, 'done', 'resubmit');
+      await this.closeStep(em, run, step, user, 'done', 'resubmit',p.comment?.trim()||undefined);
       const steps = run.stepsSnapshot as StepDef[];
       const idx = steps.findIndex((s) => s.key === step.stepKey);
       await this.enter(em, user, run, steps, idx + 1, 'normal');
@@ -959,8 +1045,10 @@ export class FlowService {
       id: run.id, templateKey: run.templateKey, templateLabel: t.label, title: run.title, status: run.status, revision: run.revision,
       requesterId: run.requesterId, requesterName: names.get(run.requesterId) ?? '', createdAt: run.createdAt, finishedAt: run.finishedAt, dueAt: run.dueAt,
       payload: Object.fromEntries(Object.entries(run.payload).filter(([k]) => !k.startsWith('_') && !hidden.has(k))), refLabels,
+      ...(await adapter.publicApplicationState?.(run,user,em)??{}),
       ...(legacyHistory?{legacyHistory}:{}),
       ...(historicalTasks.length?{historicalTasks}:{}),
+      ...(ctx&&adapter.stepDraftEnabled?.(ctx)?{stepDraft:{canSave:running&&!!mine,stepId:active!.id,form:this.without(active!.form??await adapter.initialStepDraft?.(ctx)??{},stepHidden.get(active!.stepKey)??new Set())}}:{}),
       files: fileInfos, fields: t.fields.filter((f) => !hidden.has(f.key)), stepFields: visibleStepFields,
       // Unconfirmed migrated warehouse input, scoped to the current handler.
       // It contains mapped material IDs/quantities only, never old cost snapshots.
@@ -987,7 +1075,12 @@ export class FlowService {
     };
   }
 
-  async listRuns(user: AuthUser, q: { view: 'started' | 'cc' | 'all'; status?: string; templateKey?: string; keyword?: string; overdue?: boolean; departmentId?: number; handler?: string; returned?: boolean; page: number; pageSize: number }) {
+  async listRuns(user: AuthUser, q: { groupSku?:boolean; view: 'started' | 'cc' | 'all'; status?: string; templateKey?: string; keyword?: string; overdue?: boolean; departmentId?: number; handler?: string; returned?: boolean; page: number; pageSize: number }) {
+    if(q.groupSku){
+      if(q.view!=='started' || q.templateKey!=='sku-batch-apply' || q.status || q.overdue || q.departmentId || q.handler || q.returned)throw new BadRequestException('SKU申请汇总只支持我的SKU申请范围');
+      const result=await listSkuApplications(this.dataSource,user,q,ids=>this.userNames(this.dataSource.manager,user.companyId,ids),(await this.labelMap(user.companyId)).get('sku-batch-apply') ?? 'SKU批量申请');
+      const rows=[];for(const row of result.rows){let canDelete=false;try{if(row.batchRef.startsWith('B'))canDelete=(await this.applicationDraftHeader(user,'sku-batch-apply',row.batchRef)).canDelete;}catch(error){if(!(error instanceof NotFoundException))throw error;}rows.push({...row,canDelete});}return {...result,rows};
+    }
     if (q.view === 'all') this.need(user, 'flow.overview.view', '没有查看流程总览的权限');
     const where = ['r.company_id = ?'];
     const args: unknown[] = [user.companyId];

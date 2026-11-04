@@ -44,30 +44,63 @@ export interface FieldDef {
   key: string;
   label: string;
   type: FieldType;
+  /** 文字值仍按文字保存/导入，表单只能从维护目录选取（含已有历史值）。 */
+  input?: 'select';
+  /** 同一字段随档案类型改变输入方式，表单、服务端和导入共用。 */
+  typeBy?: { field: string; map: Record<string, FieldType> };
   group: string;
   required?: boolean;
   options?: readonly Option[];
+  /** 新增表单等候公司选项后选第一项；不会覆盖编辑、复制、草稿或手工选择。 */
+  initialOption?: { when?: { field: string; in: readonly string[] }; except?: { field: string; in: readonly string[] }; sourceKind?: string; useLabel?: boolean; fallback: string };
+  /** 新建时的初始值；只应用到 showWhen 满足且没有传入值的字段，编辑不补值。 */
+  initialValue?: string | number | boolean;
   /** 下拉可多选：保存为用顿号连接的选项值（按选项顺序、去重） */
   multi?: boolean;
+  /** 部分业务以第一个选择作为下游默认值；默认仍按字典顺序规范多选。 */
+  preserveSelectionOrder?: boolean;
   /** type=ref：目标资源 key，或 'user'（员工） */
   ref?: string;
+  /** 原生单选目录需完整读取；编码展示与维护排序由字段声明。 */
+  refOptions?: { complete: true; codeField?: string; sortField?: string; manageLabel?: string; initialFocus?: boolean; filters?:Readonly<Record<string,string|number>>;pathField?:string;leafOnly?:boolean };
   /** 在列表中显示的默认列 */
   list?: boolean;
   /** 参与关键词搜索 */
   search?: boolean;
   maxLength?: number;
+  /** 表单提示及显示变换，不改变服务端保存/导入规则。 */
+  placeholder?: string;
+  inputCase?: 'upper';
+  moneyInput?: { nativeNumber?: boolean; currency?: string };
   /** 由系统计算，表单里不显示、提交的值会被忽略（如利润） */
   readonly?: boolean;
+  /** 仅控制当前表单的只读呈现，仍保留原字段的保存和导入语义。 */
+  formReadOnly?: boolean;
+  /** 可选引用联动：读取所选资料后带入默认字段；已有引用初次打开不覆盖历史值。 */
+  referenceFill?: {
+    targets: readonly { field: string; source: string; whenEmpty?: boolean; clearOnEmpty?: boolean }[];
+    locks?: readonly { field: string; unlessSource: string }[];
+  };
+  /** 自动汇总字段可仅用于检索、列表和详情，不占用编辑表单。 */
+  hideInForm?: boolean;
   /** type=decimal：小数位数上限（默认 4） */
   scale?: number;
   /** 要有这个权限键才看得到/改得了这个字段（如成本字段需要 product.cost.view）；服务端强制，不只是前端隐藏 */
   permission?: string;
+  /** 必须同时具备这些查看权限；用于一段内容含多种受限字段的情况。 */
+  readPermissions?: readonly string[];
   /** 要有这个权限才能修改（不设则同 permission）；没有时提交的值被丢弃 */
   writePermission?: string;
   /** type=attrs：属性名来自所选分类（本记录里这个引用字段指向的记录）的 customFields（逗号分隔）；值是 名称→内容 */
   attrsFrom?: string;
   /** type=files：最多几个文件（默认 9） */
   maxFiles?: number;
+  /** Optional field-specific upload limit; existing attached facts are preserved. */
+  maxFileBytes?:number;
+  /** Upload one replacement only after it succeeds; does not truncate existing attachments. */
+  replacementOnly?:boolean;
+  /** 最后整组新增时允许从同公司原资料复制；仅文件或加密资料，密码不允许。 */
+  copyOnCreate?:boolean;
   /** type=files：只收图片，还是图片和 PDF 都收（默认都收） */
   accept?: 'image' | 'any';
   /** type=files：电脑上可以点“手机上传”，扫码用手机拍照/选图传到这个字段（只收图片） */
@@ -79,7 +112,7 @@ export interface FieldDef {
    * 下拉的值是列表项的编码，显示名称。kindBy：列表种类随另一个字段的值变（如发货物料用自己的单位表）。
    * 公司还没有维护该种类时，退回 options 里的默认选项。
    */
-  optionsFrom?: { resource: string; kind: string; alsoKinds?: string[]; kindBy?: { field: string; map: Record<string, string> } };
+  optionsFrom?: { resource: string; kind: string; alsoKinds?: string[]; kindOverride?:{field:string;map:Record<string,string>}; kindBy?: { field: string; map: Record<string, string> } };
   /** 只在列表里当一列用（读时派生的摘要之类），详情和表单里不显示 */
   listOnly?: boolean;
   /** 旧叫法：导入表格里列标题写旧名称也认（字段改名后，员工手里的旧模板还能用） */
@@ -95,7 +128,15 @@ export interface FieldDef {
   pattern?: { source: string; message: string };
 }
 
+/** 按记录上下文解析字段，避免表单允许的文字在保存或导入时被转成数字。 */
+export function resolveFieldDef(field: FieldDef, values: Record<string, unknown>): FieldDef {
+  const type = field.typeBy?.map[String(values[field.typeBy.field] ?? '')];
+  return type ? { ...field, type } : field;
+}
+
 export interface StatusDef extends Option {
+  /** 原页面明确允许更短原因时声明；未配置仍至少两个字。 */
+  reasonMinLength?:number;
   tone: 'ok' | 'warn' | 'bad' | 'muted';
   /** 切换到该状态必须填写原因（停用/注销/解除合作等） */
   requiresReason?: boolean;
@@ -202,6 +243,8 @@ export interface ArchiveHierarchy {
   categoryType?: string;
   /** 新增资料时必须落在最末级分类（旧供应商/客户档案如此），提示用 */
   leafHint?: string;
+  /** 目录列表只看直属资料；分类卡片和目录计数仍汇总下级。 */
+  directItems?: boolean;
 }
 
 export interface ResourceDef {
@@ -216,6 +259,24 @@ export interface ResourceDef {
   parent?: { type: string; field: string };
   /** 用作标题的字段 */
   titleField: string;
+  /** 表单只读编号预览；只提交列出的依赖，最终编号仍由通用保存规则计算。 */
+  codePreview?: { field: string; inputFields: readonly string[] };
+  /** 小字典在引用字段旁原位新增并选中，复用通用资料及排序接口。 */
+  dictionary?: { title: string; sectionLabel?: string; hint: string; nameLabel: string; codeField: string; sortField?: string; referenceCountField: string };
+  /** 分级资料的同级排序及外侧上下文；复用通用分类管理与排序接口。 */
+  categoryOrder?: { sortField: string; scopeFields: readonly string[]; countField?: string; mutableScope?: { field: string; statuses: readonly string[] } };
+  /** 零值需独立确认；确认内容不作为普通字段或导入导出列。 */
+  zeroValueConfirmation?: { valueField: string; reasonField: string; confirmationField: string; contextFields: readonly (string | { ref: string })[]; reasonLabel: string; confirmLabel: string };
+  /** 手动保存的新建草稿；keyFields隔离版本等外侧上下文，恢复时不覆盖这些身份字段。 */
+  draft?: { keyFields?: readonly string[]; omitFields?: readonly string[]; includeStatus?: boolean; fixedStatus?: boolean };
+  /** 配置驱动的紧凑分区表单；未列出的身份字段仍保留在保存数据中。 */
+  form?: {
+    createTitle: string; editTitle: string; subtitle: string; saveLabel: string;
+    width?: number; titleSize?: number; sectionLabel?: string; icon?: 'users' | 'database'; requiredBadges?: boolean;
+    sections: readonly { title: string; fields: readonly string[]; wideFields?: readonly string[]; step?: string; hint?: string; contextField?: string; contextLabel?: string }[];
+    confirmClose?: boolean;
+    status?: { section: string; activeValue: string; inactiveValue: string; activeText: string; inactiveText: string; activeHint: string; inactiveHint: string };
+  };
   /** 公司内唯一的字段（重复返回 409）；phone 类型会先规范化 */
   uniqueField?: string;
   /** 组合唯一：这些字段值同时相同则拒绝 */
@@ -257,8 +318,12 @@ export interface ResourceDef {
   derivedStores?: string;
   /** 复制新建时不带过去的字段（旧页面的“复制”规则：编号、名称、照片等） */
   copyOmit?: readonly string[];
+  /** 经同公司/查看权限/源版本核验后，复制可继承原引用归属。普通新增仍执行末级等规则。 */
+  copyReferenceFields?: readonly string[];
   /** 详情页展示这些子资源 */
   children?: readonly string[];
+  /** 允许在同一表单事务内保存的直接子表，默认不开放。 */
+  formChildren?: ReadonlyArray<{ type: string; minRowsBy?: { field: string; map: Record<string, number> } }>;
   /** 详情页额外展示的相关资料页签：别的资料里指向本资料的记录（按它自己的权限显示） */
   related?: ReadonlyArray<{ type: string; field: string }>;
   /** 列表按这个日期字段倒序（不设则按新建先后） */
@@ -278,6 +343,7 @@ export function groupTitle(def: Pick<ResourceDef, 'fields' | 'groupTitleBy'>, gr
   return label ? `${label}${g.suffix}` : group;
 }
 
+import { CODE_DICTIONARY_RESOURCE_DEFS } from './code-dictionary-resources';
 import { FINANCE_RESOURCE_DEFS } from './finance-resources';
 import { COST_VERSION_RESOURCE_DEFS } from './cost-version-resources';
 import { ABNORMAL, CANCELLED, INACTIVE, NORMAL, NOTE, attrs, date, files, money, o, ref, refs, secret, select, sensitive, text, textarea } from './resource-kit';
@@ -305,6 +371,7 @@ function sealFields(prefix: string, label: string): FieldDef[] {
 
 export const RESOURCE_DEFS: readonly ResourceDef[] = [
   ...FINANCE_RESOURCE_DEFS,
+  ...CODE_DICTIONARY_RESOURCE_DEFS,
   ...COST_VERSION_RESOURCE_DEFS,
   {
     key: 'licenses',
@@ -1451,6 +1518,8 @@ export function treeFilterField(def: ResourceDef): FieldDef | undefined {
 export function optionsKindOf(field: FieldDef, values: Record<string, unknown>): string | null {
   const from = field.optionsFrom;
   if (!from) return null;
+  const override=from.kindOverride?.map[String(values[from.kindOverride.field] ?? '')];
+  if(override)return override;
   if (from.kindBy) return from.kindBy.map[String(values[from.kindBy.field] ?? '')] ?? from.kind;
   return from.kind;
 }
@@ -1469,12 +1538,16 @@ export function resourcePermission(key: string, action: ResourceAction): string 
 
 /** 当前用户没有权限的字段 key（成本等受限字段）。 */
 export function restrictedFieldKeys(def: ResourceDef, can: (permission: string) => boolean): Set<string> {
-  return new Set(def.fields.filter((f) => f.permission && !can(f.permission)).map((f) => f.key));
+  const hidden = new Set(def.fields.filter((f) => f.permission && !can(f.permission) || f.readPermissions?.some(permission => !can(permission))).map((f) => f.key));
+  if (def.zeroValueConfirmation && hidden.has(def.zeroValueConfirmation.valueField)) hidden.add(def.zeroValueConfirmation.confirmationField);
+  return hidden;
 }
 
 /** 当前用户不能修改的字段（看不到的，或缺少修改权限的）。 */
 export function readOnlyFieldKeys(def: ResourceDef, can: (permission: string) => boolean): Set<string> {
-  return new Set(def.fields.filter((f) => (f.permission && !can(f.permission)) || (f.writePermission && !can(f.writePermission))).map((f) => f.key));
+  const blocked = new Set(def.fields.filter((f) => (f.permission && !can(f.permission)) || f.readPermissions?.some(permission => !can(permission)) || (f.writePermission && !can(f.writePermission))).map((f) => f.key));
+  if (def.zeroValueConfirmation && blocked.has(def.zeroValueConfirmation.valueField)) blocked.add(def.zeroValueConfirmation.confirmationField);
+  return blocked;
 }
 
 export function secretFields(def: ResourceDef): FieldDef[] {
@@ -1528,7 +1601,8 @@ export function validateResourceInput(
   const errors: string[] = [];
   const merged: Record<string, unknown> = { ...(context.existing ?? {}), ...input, status: context.status };
 
-  for (const field of def.fields) {
+  for (const sourceField of def.fields) {
+    const field = resolveFieldDef(sourceField, merged);
     if (field.readonly) continue; // 由系统计算，提交的值一律忽略
     if (!isShown(field, merged)) {
       values[field.key] = null;
@@ -1605,7 +1679,7 @@ export function validateResourceInput(
           const picked = new Set(String(raw).split(/[、,，]/).map((x) => x.trim()).filter(Boolean));
           const bad = [...picked].some((x) => !field.options?.some((opt) => opt.value === x));
           if (bad) errors.push(`${label}的取值不合法`);
-          else values[field.key] = (field.options ?? []).map((o) => o.value).filter((v) => picked.has(v)).join('、');
+          else values[field.key] = (field.preserveSelectionOrder?[...picked]:(field.options ?? []).map((o) => o.value).filter((v) => picked.has(v))).join('、');
           break;
         }
         {
@@ -1665,7 +1739,7 @@ export function validateResourceInput(
 export function validateStatusChange(def: ResourceDef, status: string, reason: string | undefined): string | null {
   const target = def.statuses.find((s) => s.value === status);
   if (!target) return '状态不合法';
-  if (target.requiresReason && !(reason && reason.trim().length >= 2)) return `改为“${target.label}”必须填写原因`;
+  if (target.requiresReason && !(reason && reason.trim().length >= (target.reasonMinLength??2))) return `改为“${target.label}”必须填写原因`;
   return null;
 }
 

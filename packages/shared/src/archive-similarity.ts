@@ -3,7 +3,9 @@
  * 名称完全相同或相似度 >= 55%、简称相同、电话相同给提示（可确认后继续）；
  * 编号相同、税号相同，或已填写的字段全部相同则直接阻止。
  */
-export const SIMILARITY_RESOURCES: readonly string[] = ['finance-suppliers', 'finance-customers', 'finance-products'];
+export const SIMILARITY_RESOURCES: readonly string[] = ['finance-suppliers', 'finance-customers', 'finance-fee-items', 'finance-products'];
+
+export const FEE_SIMILARITY_FIELDS:Readonly<Record<string,string>>={code:'编号',name:'名称',accountingSubject:'会计/核算科目',direction:'收支方向',platform:'适用平台',isCommon:'是否常用',needFlow:'是否走流程'};
 
 /** 商品档案参与比较的字段（只在同一档案类型里比；旧系统比较整张表单，这里取有区分意义的字段） */
 export const PRODUCT_SIMILARITY_FIELDS: Readonly<Record<string, string>> = {
@@ -12,7 +14,7 @@ export const PRODUCT_SIMILARITY_FIELDS: Readonly<Record<string, string>> = {
 
 /** 参与比较的字段 → 显示名；其余字段（分类、备注、状态、加密字段）不参与 */
 export const SIMILARITY_FIELDS: Readonly<Record<string, string>> = {
-  code: '编号', name: '名称', shortName: '简称', shortCode: '简称编号', contact: '联系人', phone: '电话', address: '地址', taxNo: '税号', bankAccountName: '账户名称', bank: '开户行',
+  code: '编号', name: '名称', shortName: '简称', shortCode: '简称编号', contact: '联系人', phone: '联系电话', address: '地址', taxNo: '税号', bankAccountName: '账户名称', bank: '开户行',
 };
 const IDENTITY = new Set(['code', 'taxNo']);
 
@@ -56,6 +58,7 @@ export function inspectArchiveSimilarity(candidate: Record<string, unknown>, exi
   const entries = Object.keys(fields).map((k) => [k, candidate[k]] as const).filter(([, v]) => normalizeArchiveValue(v));
   const name = normalizeArchiveValue(candidate.name);
   const out: SimilarityMatch[] = [];
+  const scores=new Map<number,number>();
   for (const item of existing) {
     if (excludeId !== undefined && item.id === excludeId) continue;
     const blockers: string[] = [];
@@ -75,10 +78,9 @@ export function inspectArchiveSimilarity(candidate: Record<string, unknown>, exi
       else if (k === 'phone') warnings.push('联系电话相同');
     }
     if (entries.length >= 2 && same.length === entries.length) blockers.push('已填写字段完全相同');
-    if (blockers.length || warnings.length) out.push({ id: item.id, name: String(item.data.name ?? ''), blockers: [...new Set(blockers)], warnings: [...new Set(warnings)], sameFields: same, differentFields: diff });
+    if (blockers.length || warnings.length) {out.push({ id: item.id, name: String(item.data.name ?? ''), blockers: [...new Set(blockers)], warnings: [...new Set(warnings)], sameFields: same, differentFields: diff });scores.set(item.id,blockers.length?2:score);}
   }
-  const rank = (m: SimilarityMatch) => (m.blockers.length ? 2 : 1);
-  out.sort((a, b) => rank(b) - rank(a) || a.name.localeCompare(b.name, 'zh-CN'));
+  out.sort((a, b) => (scores.get(b.id)??0)-(scores.get(a.id)??0) || a.name.localeCompare(b.name, 'zh-CN'));
   return { blocked: out.filter((m) => m.blockers.length), warnings: out.filter((m) => !m.blockers.length) };
 }
 

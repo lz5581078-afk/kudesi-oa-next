@@ -1,13 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
-import { getResourceDef } from '@kudesi/shared';
-import { ReasonDialog, RecordForm, clearRefCache } from '../../../resources/RecordForm';
-import { resourceApi, type ResourceDto } from '../../../resources/api';
+import { useEffect, useState } from 'react';
+import { Check, ChevronDown, ChevronRight } from 'lucide-react';
 
 export interface CatNode { id: number; name: string; parentId: number | null; children: CatNode[]; count: number }
 
 /** 把平铺的分类整理成树；count = 自己和所有下级分类下的工作项目数 */
 export function buildCategoryTree(cats: Array<{ id: number; title: string; data: Record<string, unknown> }>, itemCategoryIds: Array<number | null>): CatNode[] {
-  const nodes = new Map<number, CatNode>(cats.map((c) => [c.id, { id: c.id, name: c.title, parentId: typeof c.data.parentId === 'number' ? c.data.parentId : null, children: [], count: 0 }]));
+  const ordered = [...cats].sort((a, b) => Number(a.data.sortOrder ?? 0) - Number(b.data.sortOrder ?? 0) || a.title.localeCompare(b.title, 'zh-CN'));
+  const nodes = new Map<number, CatNode>(ordered.map((c) => [c.id, { id: c.id, name: c.title, parentId: typeof c.data.parentId === 'number' ? c.data.parentId : null, children: [], count: 0 }]));
   const roots: CatNode[] = [];
   for (const n of nodes.values()) (n.parentId !== null && nodes.get(n.parentId) ? nodes.get(n.parentId)!.children : roots).push(n);
   const sum = (n: CatNode): number => { n.count = itemCategoryIds.filter((id) => id === n.id).length + n.children.reduce((t, c) => t + sum(c), 0); return n.count; };
@@ -20,44 +19,17 @@ export const findNode = (roots: CatNode[], id: number | null): CatNode | null =>
   return null;
 };
 
-/** 项目归档分类树（最多三级）：新增下级、修改（改名/换上级）、删除；工作项目只能放在最末级。 */
-export function CategoryTree({ versionId, versionLocked, cats, tree, selected, canEdit, canDelete, onSelect, onChanged, total, management = true }: {
-  versionId: number; versionLocked: boolean; cats: ResourceDto[]; tree: CatNode[]; selected: number | null; canEdit: boolean; canDelete: boolean; total: number;
-  onSelect: (id: number | null) => void; onChanged: () => void;
-  management?: boolean;
-}) {
-  const [form, setForm] = useState<{ record: ResourceDto | null; parentId: number | null } | null>(null);
-  const [removing, setRemoving] = useState<CatNode | null>(null);
-  const [collapsed,setCollapsed] = useState<Set<number>>(new Set());
-  useEffect(()=>setCollapsed(new Set()),[versionId]);
-  const byId = useMemo(() => new Map(cats.map((c) => [c.id, c])), [cats]);
-  const render = (n: CatNode, depth: number) => (
-    <li key={n.id}>
-      <div className="between" style={{ paddingLeft: depth * 14 }}>
-        {!!n.children.length && <button type="button" className="link-button" aria-label={`${collapsed.has(n.id)?'展开':'收起'}${n.name}`} aria-expanded={!collapsed.has(n.id)} onClick={()=>setCollapsed(old=>{const next=new Set(old);if(next.has(n.id))next.delete(n.id);else next.add(n.id);return next;})}>{collapsed.has(n.id)?'▸':'▾'}</button>}
-        <button type="button" className={n.id === selected ? 'tree-item active' : 'tree-item'} aria-current={n.id === selected} onClick={() => onSelect(n.id)}>{n.name} <span className="muted">({n.count})</span></button>
-        {management && canEdit && !versionLocked && (
-          <span className="row-actions">
-            {depth < 2 && <button type="button" className="link-button" aria-label={`给${n.name}加下级`} onClick={() => setForm({ record: null, parentId: n.id })}>加下级</button>}
-            <button type="button" className="link-button" aria-label={`修改${n.name}`} onClick={() => setForm({ record: byId.get(n.id) ?? null, parentId: n.parentId })}>改</button>
-            {canDelete && <button type="button" className="link-button danger" aria-label={`删除${n.name}`} onClick={() => setRemoving(n)}>删</button>}
-          </span>
-        )}
-      </div>
-      {n.children.length > 0 && !collapsed.has(n.id) && <ul className="plain-list">{n.children.map((c) => render(c, depth + 1))}</ul>}
-    </li>
-  );
-  return (
-    <nav aria-label="项目归档分类" className="card">
-      {management && <div className="between"><strong>项目归档分类</strong>{canEdit && !versionLocked && <button type="button" className="link-button" onClick={() => setForm({ record: null, parentId: null })}>+ 一级分类</button>}</div>}
-      <ul className="plain-list">
-        <li><button type="button" className={selected === null ? 'tree-item active' : 'tree-item'} onClick={() => onSelect(null)}>全部 <span className="muted">({total})</span></button></li>
-        {tree.map((n) => render(n, 0))}
-      </ul>
-      {tree.length === 0 && <p className="muted">这个版本还没有归档分类。先建分类，再往里加工作项目（最多三级，项目放最末级）。</p>}
-      {form && <RecordForm def={getResourceDef('finance-labor-categories')!} record={form.record} initial={{ versionId, ...(form.parentId ? { parentId: form.parentId } : {}) }} lockedFields={['versionId']} onClose={() => setForm(null)} onSaved={() => { clearRefCache('finance-labor-categories'); setForm(null); onChanged(); }} />}
-      {removing && <ReasonDialog title={`删除分类「${removing.name}」`} hint="分类下有下级分类或工作项目时不能删除，请先移走。" confirmLabel="确认删除" danger onClose={() => setRemoving(null)}
-        onConfirm={async (reason) => { await resourceApi.remove('finance-labor-categories', removing.id, reason); clearRefCache('finance-labor-categories'); setRemoving(null); if (selected === removing.id) onSelect(null); onChanged(); }} />}
-    </nav>
-  );
+/** 人工项目的只读归档目录；维护统一由FinanceCategoryManager负责。 */
+export function CategoryTree({ versionId, tree, selected, onSelect }: { versionId: number; tree: CatNode[]; selected: number | null; onSelect: (id: number) => void }) {
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  useEffect(() => setExpanded(new Set()), [versionId]);
+  const toggle = (id: number) => setExpanded(old => { const next = new Set(old); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const render = (node: CatNode, depth: number) => <li key={node.id}>
+    <div className={`labor-tree-row${node.id === selected ? ' selected' : ''}`} style={{ paddingLeft: depth ? depth === 1 ? 38 : 66 : 6 }}>
+      <button type="button" className="labor-tree-toggle" disabled={!node.children.length} aria-label={node.children.length ? `${expanded.has(node.id) ? '收起' : '展开'}${node.name}` : `${node.name}没有下级分类`} aria-expanded={node.children.length ? expanded.has(node.id) : undefined} onClick={() => toggle(node.id)}>{node.children.length ? expanded.has(node.id) ? <ChevronDown size={14}/> : <ChevronRight size={14}/> : null}</button>
+      <button type="button" className="labor-tree-label" aria-current={node.id === selected} aria-expanded={node.children.length ? expanded.has(node.id) : undefined} onClick={() => { onSelect(node.id); if (node.children.length) toggle(node.id); }}><span>{node.id === selected && <Check size={13} aria-hidden="true"/>}{node.name}</span><small>{node.count}</small></button>
+    </div>
+    {expanded.has(node.id) && node.children.length > 0 && <ul className="plain-list">{node.children.map(child => render(child, depth + 1))}</ul>}
+  </li>;
+  return <nav aria-label="项目归档分类" className="labor-tree-browse"><ul className="plain-list">{tree.map(node => render(node, 0))}</ul>{tree.length === 0 && <div className="labor-tree-empty">暂未建立归档分类</div>}</nav>;
 }

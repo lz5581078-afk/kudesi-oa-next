@@ -17,9 +17,10 @@ const tables: Record<string, Array<Record<string, unknown>>> = {
   ],
   finance_product_units: [{ id: 1, company_id: 7, unit_name: '千克', unit_code: 'KG', sort_order: 1 }, { id: 2, company_id: 7, unit_name: '桶', unit_code: '', sort_order: 2 }],
   finance_product_packaging_units: [{ id: 1, company_id: 7, unit_name: '袋', unit_code: 'D', sort_order: 1 }],
-  finance_shipping_material_units: [],
+  finance_shipping_material_units: [{ id: 1, company_id: 7, unit_name: '毫米', unit_code: 'MM', sort_order: 1 }],
   finance_products: [
     { id: 'raw-1', company_id: 7, archive_key: 'raw', category_id: 1, product_code: 'YL-SG-1', product_name: '苹果', brand: '', amount: '1', unit: '千克', status: 'normal', payload_json: payload({ giftShortName: '苹', giftCodeShortName: 'pg', materialCode: 'SC001', purchaseSpecification: '千克', freightAmount: '1.5', handlingAmount: '0.5', purchasePrice: '8.5' }) },
+    { id: 'ship-text', company_id: 7, archive_key: 'shipping_material', category_id: 1, product_code: 'FH-OLD-25334MM', product_name: '气泡袋', amount: '25*33+4', unit: '毫米', status: 'normal', payload_json: payload({ purchaseSpecification: '个' }) },
     { id: 'pkg-1', company_id: 7, archive_key: 'package', category_id: 2, product_code: 'BZ-DL-1', product_name: '蛇皮袋', brand: '', amount: '1', unit: '千克', weighing_weight: '14', status: 'normal', payload_json: payload({ packagingCategory: '蛇皮袋', dimensionUnit: '厘米', dimensions: '20×15', capacities: ['500ML'], weightUnit: 'g' }) },
   ],
   finance_product_archive_costs: [
@@ -84,6 +85,12 @@ describe('迁移适配器：商品档案（假旧库）', () => {
     expect(units.find((u) => u.data.kind === 'dimension_unit')?.data.code).toBe('cm');
     const firstProduct = out.records.findIndex((r) => r.type === 'finance-products');
     expect(out.records.findIndex((r) => r.type === 'finance-product-units')).toBeLessThan(firstProduct);
+  });
+
+  it('文字规格原样迁入，保留名称单位和既有编码，不折成一单位或塞进形态', () => {
+    const product = of('finance-products').find(r => r.id === 'ship-text')!;
+    expect(product.data).toMatchObject({ specQty: '25*33+4', specUnit: 'MM', code: 'FH-OLD-25334MM', purchaseSpec: '个' });
+    expect(product.data.shape).toBeFalsy();
   });
 
   it('商品档案带上赠品简称、赠品编码简称、生产编码，单位名称换成编码', () => {

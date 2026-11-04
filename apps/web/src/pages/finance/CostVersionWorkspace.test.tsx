@@ -63,3 +63,20 @@ describe('成本版本工作区',()=>{
     await screen.findByText('ZH-2');await act(async()=>{resolveFirst(preview(1));});expect(screen.queryByText('ZH-1')).toBeNull();expect(screen.getByText('ZH-2')).toBeTruthy();
   });
 });
+
+it('补齐预检读取期间切到其他版本，旧预检不弹到新版本或提供错误确认',async()=>{
+  let finish!:(value:Awaited<ReturnType<typeof costVersionsApi.sources>>)=>void;
+  vi.mocked(resourceApi.list).mockResolvedValue({items:[version(1),version(2)],total:2,page:1,pageSize:200});
+  vi.mocked(costVersionsApi.sources).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+  renderPage();await screen.findByText('秋季成本1');
+  fireEvent.click(within(screen.getByText('秋季成本1').closest('tr')!).getByRole('button',{name:'SKU成本'}));
+  await screen.findByText('ZH-1');fireEvent.click(screen.getByRole('button',{name:'补齐未登记SKU'}));
+  await waitFor(()=>expect(finish).toBeTruthy());
+  fireEvent.click(screen.getByRole('button',{name:'返回成本版本'}));
+  fireEvent.click(within(screen.getByText('秋季成本2').closest('tr')!).getByRole('button',{name:'SKU成本'}));
+  finish({rows:[{skuType:'bundle',skuId:999,code:'OLD-SCOPE',name:'旧版本候选'}],signature:'old-scope'});
+  await waitFor(()=>expect(costVersionsApi.preview).toHaveBeenCalledWith(2));
+  expect(screen.queryByRole('dialog',{name:'补齐未登记SKU预检'})).toBeNull();
+  expect(screen.queryByText('旧版本候选')).toBeNull();
+  expect(costVersionsApi.register).not.toHaveBeenCalled();
+});

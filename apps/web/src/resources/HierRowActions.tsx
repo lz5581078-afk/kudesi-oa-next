@@ -1,3 +1,6 @@
+import {Copy} from 'lucide-react';
+import {ProductArchiveActionDialog} from './ProductArchiveActionDialog';
+import {referenceRecordLabel} from './referenceFormLayout';
 import { useState } from 'react';
 import { archivePolicyOf, COPY_OMIT_FIELDS, type ResourceDef } from '@kudesi/shared';
 import { ApiError } from '../api/client';
@@ -8,11 +11,16 @@ import { ReasonDialog, clearRefCache } from './RecordForm';
 export function copyValuesOf(def: ResourceDef, data: Record<string, unknown>): Record<string, unknown> {
   const values: Record<string, unknown> = {};
   for (const f of def.fields) {
-    if (f.readonly || f.type === 'files' || f.type === 'secret' || f.type === 'sensitive' || f.key === 'code' || f.key === def.uniqueField || def.copyOmit?.includes(f.key) || (def.key === 'finance-products' && COPY_OMIT_FIELDS.includes(f.key))) continue;
+    if (f.readonly || f.type === 'files' && !f.copyOnCreate || f.type === 'secret' || f.type === 'sensitive' && !f.copyOnCreate || f.key === 'code' || f.key === def.uniqueField || def.copyOmit?.includes(f.key) || (def.key === 'finance-products' && COPY_OMIT_FIELDS.includes(f.key))) continue;
     const v = data[f.key];
     if (v !== undefined && v !== null && v !== '') values[f.key] = v;
   }
   return values;
+}
+
+/** 文件只显示待复制事实；最终保存才由服务器在事务里产生新绑定。 */
+export function copyInitialOf(def:ResourceDef,row:ResourceDto):Record<string,unknown>{
+  return {...copyValuesOf(def,row.data),...(def.key==='finance-products'?{unitDictionaryKind:row.data.unitDictionaryKind}:{}),...(def.key.startsWith('finance-')?{__copyOf:row.id}:{}),...(def.copyReferenceFields?.length || def.fields.some(f=>f.type==='files' && f.copyOnCreate)?{__copyVersion:row.version,__copyFiles:row.files}: {})};
 }
 
 /**
@@ -37,23 +45,29 @@ export function HierRowActions({ def, row, can, onOpen, onEdit, onCopy, onCost, 
   const stopped = Boolean(off && row.status === off.value);
   const archivable = Boolean(archivePolicyOf(def.key));
   const live = !row.archived;
+  const financeParty=['finance-suppliers','finance-customers','finance-fee-items'].includes(def.key);
+  const productArchive=def.key==='finance-products';
+  const [statusBusy,setStatusBusy]=useState(false);
+  async function enable(){if(statusBusy||!on)return;setStatusBusy(true);try{await resourceApi.changeStatus(def.key,row.id,on.value);clearRefCache(def.key);onDone(`「${row.title}」已启用`);}catch(e){setError(e instanceof ApiError?e.message:'操作失败');}finally{setStatusBusy(false);}}
   const act = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); setError(''); fn(); };
   return (
     <span className="row-acts hier-acts" onClick={(e) => e.stopPropagation()}>
       <button type="button" className="row-act" aria-label={`查看：${row.title}`} onClick={act(() => onOpen(row.id))}>查看</button>
       {live && can('edit') && <button type="button" className="row-act" aria-label={`编辑：${row.title}`} onClick={act(() => onEdit(row))}>编辑</button>}
-      {live && can('create') && <button type="button" className="row-act" aria-label={`复制新增：${row.title}`} title="按这条的内容新增一条，编号、图片不带过去" onClick={act(() => onCopy({ ...copyValuesOf(def, row.data), ...(def.key === 'finance-products' ? { __copyOf: row.id } : {}) }))}>复制新增</button>}
+      {live && can('create') && <button type="button" className="row-act" aria-label={`复制新增：${row.title}`} title={def.fields.some(f=>f.type==='files' && f.copyOnCreate)?'按这条的内容新增一条，编号重新生成':'按这条的内容新增一条，编号、图片不带过去'} onClick={act(() => onCopy(copyInitialOf(def,row)))}>{(financeParty||productArchive) && <Copy size={13}/>}复制新增</button>}
       {onCost && <button type="button" className="row-act" aria-label={`成本明细：${row.title}`} onClick={act(() => onCost(row.id))}>成本明细</button>}
       {live && can('disable') && off && on && (
-        <button type="button" className="row-act" aria-label={`${stopped ? '启用' : '停用'}：${row.title}`} onClick={act(() => setAsking(stopped ? 'on' : 'off'))}>{stopped ? '启用' : '停用'}</button>
+        <button type="button" className="row-act" aria-label={`${stopped ? '启用' : '停用'}：${row.title}`} disabled={statusBusy} onClick={act(() => {if(financeParty&&stopped)void enable();else setAsking(stopped ? 'on' : 'off');})}>{stopped ? '启用' : '停用'}</button>
       )}
       {live && can('delete') && <button type="button" className="row-act danger" aria-label={`${archivable ? '归档' : '删除'}：${row.title}`} onClick={act(() => setAsking('del'))}>{archivable ? '归档' : '删除'}</button>}
       {error && <small role="alert" className="row-act-err">{error}</small>}
-      {asking && asking !== 'del' && off && on && (
+      {asking && productArchive && off && on && <ProductArchiveActionDialog mode={asking} title={row.title} recordLabel={referenceRecordLabel(def.key,row.data)} onClose={()=>setAsking(null)} onConfirm={async reason=>{if(asking==='del')await resourceApi.remove(def.key,row.id,'财务商品档案页面删除',row.version);else await resourceApi.changeStatus(def.key,row.id,asking==='off'?off.value:on.value,reason);clearRefCache(def.key);onDone(`「${row.title}」已${asking==='del'?'删除':asking==='off'?'停用':'启用'}`);}}/>}
+      {asking && !productArchive && asking !== 'del' && off && on && (
         <ReasonDialog
-          title={`${asking === 'off' ? '停用' : '启用'}：${row.title}`}
-          hint={asking === 'off' ? `停用后默认不再显示，原因会写入${def.label}的操作记录。` : '启用后恢复为正常状态，重新出现在默认列表里。'}
-          confirmLabel={asking === 'off' ? '确认停用' : '确认启用'}
+          presentation={financeParty&&asking==='off'?'finance-archive':undefined}
+          title={financeParty&&asking==='off'?'填写停用原因':`${asking === 'off' ? '停用' : '启用'}：${row.title}`}
+          hint={asking === 'off' ? financeParty?`停用“${row.title}”后默认不再显示，原因会写入档案记录。`:`停用后默认不再显示，原因会写入${def.label}的操作记录。` : '启用后恢复为正常状态，重新出现在默认列表里。'}
+          confirmLabel={asking === 'off' ? financeParty?'确认提交':'确认停用' : '确认启用'}
           suggestions={asking === 'off' ? ['不再使用', '重复录入', '信息有误'] : ['恢复使用', '误停用']}
           danger={asking === 'off'}
           onClose={() => setAsking(null)}
@@ -63,19 +77,22 @@ export function HierRowActions({ def, row, can, onOpen, onEdit, onCopy, onCost, 
               clearRefCache(def.key);
               setAsking(null);
               onDone(`「${row.title}」已${asking === 'off' ? '停用' : '启用'}`);
-            } catch (e) { setError(e instanceof ApiError ? e.message : '操作失败'); setAsking(null); }
+            } catch (e) { if(financeParty)throw e;setError(e instanceof ApiError ? e.message : '操作失败'); setAsking(null); }
           }}
         />
       )}
-      {asking === 'del' && (
+      {asking === 'del' && !productArchive && (
         <ReasonDialog
-          title={`${archivable ? '归档' : '删除'}：${row.title}`}
-          hint={archivable ? '归档后不再出现在日常列表，关联和历史记录保留，可在“已归档”里恢复。' : '删除后无法恢复。还被其他资料引用时不能删除，请先解除引用，或改为停用。'}
+          presentation={financeParty?'finance-delete':undefined}
+          subject={row.title}
+          requireReason={!financeParty}
+          title={financeParty?'确认删除':`${archivable ? '归档' : '删除'}：${row.title}`}
+          hint={financeParty?'删除后不会在当前列表继续显示。':archivable ? '归档后不再出现在日常列表，关联和历史记录保留，可在“已归档”里恢复。' : '删除后无法恢复。还被其他资料引用时不能删除，请先解除引用，或改为停用。'}
           confirmLabel={archivable ? '确认归档' : '确认删除'}
           danger
           onClose={() => setAsking(null)}
           onConfirm={async (reason) => {
-            await resourceApi.remove(def.key, row.id, reason);
+            await resourceApi.remove(def.key, row.id, financeParty?'财务档案页面删除':reason,financeParty?row.version:undefined);
             clearRefCache(def.key);
             setAsking(null);
             onDone(`「${row.title}」已${archivable ? '归档' : '删除'}`);

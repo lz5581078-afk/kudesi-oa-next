@@ -419,6 +419,20 @@ function boolTransformer() {
   };
 }
 
+/** 表单事务的幂等结果，不保存用户填写的内容。 */
+@Entity('resource_form_mutations')
+@Index('uq_resource_form_request', ['companyId', 'requestKey'], { unique: true })
+export class ResourceFormMutation {
+  @PrimaryGeneratedColumn({ type: 'int', unsigned: true }) id!: number;
+  @Column({ name: 'company_id', type: 'int', unsigned: true }) companyId!: number;
+  @Column({ name: 'actor_id', type: 'int', unsigned: true }) actorId!: number;
+  @Column({ name: 'resource_type', type: 'varchar', length: 64 }) resourceType!: string;
+  @Column({ name: 'request_key', type: 'char', length: 36 }) requestKey!: string;
+  @Column({ name: 'request_hash', type: 'char', length: 64 }) requestHash!: string;
+  @Column({ name: 'record_id', type: 'int', unsigned: true, nullable: true }) recordId!: number | null;
+  @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
+}
+
 /** 通用资料记录：字段定义见 packages/shared/src/resources.ts，字段值在 data(JSON)。 */
 @Entity('resource_records')
 @Index('uq_resource_unique', ['companyId', 'type', 'uniqueKey'], { unique: true })
@@ -626,6 +640,8 @@ export class FinanceDocument {
   @Column({ name: 'doc_date', type: 'date' }) docDate!: string;
   @Column({ name: 'party_id', type: 'int', unsigned: true, nullable: true }) partyId!: number | null;
   @Column({ name: 'party_kind', type: 'varchar', length: 12, nullable: true }) partyKind!: string | null;
+  @Column({ name: 'counterparty_name', type: 'varchar', length: 160, nullable: true }) counterpartyName!: string | null;
+  @Column({ name: 'settlement_mode', type: 'varchar', length: 12, nullable: true }) settlementMode!: string | null;
   @Column({ name: 'bank_account_id', type: 'int', unsigned: true, nullable: true }) bankAccountId!: number | null;
   @Column({ name: 'to_bank_account_id', type: 'int', unsigned: true, nullable: true }) toBankAccountId!: number | null;
   @Column({ name: 'warehouse_id', type: 'int', unsigned: true, nullable: true }) warehouseId!: number | null;
@@ -643,6 +659,7 @@ export class FinanceDocument {
   @Column({ name: 'confirmed_at', type: 'datetime', nullable: true }) confirmedAt!: Date | null;
   @Column({ name: 'settle_by', type: 'varchar', length: 8, nullable: true }) settleBy!: string | null;
   @Column({ type: 'varchar', length: 500, nullable: true }) memo!: string | null;
+  @Column({ type: 'varchar', length: 255, nullable: true }) summary!: string | null;
   @Column({ type: 'varchar', length: 60, nullable: true }) handler!: string | null;
   @Column({ name: 'handler_id', type: 'int', unsigned: true, nullable: true }) handlerId!: number | null;
   @Column({ type: 'varchar', length: 60, nullable: true }) department!: string | null;
@@ -672,9 +689,12 @@ export class FinanceDocumentLine {
   @Column({ type: 'varchar', length: 200, nullable: true }) memo!: string | null;
   @Column({ name: 'related_node', type: 'varchar', length: 20, nullable: true }) relatedNode!: string | null;
   @Column({ name: 'related_id', type: 'int', unsigned: true, nullable: true }) relatedId!: number | null;
-  @Column({ name: 'related_name', type: 'varchar', length: 100, nullable: true }) relatedName!: string | null;
-  @Column({ name: 'item_name', type: 'varchar', length: 100, nullable: true }) itemName!: string | null;
-  @Column({ type: 'varchar', length: 20, nullable: true }) unit!: string | null;
+  @Column({ name: 'related_name', type: 'varchar', length: 512, nullable: true }) relatedName!: string | null;
+  @Column({ name: 'item_name', type: 'varchar', length: 512, nullable: true }) itemName!: string | null;
+  @Column({ name: 'product_name', type: 'varchar', length: 200, nullable: true }) productNameSnapshot!: string | null;
+  @Column({ name: 'fee_item_name', type: 'varchar', length: 200, nullable: true }) feeItemNameSnapshot!: string | null;
+  @Column({ name: 'item_code', type: 'varchar', length: 160, nullable: true }) itemCodeSnapshot!: string | null;
+  @Column({ type: 'varchar', length: 40, nullable: true }) unit!: string | null;
 }
 
 @Entity('finance_document_accounts')
@@ -710,6 +730,8 @@ export class FinanceCostSnapshot {
   @Column({ name: 'freight_cents', type: 'decimal', precision: 24, scale: 4, nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } }) freightCents!: number | null;
   @Column({ name: 'margin_percent', type: 'decimal', precision: 10, scale: 6, nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } }) marginPercent!: number | null;
   @Column({ name: 'min_price_cents', type: 'bigint', nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } }) minPriceCents!: number | null;
+  /** 当时的独立成本、分类、快递及显式单品利润率；旧记录缺失时不按当前档案回填。 */
+  @Column({ name: 'context_json', type: 'json', nullable: true }) context!: { productCostCents: number | null; categoryId: number | null; carrierName: string; explicitMarginPercent?: number | null } | null;
   @Column({ type: 'varchar', length: 200, default: '' }) reason!: string;
   /** 事件类型：workflow_publish 验证发布 / pricing_update 维护售价 / source_values_update 来源值变化 / manual 手动登记 */
   @Column({ name: 'event_type', type: 'varchar', length: 24, default: 'manual' }) eventType!: string;
@@ -786,9 +808,19 @@ export class FeeArchiveSnapshot {
   @Column({ name: 'category_count', type: 'int', unsigned: true, default: 0 }) categoryCount!: number;
   @Column({ name: 'item_count', type: 'int', unsigned: true, default: 0 }) itemCount!: number;
   @Column({ name: 'snapshot_json', type: 'longtext' }) snapshotJson!: string;
+  @Column({ name: 'sort_preference', type: 'json', nullable: true }) sortPreference!: Record<string,unknown> | null;
   @Column({ name: 'created_by', type: 'int', unsigned: true, nullable: true }) createdBy!: number | null;
   @CreateDateColumn({ name: 'created_at', type: 'datetime' }) createdAt!: Date;
   @Column({ name: 'restored_at', type: 'datetime', nullable: true }) restoredAt!: Date | null;
+}
+
+@Entity('user_preferences')
+export class UserPreference {
+  @PrimaryColumn({name:'company_id',type:'int',unsigned:true}) companyId!:number;
+  @PrimaryColumn({name:'user_id',type:'int',unsigned:true}) userId!:number;
+  @PrimaryColumn({name:'preference_key',type:'varchar',length:80}) preferenceKey!:string;
+  @Column({type:'json'}) value!:Record<string,unknown>;
+  @Column({name:'updated_at',type:'datetime',insert:false,update:false}) updatedAt!:Date;
 }
 
 @Entity('outbox_switches')
@@ -812,6 +844,7 @@ export class FinanceEntry {
   @Column({ name: 'sub_id', type: 'int', unsigned: true, default: 0 }) subId!: number;
   @Column({ name: 'amount_cents', type: 'bigint', transformer: { to: (v: number) => v, from: (v: string | number) => Number(v) } }) amountCents!: number;
   @Column({ type: 'decimal', precision: 18, scale: 4, nullable: true, transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : Number(v)) } }) qty!: number | null;
+  @Column({type:'varchar',length:40,nullable:true}) unit!:string|null;
 }
 
 @Entity('finance_document_events')
@@ -889,7 +922,7 @@ export class FlowRun {
   @Column({ name: 'definition_id', type: 'int', unsigned: true }) definitionId!: number;
   @Column({ name: 'template_key', type: 'varchar', length: 40 }) templateKey!: string;
   @Column({ type: 'varchar', length: 200 }) title!: string;
-  @Column({ type: 'varchar', length: 12, default: 'running' }) status!: 'running' | 'completed' | 'cancelled' | 'rejected';
+  @Column({ type: 'varchar', length: 12, default: 'running' }) status!: 'draft' | 'running' | 'completed' | 'cancelled' | 'rejected';
   @Column({ name: 'requester_id', type: 'int', unsigned: true }) requesterId!: number;
   @Column({ name: 'current_step_key', type: 'varchar', length: 32, nullable: true }) currentStepKey!: string | null;
   @Column({ type: 'json' }) payload!: Record<string, unknown>;
@@ -1372,11 +1405,13 @@ export const ALL_ENTITIES = [
   EmployeeCompensationRecord,
   AuditLog,
   ResourceRecord,
+  ResourceFormMutation,
   ResourceLink,
   ResourceChangeLog,
   IntegrationSetting,
   ResourceFile,
   FormDraft,
+  UserPreference,
   PhoneUploadSession,
   ProductVerificationEvent,
   AfterSalesCase,

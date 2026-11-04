@@ -32,6 +32,7 @@ import { FinanceOverviewPage } from './pages/finance/FinanceOverviewPage';
 import { SettlementDetailPage, UnsettledReceiptsPage } from './pages/finance/SettlementPages';
 import { ApiKeysPage, CostHistoryPage, JstSyncPage, MasterResetPage, PackagingMatchPage } from './pages/finance/DataToolPages';
 import { TabHost, type HostTab } from './layout/TabHost';
+import { ExpressWorkspace } from './pages/finance/express/ExpressWorkspace';
 import { ExpressPricesPage } from './pages/finance/express/ExpressPricesPage';
 import { FreightEstimatePage } from './pages/finance/express/FreightEstimatePage';
 import { ZoneRunsPage } from './pages/finance/express/ZoneRunsPage';
@@ -168,7 +169,7 @@ for (const [hostKey, tabs] of Object.entries(PAGE_TABS)) {
     return { ...t, Component };
   });
   const basicFinance = section === 'finance' && NAV_SECTIONS.find(s => s.id === section)?.pages.find(p => p.id === hostId)?.group === '基础资料';
-  const Host = () => <TabHost tabs={hostTabs} hideNavigation={basicFinance} />;
+  const Host = () => hostKey === 'finance/finance-express-prices' ? <ExpressWorkspace tabs={hostTabs} /> : <TabHost tabs={hostTabs} hideNavigation={basicFinance||(section==='finance'&&['master-import','jst-maintenance'].includes(hostId))} />;
   Host.displayName = `Host(${hostKey})`;
   PAGE_COMPONENTS[`${section}.${hostId}`] = Host;
 }

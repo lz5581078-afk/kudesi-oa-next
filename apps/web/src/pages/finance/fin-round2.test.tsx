@@ -19,8 +19,9 @@ vi.mock('./financeApi', () => ({
 }));
 vi.mock('../../resources/api', async (orig) => ({ ...(await orig<typeof import('../../resources/api')>()), resourceApi: { list: vi.fn(), get: vi.fn() } }));
 const fa = vi.mocked(financeApi);
-beforeEach(() => { vi.clearAllMocks(); window.localStorage.clear(); fa.banks.mockResolvedValue([]); vi.mocked(resourceApi.list).mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 15 } as never); });
-afterEach(cleanup);
+beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }); vi.clearAllMocks(); window.localStorage.clear(); fa.banks.mockResolvedValue([]); vi.mocked(resourceApi.list).mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 15 } as never); });
+afterEach(() => { vi.unstubAllGlobals(); cleanup(); });
 
 describe('金额类单据：多行明细', () => {
   it('收款单可以加多行，合计是各行之和，提交的是整数分明细', async () => {
@@ -28,10 +29,10 @@ describe('金额类单据：多行明细', () => {
     render(<DocForm type="receipt" inline onSaved={vi.fn()} />);
     fireEvent.change(screen.getByLabelText('第1行金额'), { target: { value: '12.5' } });
     fireEvent.change(screen.getByLabelText(/^第1行(?!金额|备注)/), { target: { value: '货款' } });
-    fireEvent.click(screen.getByRole('button', { name: '+ 加一行' }));
+    fireEvent.click(screen.getByRole('button', { name: '添加一行明细' }));
     fireEvent.change(screen.getByLabelText('第2行金额'), { target: { value: '7.5' } });
     fireEvent.change(screen.getByLabelText(/^第2行(?!金额|备注)/), { target: { value: '运费' } });
-    expect(document.querySelector('.slip-foot-total')!.textContent).toContain('¥20.00');
+    expect(document.querySelector('.slip-total-card')!.textContent).toContain('¥20.00');
     fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
     await waitFor(() => expect(fa.create).toHaveBeenCalled());
     const body = fa.create.mock.calls[0][0] as { lines: { itemName: string; unitPriceCents: number }[] };
@@ -47,23 +48,23 @@ describe('开单明细单位', () => {
   });
 });
 
-describe('财务经营：任意起止日期', () => {
-  it('填起止日期后按日期区间查询', async () => {
-    fa.overview.mockResolvedValue({ month: '2026-10', from: '2026-10-01', to: '2026-10-27', trendBy: 'day', trend: [], stores: [], ledger: [], revenueCents: 0, cogsCents: null, grossProfitCents: null, expenseCents: 0, otherIncomeCents: 0, netProfitCents: null, receivableCents: 0, payableCents: 0, advanceReceiptCents: 0, prepaymentCents: 0, bankCents: null, drafts: 0, issued: 0 } as never);
-    render(<MemoryRouter><FinanceOverviewPage /></MemoryRouter>);
-    await waitFor(() => expect(fa.overview).toHaveBeenCalled());
-    fireEvent.change(await screen.findByLabelText('开始日期'), { target: { value: '2026-09-01' } });
-    fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-09-20' } });
-    await waitFor(() => expect(fa.overview).toHaveBeenLastCalledWith(undefined, { from: '2026-09-01', to: '2026-09-20' }));
+describe('财务经营：原版范围', () => {
+  it('按全部店铺日报读取，不保留新版独加的期间筛选', async () => {
+    fa.overview.mockResolvedValue({storeTrend:[],stores:[],ledger:[]} as never);
+    render(<MemoryRouter><FinanceOverviewPage/></MemoryRouter>);
+    await waitFor(() => expect(fa.overview).toHaveBeenLastCalledWith('all'));
+    expect(screen.queryByLabelText('开始日期')).toBeNull();
+    expect(screen.queryByLabelText('结束日期')).toBeNull();
+    expect(screen.queryByRole('button',{name:'刷新数据'})).toBeNull();
   });
 });
 
 describe('草稿中心', () => {
   it('显示后端统计的今日新增草稿', async () => {
-    fa.docs.mockResolvedValue({ total: 30, amountCents: 0, paidCents: 0, page: 1, pageSize: 20, rows: [], todayCount: 4 } as never);
+    fa.docs.mockResolvedValue({ total: 30, amountCents: 0, paidCents: 0, page: 1, pageSize: 20, rows: Array.from({length:30},(_,index)=>({id:index+1,docNo:'SYNTHETIC-'+index,docType:'payment',typeLabel:'付款单',status:'draft',docDate:'2026-03-10',amountCents:0,paidCents:0,partyName:'合成对象',source:'手工制单'})), todayCount: 4 } as never);
     render(<MemoryRouter><DocumentsPage scope="drafts" /></MemoryRouter>);
     expect(await screen.findByText('今日新增草稿')).toBeTruthy();
-    expect(await screen.findByText('4 张')).toBeTruthy();
+    expect(await screen.findByText('4 条')).toBeTruthy();
   });
 });
 

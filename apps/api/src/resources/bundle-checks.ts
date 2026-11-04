@@ -45,6 +45,7 @@ export function pickLine(d: Data): Data {
   const out: Data = { role: d.role, qty: d.qty };
   if (d.baseCodeId !== undefined) out.baseCodeId = d.baseCodeId;
   if (d.laborId !== undefined) out.laborId = d.laborId;
+  if(d.productId!==undefined)out.productId=d.productId;
   for (const k of LINE_EXTRA_KEYS) if (d[k] !== undefined && d[k] !== null && d[k] !== '') out[k] = d[k];
   return out;
 }
@@ -62,9 +63,10 @@ export interface BundleIssue { message: string }
  */
 export async function bundleIssues(em: EntityManager, companyId: number, bundle: Data, lines: Data[], platformStatus?: string): Promise<string[]> {
   const issues: string[] = [];
-  const cat = await rec(em, companyId, 'finance-categories', bundle.bundleCategoryId);
-  if (!cat || cat.status !== 'active' || cat.data.archiveType !== 'bundle') issues.push('组合分类不存在或已停用（请选组合分类树里的最末级分类）');
-  else if (await hasChildren(em, companyId, cat.id)) issues.push('组合分类必须选最末级');
+  const codingCategory=bundle.codeDictionaryCategoryId!=null;
+  const cat = await rec(em, companyId, codingCategory?'finance-code-dictionaries':'finance-categories', codingCategory?bundle.codeDictionaryCategoryId:bundle.bundleCategoryId);
+  if (!cat || cat.status !== 'active' || (codingCategory?cat.data.kind!=='product_category':cat.data.archiveType!=='bundle')) issues.push('组合分类不存在或已停用（请选组合分类树里的最末级分类）');
+  else if (codingCategory ? (await em.find(ResourceRecord,{where:{companyId,type:'finance-code-dictionaries'}})).some(row=>row.data.parentId===cat.id) : await hasChildren(em, companyId, cat.id)) issues.push('组合分类必须选最末级');
   if (platformStatus && platformStatus !== 'active') issues.push('销售平台已停用');
   const labels: Array<[string, string]> = [['code', '组合编码'], ['styleCode', '款式编码'], ['name', '商品名称'], ['shortName', '商品简称'], ['propertiesValue', '规格值'], ['baseUnit', '计量单位']];
   for (const [k, label] of labels) if (!str(bundle[k]).trim()) issues.push(`${label}未填写`);
@@ -77,6 +79,16 @@ export async function bundleIssues(em: EntityManager, companyId: number, bundle:
       const lab = await rec(em, companyId, 'finance-labor-costs', l.laborId);
       if (!lab || lab.status !== 'active') issues.push('人工来源停用、失效或成本无效');
       else if (!(qty && qty > 0)) issues.push(`${lab.title}：用量必须大于0`);
+      continue;
+    }
+    if(l.productId!=null){
+      const product=await rec(em,companyId,'finance-products',l.productId),name=product?.title || '档案组件';
+      if(!product || product.status!=='active'){issues.push(`${name}：来源不存在或已停用`);continue;}
+      if(!(qty && qty>0))issues.push(`${name}：用量必须大于0`);
+      if(!str(l.unit) && !str(product.data.specUnit))issues.push(`${name}：缺少计量单位`);
+      if(num(product.data.totalCost)===null || Number(product.data.totalCost)<0)issues.push(`${name}：缺少有效总成本`);
+      const grams=num(product.data.weightG);if(grams===null)weightKnown=false;else weight+=grams*(qty ?? 0);
+      if(l.includeInJst===true){jstLines++;issues.push(`${name}：需上传的组成必须关联已验证的商品基础编码`);if(!Number.isSafeInteger(qty))issues.push(`${name}：聚水潭组合装数量必须为正整数`);}
       continue;
     }
     const bc = await rec(em, companyId, 'finance-base-codes', l.baseCodeId);

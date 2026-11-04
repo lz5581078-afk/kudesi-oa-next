@@ -3,11 +3,13 @@ export * from './navigation';
 export * from './permission-catalog';
 export * from './finance-documents';
 export * from './fee-archive';
+export * from './expense-sort';
 export * from './finance-resources';
 export * from './pricing';
 export * from './pricing-debug';
 export * from './auth';
 export * from './resources';
+export * from './zero-value-confirmation';
 export * from './category-options';
 export * from './expiry';
 export * from './resource-views';
@@ -51,5 +53,20 @@ export { compatiblePurchaseTemplate } from './purchase-compat-template';
 export * from "./desk-access";
 
 export * from './live-platforms';
+export * from './source-price-time';
+
+export * from './resource-form';
+
+export * from './cost-breakdown';
+
+export { productCapacity, productCapacityText } from './product-capacities';
+
+export * from './query-search';
+export * from './finance-reference-labels';
+
+export * from './resource-import-profiles';
+
+export * from './bundle-naming';
+export * from './base-code-definition';
 
 export * from './desktop-after-sales';

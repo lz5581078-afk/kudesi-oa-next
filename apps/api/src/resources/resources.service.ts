@@ -1,3 +1,27 @@
+import {beginSourceProductQuality,sourceQualitySavedRows,endSourceProductQuality,sourceProductQualityActive,sourceQualityValues} from './source-product-quality';
+import {deriveBaseCodeListFacts,type BaseCodeListFacts} from './base-code-list-facts';
+import {deriveBaseCodeSourceStatuses} from './base-code-source-statuses';
+import {extractProductBomCostFacts} from './product-bom-cost-facts';
+import {recordVersion} from './resource-record-version';
+import {EXPENSE_SORT_KEY,normalizeExpenseSortPreference} from '@kudesi/shared';
+import {deriveProductReferenceList} from './product-reference-list';
+import {deriveProductFinishedNames} from './product-reference-finished-names';
+import {exportProductReferenceCsv,PRODUCT_REFERENCE_CSV_COLUMNS} from './product-reference-csv';
+import {deriveProductReferenceSortIds,isProductReferenceSortKey} from './product-reference-sort';
+import {loadProductCostReferences,syncProductCostSnapshotReferences} from './product-cost-references';
+import {UserPreference} from '../entities';
+import {referenceArchiveCsv,type ArchiveCsvImportContext} from './reference-archive-csv';
+import {beforeBomVersionLock} from './bundle-bom-versions';
+import {markCategorySyncDirty} from '../outbox/category-sync-policy';
+import { importedBaseWeight } from './external-base-code-rules';
+import { importedProductIdentity } from './finance-rules';
+import { getResourceImportProfile,getSourceProductImportProfile, RESOURCE_IMPORT_PROFILES } from '@kudesi/shared';
+import { validateProfileWorkbook, prepareProfileStep, bindProfileAlias, profileStepAccepts, type ProfileSheetInput, type ProfileAliases, type ProfileRecord } from './resource-import-profile';
+import { withTrustedResourceImport } from './resource-import-capability';
+import { beginPurchaseHistoryBatch, flushPurchaseHistory } from './product-purchase-history';
+import { beforeFormSaveRule, afterFormSaveRule, beforeStatusChangeRule, beforeDirectStatusRule } from './resource-rules';
+import { saveResourceForm } from './resource-form';
+import type { ResourceFormInput } from '@kudesi/shared';
 import { ExternalConfigService } from '../integrations/external-config.service';
 import { storeJstShops, validateStoreJst, storeJstPatch } from './store-jst';
 import { readSourceRow } from '../migration/source-rows';
@@ -9,7 +33,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, IsNull, Like, Not, SelectQueryBuilder } from 'typeorm';
 import {
-  unitYuanText, yuanToPreciseCents, createChecker,
+  unitYuanText, yuanToPreciseCents, createChecker, readZeroValueConfirmation,
   addDaysText, daysBetweenDates, dueDateFor, expirySources, EXPIRY_SKIP_STATUSES, todayShanghai,
   FieldDef,
   getResourceDef, isKnownRelationKind,
@@ -17,6 +41,7 @@ import {
   browseFilterFields,
   SIMILARITY_RESOURCES,
   PRODUCT_SIMILARITY_FIELDS,
+  FEE_SIMILARITY_FIELDS,
   UNIT_OPTIONS,
   unitOptionFromText,
   optionsKindsOf,
@@ -30,7 +55,7 @@ import {
   resourcePermission,
   readOnlyFieldKeys,
   restrictedFieldKeys,
-  validateResourceInput,
+  validateResourceInput, resolveFieldDef,
   resourceTabCondition,
   validateStatusChange,
   normalizePhoneImportText,
@@ -38,7 +63,7 @@ import {
 import { AuthUser } from '../common/auth.decorators';
 import { WAREHOUSE_PRODUCT_FIELDS, isWarehouseMode } from './warehouse-mode';
 import { CryptoService } from '../common/crypto.service';
-import { AuditLog, Department, ResourceChangeLog, ResourceImportBackup, ResourceLink, ResourceRecord, User } from '../entities';
+import { AuditLog, Company, Department, ResourceChangeLog, ResourceImportBackup, ResourceLink, ResourceRecord, User } from '../entities';
 import { FileInfo, FilesService } from '../integrations/files.service';
 import { deriveStoreFunds } from './store-funds';
 import { deriveBankBalances } from './bank-balance';
@@ -49,12 +74,16 @@ import { deriveAccountFields, hasAccountDerive } from './account-derive';
 import { relationFieldLabel, relationSummary } from './relation-summary';
 import { categoryAllowedForSave, categoryFromText, categoryLabels, categoryOptionsFor } from './category-options';
 import { certImportMatch } from './entity-rules';
-import { optionsKindOf, parseColFilters, readTimeKeys, STATUS_COL, type ColFilter } from '@kudesi/shared';
+import { optionsKindOf, parseColFilters, readTimeKeys, STATUS_COL, querySearchTerms, type ColFilter } from '@kudesi/shared';
 import { applyColFilters } from './col-filter.sql';
-import { dynamicOptionsFor, loadUnitLists, seedUnitDefaults, unitLabel, unitLabelFor, unitValueFromText, optionsPayload, type UnitLists } from './unit-options';
+import { dynamicOptionsFor, loadUnitLists, loadUnitOptionLists, seedUnitDefaults, unitLabel, unitLabelFor, unitValueFromText, optionsPayload, type UnitLists } from './unit-options';
+import { lockLaborCompany, previewLaborWorkCode } from './labor-rules';
 import { afterCreateRule, afterDeleteRule, afterSaveRule, beforeDeleteRule, beforeSaveRule, RuleHost } from './resource-rules';
+import { previewArchiveCode } from './finance-rules';
 
 export interface ResourceDto {
+  sourceStatus?:string|null;
+  baseCodeFacts?:BaseCodeListFacts;
   id: number;
   type: string;
   title: string;
@@ -68,16 +97,23 @@ export interface ResourceDto {
   secretConfigured: Record<string, boolean>;
   /** 引用字段 → 显示名 */
   refLabels: Record<string, string>;
+  /** 已返回的动态选项字段 → 当前公司显示名（含停用历史项）；不改变存储值。 */
+  optionLabels?: Record<string, string>;
   /** 文件字段里的文件信息（文件 id → 名称/类型/大小） */
   files: Record<number, FileInfo>;
   /** 仓库角色模式：只给了精简列、不含日志和关联（旧仓库档案视图） */
   warehouseMode?: boolean;
+  bomCostFacts?:{unitCost:number|null;freight:number|null;handlingFee:number|null};
+  referenceCount?:number|null;
+  knownReferenceCount?:number;
+  referenceState?:'known'|'unknown';
   createdAt: Date;
   updatedAt: Date;
   version?: string;
 }
 
 export interface ListQuery {
+  referenceOrder?:boolean;
   /** true=只看已归档；默认不含已归档 */
   archived?: boolean;
   /** true=只看即将到期/已过期的（30 天内，规则见 shared/expiry.ts） */
@@ -156,10 +192,7 @@ const PHONE_FACT_FIELDS: Record<string, { numberKey: string; idKey: string; hold
   partners: { numberKey: 'cardPhone', idKey: 'cardPhoneId', holderKey: 'cardPhoneHolder' },
 };
 
-/** 记录版本：内容一变就变（不靠只有秒精度的 updatedAt），表格编辑保存时用来发现别人改过 */
-export function recordVersion(r: ResourceRecord): string {
-  return createHash('sha1').update(JSON.stringify([r.title, r.status, r.data, r.secrets, r.archivedAt ? 1 : 0, r.updatedAt ? new Date(r.updatedAt).getTime() : 0])).digest('hex').slice(0, 16);
-}
+export {recordVersion} from './resource-record-version';
 
 @Injectable()
 export class ResourcesService implements RuleHost {
@@ -203,6 +236,8 @@ export class ResourcesService implements RuleHost {
     const key = toUniqueKey(def, value);
     // 24 号分类名称按所属档案类型和上级目录区分；旧唯一键由分类规则一并检查。
     if (key && def.key === 'finance-categories' && data) return `${data.archiveType}:${Number(data.parentId) || 0}:${key}`;
+    // 工作编号沿用原版的版本内唯一性，复用通用唯一键索引，不扩大到其他版本。
+    if (key && def.key === 'finance-labor-costs' && data) return `${Number(data.versionId) || 0}:${key}`;
     return key && def.fields.find(f => f.key === def.uniqueField)?.type === 'sensitive' ? this.crypto.indexTokens(key)[0] : key;
   }
 
@@ -306,6 +341,9 @@ export class ResourcesService implements RuleHost {
   private toDto(def: ResourceDef, r: ResourceRecord, labels: Record<string, string>, fileMap: Map<number, FileInfo>): ResourceDto {
     const secrets = this.readSecrets(r);
     const data: Record<string, unknown> = { ...r.data };
+    delete data.costSourceProvenance;
+    delete data.archiveBomCostSnapshot;
+    delete data.sourceFinishedRowToken;
     // Migration evidence is internal. Its costs must not bypass field ACLs.
     for (const key of Object.keys(data)) if (key.startsWith('_legacy')) delete data[key];
     const secretConfigured: Record<string, boolean> = {};
@@ -353,6 +391,7 @@ export class ResourcesService implements RuleHost {
     const restricted = restrictedFieldKeys(def, createChecker(user.permissions));
     // 仓库角色模式：商品档案只给精简列（成本价格另由字段权限脱敏）
     const warehouseKeep = def.key === 'finance-products' && (await isWarehouseMode(em, user)) ? new Set(WAREHOUSE_PRODUCT_FIELDS) : null;
+    const canReadBomFacts=def.key==='finance-product-boms'&&createChecker(user.permissions)('product.cost.view')&&!(await isWarehouseMode(em,user));
     const labels = await this.refLabelsFor(em, companyId, def, records);
     const fileIds = records.flatMap((r) =>
       def.fields.filter((f) => f.type === 'files').flatMap((f) => (Array.isArray(r.data[f.key]) ? (r.data[f.key] as number[]) : [])),
@@ -363,8 +402,26 @@ export class ResourcesService implements RuleHost {
     const derivedCols = def.derivedColumns?.length ? await deriveColumns(em, companyId, def, records) : null;
     const workforce = def.key === 'workforce' ? await deriveWorkforce(em, companyId, records) : null;
     const accountCols = hasAccountDerive(def) ? await deriveAccountFields(em, companyId, def, records) : null;
+    const productReference = def.key==='finance-products' ? await deriveProductReferenceList(em,companyId,records) : null;
+    const productFinishedNames=def.key==='finance-products'?await deriveProductFinishedNames(em,companyId,records):null;
+    const productCostReferences=def.key==='finance-product-costs'?await loadProductCostReferences(em,companyId,records):null;
+    const baseCodeSourceStatuses=def.key==='finance-base-codes'?await deriveBaseCodeSourceStatuses(em,companyId,records):null;
+    const baseCodeFacts=def.key==='finance-base-codes'?await deriveBaseCodeListFacts(em,companyId,records):null;
+    const optionFields = def.fields.filter(field => field.type === 'select' && field.optionsFrom?.resource === 'finance-product-units');
+    const units = records.length && optionFields.length ? await loadUnitLists(em, companyId) : null;
     return records.map((r) => {
       const dto = this.toDto(def, r, labels.get(r.id) ?? {}, fileMap);
+      if(productReference)Object.assign(dto.data,productReference.get(r.id)??{});
+      if(productFinishedNames?.has(r.id))dto.data.__finishedNameDetails=productFinishedNames.get(r.id);
+      if(productCostReferences)Object.assign(dto,productCostReferences.get(r.id)??{});
+      if(baseCodeSourceStatuses)dto.sourceStatus=baseCodeSourceStatuses.get(r.id)??null;
+      if(baseCodeFacts?.has(r.id))dto.baseCodeFacts=baseCodeFacts.get(r.id);
+      if(def.key==='finance-products'&&dto.data.sourceQualityConfirmations){
+        const receipts=dto.data.sourceQualityConfirmations;
+        if(warehouseKeep||!createChecker(user.permissions)('product.cost.view'))delete dto.data.sourceQualityConfirmations;
+        else dto.data.sourceQualityConfirmations=Object.fromEntries(Object.entries(receipts as Record<string,unknown>).flatMap(([key,value])=>{const row=value as {reason?:unknown;context?:unknown}|null;return row&&typeof row.reason==='string'&&typeof row.context==='string'?[[key,{reason:row.reason,context:row.context}]]:[];}));
+      }
+      if(canReadBomFacts){const facts=extractProductBomCostFacts(r);if(facts)dto.bomCostFacts=facts;}
       const acc = accountCols?.get(r.id);
       if (acc) { Object.assign(dto.data, acc.data); Object.assign(dto.refLabels, acc.labels); }
       if (def.fields.some((f) => f.key === 'passwordState')) dto.data.passwordState = dto.secretConfigured.password ? '已维护' : '未设置';
@@ -382,6 +439,10 @@ export class ResourcesService implements RuleHost {
         for (const k of Object.keys(dto.refLabels)) if (!warehouseKeep.has(k)) delete dto.refLabels[k];
         dto.secretConfigured = {};
         dto.warehouseMode = true;
+      }
+      if (units) {
+        const optionLabels = Object.fromEntries(optionFields.filter(field => dto.data[field.key] !== undefined && dto.data[field.key] !== null).map(field => [field.key, unitLabelFor(units, field, dto.data, dto.data[field.key])]));
+        if (Object.keys(optionLabels).length) dto.optionLabels = optionLabels;
       }
       return dto;
     });
@@ -501,8 +562,9 @@ export class ResourcesService implements RuleHost {
     def: ResourceDef,
     existing: ResourceRecord | null,
     input: Record<string, unknown>,
-    options: { status?: string; note?: string; cleanup?: string[]; logAction?: string; reason?: string; legacyRegistration?:LegacyRegistration } = {},
+    options: { status?: string; note?: string; cleanup?: string[]; logAction?: string; reason?: string; legacyRegistration?:LegacyRegistration; copySource?:ResourceRecord; statusReason?:string } = {},
   ): Promise<ResourceRecord> {
+    if(def.key==='finance-products'&&(Object.hasOwn(input,'__sourceQuality')||Object.hasOwn(input,'sourceQualityConfirmations')))throw new BadRequestException('不能直接写入核算资料确认，需通过完整档案表单办理');
     if (def.readOnly) {
       if (existing || !canAppendReadonly(em, user.companyId, def.key)) throw new ForbiddenException('历史记录只读，不能新增或修改');
       def = { ...def, fields: def.fields.map(f => ({ ...f, readonly: false })) };
@@ -564,12 +626,22 @@ export class ResourcesService implements RuleHost {
       if (v === null) delete data[f.key];
       else data[f.key] = v;
     }
+    const zeroPolicy = def.zeroValueConfirmation;
+    if (zeroPolicy && Object.prototype.hasOwnProperty.call(input, zeroPolicy.confirmationField) && !blocked.has(zeroPolicy.valueField)) {
+      const supplied = input[zeroPolicy.confirmationField];
+      if (supplied === null || supplied === '') delete data[zeroPolicy.confirmationField];
+      else {
+        const confirmation = readZeroValueConfirmation(supplied);
+        if (!confirmation) throw new BadRequestException('零值确认格式不合法');
+        data[zeroPolicy.confirmationField] = confirmation;
+      }
+    }
     // 状态变化后不再显示的字段也要清掉（如异常原因）
     for (const f of def.fields) {
       if (f.showWhen && f.showWhen.field === 'status' && !f.showWhen.in.includes(status)) delete data[f.key];
     }
 
-    const rule = { em, host: this, user, data, existing, status, hasSensitive: (key: string) => Boolean(secrets[key]) };
+    const rule = { em, host: this, user, input, data, existing, copySource:options.copySource, status, hasSensitive: (key: string) => Boolean(secrets[key]) };
     if (def.key === 'stores') await validateStoreJst(data, existing?.data, () => this.jushuitanShops(user, def.key));
     await beforeSaveRule(def.key, rule);
     status = rule.status;
@@ -632,7 +704,8 @@ export class ResourcesService implements RuleHost {
       }
     }
 
-    const keepReason = existing && existing.status === status ? existing.statusReason : null;
+    if(options.statusReason!==undefined){const problem=validateStatusChange(def,status,options.statusReason);if(problem)throw new BadRequestException(problem);}
+    const keepReason = options.statusReason!==undefined ? def.statuses.find(item=>item.value===status)?.requiresReason ? options.statusReason.trim().slice(0,500) : null : existing && existing.status===status ? existing.statusReason : null;
     const before = existing ? ({ ...existing, data: { ...existing.data } } as ResourceRecord) : null;
     const record = existing ?? em.create(ResourceRecord, { companyId: user.companyId, type: def.key, createdBy: user.id });
     Object.assign(record, {
@@ -688,6 +761,7 @@ export class ResourcesService implements RuleHost {
         });
       }
     }
+    if(def.key==='finance-cost-skus')await syncProductCostSnapshotReferences(em,user.companyId,record);
   }
 
   // ---------- RuleHost ----------
@@ -709,6 +783,14 @@ export class ResourcesService implements RuleHost {
     }
     const keys = def.fields.find(f => f.key === def.uniqueField)?.type === 'sensitive' ? this.crypto.indexTokens(raw) : [raw];
     const direct = await em.findOne(ResourceRecord, { where: { companyId, type, uniqueKey: In(keys) } });
+    if (type === 'finance-labor-costs') {
+      if (direct && !direct.archivedAt) return direct;
+      const rows = await em.find(ResourceRecord, { where: { companyId, type, archivedAt: IsNull() } });
+      const matches = rows.filter(row => String(row.data.workCode ?? '').trim().toLowerCase() === raw);
+      if (preferredId !== undefined) { const preferred = matches.find(row => row.id === preferredId); if (preferred) return preferred; }
+      if (matches.length > 1) throw new ConflictException('该工作编号对应多个成本版本，请按版本选择具体项目');
+      return matches[0] ?? null;
+    }
     if (type !== 'finance-categories') return direct;
     const rows = await em.find(ResourceRecord, { where: { companyId, type, archivedAt: IsNull() } });
     const byId = new Map(rows.map(r => [r.id, r]));
@@ -722,13 +804,13 @@ export class ResourcesService implements RuleHost {
     return matches[0] ?? null;
   }
 
-  async createRecord(em: EntityManager, user: AuthUser, type: string, values: Record<string, unknown>, note?: string) {
+  async createRecord(em: EntityManager, user: AuthUser, type: string, values: Record<string, unknown>, note?: string, status?: string) {
     const clean = Object.fromEntries(Object.entries(values).filter(([, v]) => v !== undefined && v !== null && v !== ''));
-    return this.saveRecord(em, user, this.def(type), null, clean, { note });
+    return this.saveRecord(em, user, this.def(type), null, clean, { note, status });
   }
 
   async unitOptions(user: AuthUser) {
-    return optionsPayload(await loadUnitLists(this.dataSource.manager, user.companyId));
+    return optionsPayload(await loadUnitOptionLists(this.dataSource.manager, user.companyId));
   }
 
   async seedUnitDefaults(user: AuthUser) {
@@ -794,10 +876,10 @@ export class ResourcesService implements RuleHost {
       .getMany();
   }
 
-  /** 规则里改别的记录（如组合行变化后刷新组合的编码）：直接改数据并记日志，不重新走完整校验。 */
-  async patchData(em: EntityManager, user: AuthUser, type: string, id: number, patch: Record<string, unknown>, note?: string, syncRefs = false) {
+  /** 规则里改别的记录并记日志；currentRead用于持锁业务操作，避免旧事务快照覆盖刚提交的事实。 */
+  async patchData(em: EntityManager, user: AuthUser, type: string, id: number, patch: Record<string, unknown>, note?: string, syncRefs = false, currentRead = false) {
     const def = this.def(type);
-    const record = await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type } });
+    const record = await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type }, ...(currentRead ? { lock: { mode: 'pessimistic_write' as const } } : {}) });
     if (!record) return;
     if(isRegistrationType(type)&&def.uniqueField&&Object.hasOwn(patch,def.uniqueField)){
       await this.saveRecord(em,user,def,record,patch,{note});return;
@@ -850,6 +932,8 @@ export class ResourcesService implements RuleHost {
     const record = await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type } });
     if (!record || record.status === status) return;
     const before = { ...record, data: { ...record.data } } as ResourceRecord;
+    status = beforeDirectStatusRule(type,record,status);
+    if(record.status===status && sameJson(before.data,record.data))return;
     record.status = status;
     record.statusReason = null;
     record.updatedBy = user.id;
@@ -863,6 +947,27 @@ export class ResourcesService implements RuleHost {
   }
 
   // ---------- 对外接口 ----------
+
+  async codePreview(user: AuthUser, type: string, values: Record<string, unknown>, excludeId?: number): Promise<Record<string, unknown>> {
+    this.def(type);
+    if (type === 'finance-labor-costs') {
+      const action = excludeId === undefined ? 'create' : 'edit';
+      if (!createChecker(user.permissions)(resourcePermission(type, action))) throw new ForbiddenException(action === 'create' ? '没有新增权限' : '没有修改权限');
+      if (excludeId !== undefined) {
+        if (!Number.isSafeInteger(excludeId) || excludeId < 1) throw new BadRequestException('编号预览记录不合法');
+        const record = await this.load(this.dataSource.manager, user, type, excludeId);
+        if (record.archivedAt) throw new ConflictException('该资料已归档，不能编辑');
+      }
+      return previewLaborWorkCode(this.dataSource.manager, user.companyId, values, excludeId);
+    }
+    if (!createChecker(user.permissions)(resourcePermission(type, 'create'))) throw new ForbiddenException('没有新增权限');
+    if (excludeId !== undefined) throw new BadRequestException('这种资料不支持编辑编号预览');
+    const allowed = ['name', 'shortName', 'code', 'shortCode', 'categoryIds'];
+    if (Object.keys(values).some(key => !allowed.includes(key))) throw new BadRequestException('编号预览字段不合法');
+    for (const key of allowed.filter(key => key !== 'categoryIds')) if (values[key] !== undefined && (typeof values[key] !== 'string' || (values[key] as string).length > 200)) throw new BadRequestException('编号预览字段不合法');
+    if (values.categoryIds !== undefined && (!Array.isArray(values.categoryIds) || values.categoryIds.length > 10 || values.categoryIds.some(id => !Number.isSafeInteger(id) || id < 1))) throw new BadRequestException('编号预览分类不合法');
+    return previewArchiveCode(this, this.dataSource.manager, user, type, values);
+  }
 
   async list(user: AuthUser, type: string, q: ListQuery) {
     const def = this.def(type);
@@ -886,11 +991,15 @@ export class ResourcesService implements RuleHost {
         else filterPairs.push([k, String(v)]);
       }
     }
-    // 分类字段：选上级分类时，下级分类的资料一并列出（商品分类、供应商分类等所有树形资料通用）
+    // 往来档案按直属分类浏览；其他目录仍包含下级。列表、计数、分页和导出共用这个范围。
     const catIds = new Map<string, number[]>();
     for (const [key, val] of filterPairs) {
       const f = def.fields.find((x) => x.key === key);
       if (f?.ref && isTreeResource(f.ref) && /^\d+$/.test(val)) {
+        if (def.hierarchy?.directItems && f.ref === def.hierarchy.categoryType) {
+          catIds.set(key, [Number(val)]);
+          continue;
+        }
         const cats = await em.find(ResourceRecord, { where: { companyId: user.companyId, type: f.ref }, select: ['id', 'data'] });
         const kids = new Map<number, number[]>();
         for (const c of cats) {
@@ -911,6 +1020,10 @@ export class ResourcesService implements RuleHost {
       if (!expiringIds.length) expiringIds = [0];
     }
 
+    // 24号费用表：每行是完整短语，多行任意一条命中；保留其他资料的空格AND搜索。
+    const feeTerms = type==='finance-fee-items' ? querySearchTerms(q.keyword ?? '').map(term=>term.toLowerCase()) : null;
+    const feePaths = feeTerms?.length ? await this.treePaths(em,user.companyId,'finance-fee-categories') : new Map<number,string>();
+    const feeSearchFields = feeTerms?.length ? def.fields.filter(field=>field.type!=='secret' && !restricted.has(field.key)) : [];
     const base = (forceHidden = false) => {
       const qb = em
         .createQueryBuilder(ResourceRecord, 'r')
@@ -927,6 +1040,27 @@ export class ResourcesService implements RuleHost {
         qb.andWhere('r.status NOT IN (:...hiddenStatuses)', { hiddenStatuses });
       }
       if (q.archived && q.status) qb.andWhere('r.status = :status', { status: q.status });
+      if(feeTerms) {
+        if(feeTerms.length){
+          const expressions=feeSearchFields.map(field=>{
+            const value=`JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${field.key}'))`;
+            if(field.type==='select'&&!field.multi&&field.options?.length){
+              const clauses=field.options.map((option,index)=>{const key=`feeLabel_${field.key}_${index}`;qb.setParameter(key,option.label);const valueKey=`feeValue_${field.key}_${index}`;qb.setParameter(valueKey,option.value);return `WHEN :${valueKey} THEN :${key}`;}).join(' ');
+              return `CASE ${value} ${clauses} ELSE ${value} END`;
+            }
+            return value;
+          });
+          const searchable=['r.title',...expressions,"CASE WHEN r.status='active' THEN 'normal' ELSE r.status END"].join(',');
+          const haystack=`LOWER(CONCAT_WS(' ',${searchable}))`;
+          const terms=feeTerms.map((term,index)=>{
+            qb.setParameter(`feeKw${index}`,`%${likeEscape(term)}%`);
+            const ids=[...feePaths].filter(([,path])=>path.toLowerCase().includes(term)).map(([id])=>id);
+            if(ids.length)qb.setParameter(`feeCats${index}`,ids);
+            return `(${haystack} LIKE :feeKw${index} ESCAPE '\\\\'${ids.length?` OR CAST(JSON_UNQUOTE(JSON_EXTRACT(r.data,'$.categoryId')) AS UNSIGNED) IN (:...feeCats${index})`:''})`;
+          });
+          qb.andWhere(`(${terms.join(' OR ')})`);
+        }
+      } else {
       (q.keyword ?? '')
         .trim()
         .toLowerCase()
@@ -934,6 +1068,7 @@ export class ResourcesService implements RuleHost {
         .filter(Boolean)
         .slice(0, 5)
         .forEach((word, i) => qb.andWhere(`r.searchText LIKE :kw${i} ESCAPE '\\\\'`, { [`kw${i}`]: `%${likeEscape(word)}%` }));
+      }
       filterPairs.forEach(([key, val], i) => {
         const f = def.fields.find((x) => x.key === key);
         if (!f) throw new BadRequestException('筛选字段不存在');
@@ -953,15 +1088,37 @@ export class ResourcesService implements RuleHost {
       if (!(await applyViewFilter(listQb, em, user.companyId, type, k, v, todayShanghai(), i))) throw new BadRequestException('筛选条件不合法');
     }
     applyTabFilter(listQb, def, q.tab);
+    const referenceStatusSort = ['finance-suppliers','finance-customers','finance-fee-items','finance-products'].includes(type) && q.sortBy === STATUS_COL;
+    const productReferenceSort=type==='finance-products'&&isProductReferenceSortKey(q.sortBy)?q.sortBy:null;
+    if(productReferenceSort&&await isWarehouseMode(em,user))throw new ForbiddenException('当前岗位不能按此档案字段排序');
+    if(productReferenceSort==='__freightHandling'&&!createChecker(user.permissions)('product.cost.view'))throw new ForbiddenException('没有查看成本的权限');
     const derivedSort = q.sortBy ? def.derivedColumns?.find((d) => d.key === q.sortBy) : undefined;
-    const sortF = q.sortBy && !derivedSort ? def.fields.find((f) => f.key === q.sortBy) : undefined;
+    const sortF = q.sortBy && !derivedSort && !productReferenceSort ? def.fields.find((f) => f.key === q.sortBy) : undefined;
     if (sortF && restricted.has(sortF.key)) throw new ForbiddenException(`没有权限按“${sortF.label}”排序`);
-    if (q.sortBy && !derivedSort && (!sortF || !['text', 'textarea', 'number', 'money', 'date', 'monthday', 'select'].includes(sortF.type))) throw new BadRequestException('这个字段不能排序');
+    if (q.sortBy && !referenceStatusSort && !derivedSort && !productReferenceSort && (!sortF || !['text', 'textarea', 'number', 'decimal', 'money', 'date', 'monthday', 'select', 'ref'].includes(sortF.type))) throw new BadRequestException('这个字段不能排序');
     if (sortF) {
       const dir = q.sortDir === 'asc' ? 'ASC' : 'DESC';
-      const numeric = sortF.type === 'number' || sortF.type === 'money';
+      const numeric = ['number', 'decimal', 'money'].includes(sortF.type);
       const expr = `JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${sortF.key}'))`;
-      listQb.addSelect(numeric ? `CAST(${expr} AS DECIMAL(30,6))` : expr, 'sortv').orderBy('sortv', dir).addOrderBy('r.id', 'DESC');
+      let sortExpr = numeric ? `CAST(${expr} AS DECIMAL(30,6))` : expr;
+      if (sortF.type === 'ref') {
+        // 与 DTO 引用标签一致；分类使用完整路径，禁止跨公司标题影响当前列表顺序。
+        const missing = `CONCAT('#', ${expr}, '（已不存在）')`;
+        if (isTreeResource(sortF.ref!)) {
+          const paths = await this.treePaths(em, user.companyId, sortF.ref!);
+          listQb.setParameter('sortRefPaths', JSON.stringify(Object.fromEntries(paths)));
+          sortExpr = `COALESCE(JSON_UNQUOTE(JSON_EXTRACT(:sortRefPaths, CONCAT('$.', JSON_QUOTE(${expr})))), ${missing})`;
+        } else {
+          const entity = sortF.ref === 'user' ? User : sortF.ref === 'department' ? Department : ResourceRecord;
+          const target = entity === ResourceRecord ? ' AND sortref.type = :sortRefType' : '';
+          listQb.leftJoin(entity, 'sortref', `sortref.id = CAST(${expr} AS UNSIGNED) AND sortref.companyId = :sortRefCompany${target}`, { sortRefCompany: user.companyId, sortRefType: sortF.ref });
+          sortExpr = `COALESCE(sortref.${entity === ResourceRecord ? 'title' : 'name'}, ${missing})`;
+        }
+      }
+      listQb.addSelect(sortExpr, 'sortv').orderBy('sortv', dir).addOrderBy('r.id', 'DESC');
+    } else if (referenceStatusSort) {
+      // 24号状态列按原始 normal/inactive 排序，active 只是新资源的存储枚举。
+      listQb.addSelect("CASE WHEN r.status = 'active' THEN 'normal' ELSE r.status END", 'sortv').orderBy('sortv',q.sortDir === 'asc' ? 'ASC' : 'DESC').addOrderBy('r.id','DESC');
     } else if (def.sortField) {
       // 经营数据这类按日期倒序；日期是 YYYY-MM-DD，按文本排序即可
       listQb.addSelect(`JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${def.sortField}'))`, 'sortv').orderBy('sortv', 'DESC').addOrderBy('r.id', 'DESC');
@@ -970,9 +1127,20 @@ export class ResourcesService implements RuleHost {
     } else {
       listQb.orderBy('r.id', 'DESC');
     }
+    if(q.referenceOrder){
+      if(type!=='finance-fee-items')throw new BadRequestException('该资料不支持此顺序偏好');
+      if(!q.sortBy){const preference=await em.findOneBy(UserPreference,{companyId:user.companyId,userId:user.id,preferenceKey:EXPENSE_SORT_KEY});const filters=q.filters?JSON.parse(q.filters) as Record<string,unknown>:{};const key=String(filters.categoryId||(q.fieldKey==='categoryId'?q.fieldValue:undefined)||'all');const ids=normalizeExpenseSortPreference(preference?.value).itemOrders[key];
+        if(ids?.length){const values=ids.map(Number).filter(id=>Number.isSafeInteger(id)&&id>0);if(values.length)listQb.addSelect(`CASE WHEN r.id IN (${values.join(',')}) THEN FIELD(r.id,${values.join(',')}) ELSE ${values.length+1} END`,'personalord').orderBy('personalord','ASC').addOrderBy('r.id','DESC');}
+      }
+    }
     let records: ResourceRecord[];
     let total: number;
-    if (derivedSort) {
+    if(productReferenceSort){
+      // 原档案投影列先按完整匹配集排序，再分页；不能只排显示页或静默截断。
+      const all=await listQb.getMany(),byId=new Map(all.map(record=>[record.id,record]));
+      const ids=await deriveProductReferenceSortIds(em,user.companyId,all,productReferenceSort,q.sortDir==='asc'?'asc':'desc');
+      total=ids.length;records=ids.slice((page-1)*pageSize,page*pageSize).map(id=>byId.get(id)!);
+    } else if (derivedSort) {
       // 派生列排序：先算出全部符合条件记录的统计值再排（最多 5000 条），再取这一页
       const all = await listQb.orderBy('r.id', 'DESC').limit(5000).getMany();
       const vals = await deriveColumns(em, user.companyId, def, all);
@@ -1092,12 +1260,15 @@ export class ResourcesService implements RuleHost {
     applyTabFilter(qb, def, q.tab);
     const records = await qb.getMany();
     const members = new Map<number, Set<number>>(); // 分类 -> 其下（含下级）的资料 id
+    const directMembers = new Map<number,Set<number>>();
     let uncategorized = 0;
     for (const r of records) {
       const v = (r.data as Record<string, unknown>)[field.key];
       const direct = (field.type === 'refs' ? (Array.isArray(v) ? v : []) : [v]).filter((x): x is number => typeof x === 'number');
       if (!direct.length) { uncategorized++; continue; }
       for (const d of direct) {
+        if(!directMembers.has(d))directMembers.set(d,new Set());
+        directMembers.get(d)!.add(r.id);
         for (let cur = d, i = 0; cur && i < 8; cur = parentOf.get(cur) ?? 0, i++) {
           if (!members.has(cur)) members.set(cur, new Set());
           members.get(cur)!.add(r.id);
@@ -1109,7 +1280,7 @@ export class ResourcesService implements RuleHost {
       total: records.length,
       uncategorized,
       nodes: nodes
-        .map((n) => ({ id: n.id, title: n.title, status: n.status, parentId: ids.has(n.parentId) ? n.parentId : 0, sort: n.sort, count: members.get(n.id)?.size ?? 0 }))
+        .map((n) => ({ id: n.id, title: n.title, status: n.status, parentId: ids.has(n.parentId) ? n.parentId : 0, sort: n.sort, count: members.get(n.id)?.size ?? 0, directCount:directMembers.get(n.id)?.size??0 }))
         .sort((a, b) => a.sort - b.sort || a.id - b.id),
     };
   }
@@ -1142,7 +1313,7 @@ export class ResourcesService implements RuleHost {
       uncategorized,
       nodes: ids
         .filter((id) => named.has(id))
-        .map((id) => ({ id, title: named.get(id)!.title, status: named.get(id)!.status, parentId: 0, sort: 0, count: counts.get(id) ?? 0 }))
+        .map((id) => ({ id, title: named.get(id)!.title, status: named.get(id)!.status, parentId: 0, sort: 0, count: counts.get(id) ?? 0, directCount: counts.get(id) ?? 0 }))
         .sort((a, b) => b.count - a.count || a.id - b.id),
     };
   }
@@ -1173,6 +1344,36 @@ export class ResourcesService implements RuleHost {
     return this.get(user, 'finance-products', id);
   }
 
+  async saveForm(user: AuthUser, type: string, input: ResourceFormInput) {
+    const cleanup: string[] = [];
+    const id = await saveResourceForm(this.dataSource, user, this.def(type), input, {
+      version: recordVersion,
+      copy: async (em,def,source,request,values)=>{
+        const can=createChecker(user.permissions),blocked=readOnlyFieldKeys(def,can),hidden=restrictedFieldKeys(def,can);
+        const result={...values},keys=Object.keys(request.files);
+        if(new Set(keys).size!==keys.length)throw new BadRequestException('复制字段重复');
+        for(const key of keys){
+          const field=def.fields.find(f=>f.key===key && f.copyOnCreate);
+          if(!field || field.type!=='files' || blocked.has(key) || hidden.has(key))throw new ForbiddenException('没有复制此字段的权限');
+          const current=result[key];
+          if(current!==undefined && (!Array.isArray(current) || current.length))throw new BadRequestException('复制文件不能与新上传混用');
+          result[key]=await this.files.cloneFor(em,user,def.key,key,source,request.files[key]);
+        }
+        return result;
+      },
+      endCopy: em=>this.files.endCopyScope(em),
+      lock:async(em,def)=>{if(['finance-product-units','finance-products'].includes(def.key)&&!await em.findOne(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}}))throw new NotFoundException('公司不存在');await beforeBomVersionLock(em,user,def.key);},
+      before: async(em,def,existing)=>{if(def.key==='finance-products')await beginSourceProductQuality({em,user,existing,input});await beforeFormSaveRule(def.key,{em,host:this,user,existing,input});},
+      after: (em, def, record) => afterFormSaveRule(def.key, { em, host: this, user, record }),
+      save: (em, def, existing, values, options) => this.saveRecord(em, user, def, existing, def.key==='finance-products'&&sourceProductQualityActive(em,user)?sourceQualityValues(values):values, options),
+      afterCollectionSaved:(em,parent,child,rows)=>sourceQualitySavedRows(em,parent,child,rows),
+      end:em=>endSourceProductQuality(em),
+      remove: (em, childType, childId, reason, objects) => this.removeRecord(em, user, childType, childId, reason, objects),
+    }, cleanup);
+    await this.files.deleteObjects(user.companyId, cleanup);
+    return this.get(user, type, id);
+  }
+
   async create(user: AuthUser, type: string, values: Record<string, unknown>, status?: string) {
     const def = this.def(type);
     const cleanup: string[] = [];
@@ -1195,6 +1396,49 @@ export class ResourcesService implements RuleHost {
 
   /** 同级排序整体提交；锁定本公司目录，同一事务更新，失败不会只保存一半。 */
   async reorderCategories(user: AuthUser, type: string, orderedIds: number[]) {
+    const def = this.def(type), dictionary = def.dictionary, categoryOrder = def.categoryOrder;
+    if (categoryOrder) {
+      if (!createChecker(user.permissions)(resourcePermission(permissionOwner(type), 'edit'))) throw new ForbiddenException('没有修改权限');
+      if (!def.fields.some(field => field.key === categoryOrder.sortField && field.type === 'number') || categoryOrder.scopeFields.some(key => !def.fields.some(field => field.key === key)) || categoryOrder.mutableScope && !categoryOrder.scopeFields.includes(categoryOrder.mutableScope.field)) throw new BadRequestException('分类排序配置无效');
+      if (orderedIds.length < 2 || !orderedIds.every(id => Number.isSafeInteger(id) && id > 0) || new Set(orderedIds).size !== orderedIds.length) throw new BadRequestException('分类排序数据无效');
+      return this.dataSource.transaction(async em => {
+        await em.findOneOrFail(Company, { where: { id: user.companyId }, lock: { mode: 'pessimistic_write' } });
+        const first = await this.load(em, user, type, orderedIds[0]);
+        const policy = categoryOrder.mutableScope;
+        if (policy) {
+          const reference = def.fields.find(field => field.key === policy.field)?.ref;
+          if (!reference || typeof first.data[policy.field] !== 'number') throw new BadRequestException('分类归属无效');
+          const owner = await em.findOne(ResourceRecord, { where: { id: first.data[policy.field] as number, companyId: user.companyId, type: reference }, lock: { mode: 'pessimistic_write' } });
+          if (!owner || owner.archivedAt || !policy.statuses.includes(owner.status)) throw new BadRequestException('所属资料已停用，不能调整分类顺序');
+        }
+        const rows = await em.createQueryBuilder(ResourceRecord, 'r').where('r.companyId = :companyId AND r.type = :type AND r.archivedAt IS NULL', { companyId: user.companyId, type }).orderBy('r.id', 'ASC').setLock('pessimistic_write').getMany();
+        const sameScope = (row: ResourceRecord) => row.status === 'active' && (Number(row.data.parentId) || 0) === (Number(first.data.parentId) || 0) && categoryOrder.scopeFields.every(field => row.data[field] === first.data[field]);
+        const siblings = rows.filter(sameScope), byId = new Map(siblings.map(row => [row.id, row]));
+        if (siblings.length !== orderedIds.length || orderedIds.some(id => !byId.has(id))) throw new BadRequestException('请提交同一归属和上级下完整有效的分类顺序');
+        let changed = 0;
+        for (const [index, id] of orderedIds.entries()) if (Number(byId.get(id)!.data[categoryOrder.sortField]) !== (index + 1) * 10) {
+          await this.patchData(em, user, type, id, { [categoryOrder.sortField]: (index + 1) * 10 }, '调整分类顺序', undefined, true); changed++;
+        }
+        if(changed)await markCategorySyncDirty(em,user,type,first);
+        return { ok: true, changed };
+      });
+    }
+    if (dictionary?.sortField) {
+      if (!createChecker(user.permissions)(resourcePermission(permissionOwner(type), 'edit'))) throw new ForbiddenException('没有修改权限');
+      const field = dictionary.sortField;
+      if (!orderedIds.every(id => Number.isSafeInteger(id) && id > 0) || orderedIds.length < 2 || new Set(orderedIds).size !== orderedIds.length) throw new BadRequestException('字典排序数据无效');
+      return this.dataSource.transaction(async em => {
+        await em.findOneOrFail(Company, { where: { id: user.companyId }, lock: { mode: 'pessimistic_write' } });
+        const rows = await em.createQueryBuilder(ResourceRecord, 'r').where('r.companyId = :companyId AND r.type = :type AND r.archivedAt IS NULL AND r.status = :status', { companyId: user.companyId, type, status: 'active' }).orderBy('r.id', 'ASC').setLock('pessimistic_write').getMany();
+        const byId = new Map(rows.map(row => [row.id, row]));
+        if (rows.length !== orderedIds.length || orderedIds.some(id => !byId.has(id))) throw new BadRequestException('请提交完整有效的字典顺序');
+        let changed = 0;
+        for (const [index, id] of orderedIds.entries()) if (Number(byId.get(id)!.data[field]) !== (index + 1) * 10) {
+          await this.patchData(em, user, type, id, { [field]: (index + 1) * 10 }, '调整字典顺序'); changed++;
+        }
+        return { ok: true, changed };
+      });
+    }
     if (!['finance-categories','finance-supplier-categories','finance-customer-categories','finance-fee-categories'].includes(type)) throw new BadRequestException('这类资料不支持分类排序');
     if (orderedIds.length < 2 || new Set(orderedIds).size !== orderedIds.length) throw new BadRequestException('请选择至少两个不重复的分类');
     return this.dataSource.transaction(async em => {
@@ -1230,10 +1474,11 @@ export class ResourcesService implements RuleHost {
     if (typeof values.name !== 'string' || !values.name.trim() || typeof values.shortName !== 'string' || !values.shortName.trim()) throw new BadRequestException('商品名称和商品简称必填');
     if (!['active', 'inactive'].includes(String(values.status))) throw new BadRequestException('请选择启用或停用');
     await this.dataSource.transaction(async em => {
+      if(!await em.findOne(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}}))throw new NotFoundException('记录不存在');
       const record = await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type }, lock: { mode: 'pessimistic_write' } });
       if (!record) throw new NotFoundException('记录不存在');
       if (record.archivedAt || record.status === 'archived') throw new ConflictException('这条资料已归档，请先恢复再修改');
-      const status = values.status === 'inactive' ? 'inactive' : record.status === 'inactive' ? 'pending' : record.status;
+      const status = (await beforeStatusChangeRule(type,{em,user,id,status:values.status==='inactive'?'inactive':'active'}))?.status ?? record.status;
       if (status !== record.status && !createChecker(user.permissions)(resourcePermission(type, 'disable'))) throw new ForbiddenException('没有改状态的权限');
       const reason = String(values.statusReason ?? '').trim();
       if (status !== record.status) {
@@ -1256,7 +1501,7 @@ export class ResourcesService implements RuleHost {
   async confirmBaseProfile(user: AuthUser, type: string, id: number, values: Record<string, unknown>) {
     if (type === 'finance-bundles') return this.confirmBundleProfile(user, type, id, values);
     if (type !== 'finance-base-codes') throw new BadRequestException('这类资料没有基础编码专属资料');
-    const allowed = new Set(['code', 'styleCode', 'name', 'shortName', 'spec', 'categoryId', 'weightG', 'codeChangeReason']);
+    const allowed = new Set(['code', 'styleCode', 'name', 'shortName', 'spec', 'categoryId', 'codeDictionaryCategoryId', 'weightG', 'codeChangeReason']);
     if (Object.keys(values).some(k => !allowed.has(k))) throw new BadRequestException('专属资料只能修改编码、名称、简称、规格、分类和重量');
     await this.dataSource.transaction(async em => {
       const record = await this.load(em, user, type, id);
@@ -1275,6 +1520,9 @@ export class ResourcesService implements RuleHost {
     const def = this.def(type);
     const cleanup: string[] = [];
     const record = await this.dataSource.transaction(async (em) => {
+      // 编码分类共用名称空间，必须先取公司锁，再锁单行；与目录维护及导入保持同序。
+      if (type === 'finance-base-codes' || type === 'finance-base-code-lines' || type === 'finance-bundles' || type === 'finance-bundle-revisions' || type === 'finance-bundle-bom-versions' || type === 'finance-code-dictionaries' || type === 'finance-categories' || type === 'finance-scenarios' || type === 'finance-brands' || type === 'finance-platforms' || type === 'finance-product-units') await em.findOneOrFail(Company, { where: { id: user.companyId }, lock: { mode: 'pessimistic_write' } });
+      if ((def.parent?.type ?? def.key) === 'finance-labor-costs') await lockLaborCompany(em, user.companyId);
       if (row.id === undefined) return this.saveRecord(em, user, def, null, row.values, { cleanup, note });
       const existing = await em.findOne(ResourceRecord, { where: { id: row.id, companyId: user.companyId, type }, lock: { mode: 'pessimistic_write' } });
       if (!existing) throw new NotFoundException('记录不存在');
@@ -1318,11 +1566,19 @@ export class ResourcesService implements RuleHost {
   /** 往来档案（供应商、客户）保存前的相似/重复检测 */
   async similarCheck(user: AuthUser, type: string, values: Record<string, unknown>, excludeId?: number) {
     if (!SIMILARITY_RESOURCES.includes(type)) throw new BadRequestException('这类资料不做相似检测');
-    const rows = await this.dataSource.manager.find(ResourceRecord, { where: { companyId: user.companyId, type }, select: ['id', 'data'] });
+    const rows = await this.dataSource.manager.find(ResourceRecord, { where: { companyId: user.companyId, type,archivedAt:IsNull(),status:Not('deleted') }, select: ['id', 'data'] });
     const isProduct = type === 'finance-products';
     // 商品档案只和同一档案类型的比，且已删除/归档的不算
     let pool = isProduct ? rows.filter((x) => x.data.archiveType === values.archiveType) : rows;
     let cand = values;
+    if(['finance-suppliers','finance-customers','finance-fee-items'].includes(type)){
+      const existing=excludeId===undefined?undefined:await this.load(this.dataSource.manager,user,type,excludeId);
+      cand={...values,...await previewArchiveCode(this,this.dataSource.manager,user,type,values,existing)};
+    }
+    if(type==='finance-fee-items'){
+      const readable=(data:Record<string,unknown>)=>Object.fromEntries(Object.entries(data).map(([key,value])=>[key,key==='direction'&&value==='expense'?'支出':this.def(type).fields.find(field=>field.key===key)?.options?.find(option=>option.value===value)?.label??value]));
+      cand=readable(cand);pool=pool.map(row=>({...row,data:readable(row.data)}) as ResourceRecord);
+    }
     if (isProduct) {
       // 品牌、规格单位显示成名称，比较提示里才看得懂
       const brands = new Map((await this.dataSource.manager.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-brands' }, select: ['id', 'title'] })).map((b) => [b.id, b.title] as const));
@@ -1331,7 +1587,7 @@ export class ResourcesService implements RuleHost {
       cand = readable(values);
       pool = pool.map((x) => ({ ...x, data: readable(x.data) }) as ResourceRecord);
     }
-    const r = inspectArchiveSimilarity(cand, pool.map((x) => ({ id: x.id, data: x.data })), excludeId, isProduct ? PRODUCT_SIMILARITY_FIELDS : undefined);
+    const r = inspectArchiveSimilarity(cand, pool.map((x) => ({ id: x.id, data: x.data })), excludeId, isProduct ? PRODUCT_SIMILARITY_FIELDS : type==='finance-fee-items'?FEE_SIMILARITY_FIELDS:undefined);
     // 商品编码是自动生成、本来就不会相同，“已填字段完全相同”在商品上只提示（需确认），不直接拦截
     if (isProduct) return { blocked: [], warnings: [...r.blocked, ...r.warnings].slice(0, 6).map((m) => ({ ...m, text: formatSimilarityMatch(m) })) };
     return { blocked: r.blocked.slice(0, 6).map((m) => ({ ...m, text: formatSimilarityMatch(m) })), warnings: r.warnings.slice(0, 6).map((m) => ({ ...m, text: formatSimilarityMatch(m) })) };
@@ -1417,9 +1673,11 @@ export class ResourcesService implements RuleHost {
   /** 事务组合动作使用完整的状态校验与保存流程。 */
   async changeStatusRecord(em: EntityManager, user: AuthUser, type: string, id: number, status: string, reason?: string) {
     const def = this.def(type);
+    const transition = await beforeStatusChangeRule(type,{em,user,id,status});
+    status = transition?.status ?? status;
     const problem = validateStatusChange(def, status, reason);
     if (problem) throw new BadRequestException(problem);
-    const existing = await this.load(em, user, type, id);
+    const existing = transition?.record ?? await this.load(em, user, type, id);
     if (existing.archivedAt) throw new ConflictException('这条资料已归档，请先恢复再改状态');
     if (existing.status === status) return;
     const needsReason = def.statuses.find((s) => s.value === status)?.requiresReason;
@@ -1505,26 +1763,42 @@ export class ResourcesService implements RuleHost {
     return this.get(user, type, id);
   }
 
-  async remove(user: AuthUser, type: string, id: number, reason: string | undefined) {
+  async remove(user: AuthUser, type: string, id: number, reason: string | undefined, expectedVersion?: string) {
+    if (expectedVersion !== undefined && !/^[a-f0-9]{16}$/.test(expectedVersion)) throw new BadRequestException('记录版本无效');
     const def = this.def(type);
     if (def.readOnly) throw new ForbiddenException('历史记录只读，不能删除');
     // 旧系统里这些资料不物理删除：删除 = 归档
-    if (type === 'workforce' || archivePolicyOf(type)) return this.archive(user, type, id, reason);
+    if (type === 'workforce' || archivePolicyOf(type)) {
+      if (expectedVersion !== undefined) throw new BadRequestException('此删除入口不支持归档版本校验');
+      return this.archive(user, type, id, reason);
+    }
     if (!reason || reason.trim().length < 2) throw new BadRequestException('删除必须填写原因');
     const cleanup: string[] = [];
-    await this.dataSource.transaction(em => this.removeRecord(em,user,type,id,reason,cleanup));
+    await this.dataSource.transaction(async em => {
+      if (expectedVersion !== undefined) await em.findOneOrFail(Company, { where: { id: user.companyId }, lock: { mode: 'pessimistic_write' } });
+      await this.removeRecord(em,user,type,id,reason,cleanup,expectedVersion !== undefined,expectedVersion);
+    });
     await this.files.deleteObjects(user.companyId, cleanup);
     return { ok: true };
   }
 
   /** 组合操作在同一事务内删除，仍执行统一引用校验和日志。 */
-  async removeRecord(em: EntityManager, user: AuthUser, type: string, id: number, reason: string, cleanup: string[] = []) {
+  async removeRecord(em: EntityManager, user: AuthUser, type: string, id: number, reason: string, cleanup: string[] = [], currentRead = false, expectedVersion?: string) {
     const def = this.def(type);
     if (archivePolicyOf(type)) throw new BadRequestException('该资料应走归档流程');
     if (reason.trim().length < 2) throw new BadRequestException('删除必须填写原因');
-    const existing = await this.load(em, user, type, id);
+    await beforeBomVersionLock(em,user,type);
+    if(['finance-product-costs','finance-product-units'].includes(type))await em.findOneOrFail(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}});
+    const existing = currentRead ? await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type }, lock: { mode: 'pessimistic_write' } }) : await this.load(em, user, type, id);
+    if (!existing) throw new NotFoundException('记录不存在');
+    if (expectedVersion !== undefined && expectedVersion !== recordVersion(existing)) throw new ConflictException('这条资料刚被别人修改过，请刷新后再处理');
+    if(type==='finance-product-costs'){
+      const usage=(await loadProductCostReferences(em,user.companyId,[existing])).get(existing.id);
+      if(!usage||usage.referenceState==='unknown')throw new ConflictException('已有成本快照未记录完整来源，请核对后再处理；可先停用。');
+      if((usage.referenceCount??0)>0)throw new ConflictException('已被SKU成本快照引用，只能停用');
+    }
     await beforeDeleteRule(def.key, { em, host: this, user, record: existing });
-    const incoming = await em.find(ResourceLink, { where: { companyId: user.companyId, targetType: type, targetId: id, relation: Not('manual') } });
+    const incoming = await em.find(ResourceLink, { where: { companyId: user.companyId, targetType: type, targetId: id, relation: Not('manual') }, ...(currentRead ? { lock: { mode: 'pessimistic_write' as const } } : {}) });
     if (incoming.length > 0) {
       const sources = await em
         .createQueryBuilder(ResourceRecord, 'r')
@@ -1580,6 +1854,10 @@ export class ResourcesService implements RuleHost {
     const strip = (v: Record<string, unknown> | null) => {
       if (!v) return v;
       const copy = { ...v };
+      delete copy.costSourceProvenance;
+      delete copy.archiveBomCostSnapshot;
+      delete copy.sourceFinishedRowToken;
+      delete copy.sourceQualityConfirmations;
       for (const key of Object.keys(copy)) if (key.startsWith('_legacy')) delete copy[key];
       for (const k of hide) delete copy[k];
       return copy;
@@ -1869,8 +2147,20 @@ export class ResourcesService implements RuleHost {
     return String(v);
   }
 
-  async exportCsv(user: AuthUser, type: string, includeHidden: boolean, scope: Partial<ListQuery> = {}) {
+  async exportCsv(user: AuthUser, type: string, includeHidden: boolean, scope: Partial<ListQuery> & {referenceArchive?:boolean} = {}) {
     const def = this.def(type);
+    if(scope.referenceArchive&&type==='finance-products'){
+      const family=scope.tab??'';
+      if(!Object.prototype.hasOwnProperty.call(PRODUCT_REFERENCE_CSV_COLUMNS,family))throw new BadRequestException('请选择有效商品档案类型（原版CSV格式）');
+      const query=this.dataSource.manager.createQueryBuilder(ResourceRecord,'r').where('r.companyId=:companyId AND r.type=:type AND r.archivedAt IS NULL AND r.status IN (:...states)',{companyId:user.companyId,type,states:['active','inactive']});
+      if(['original_purchase','supplier_oem'].includes(family))query.andWhere("JSON_UNQUOTE(JSON_EXTRACT(r.data,'$.archiveType'))='purchased' AND COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(r.data,'$.supplyMode')),''),'original_purchase')=:mode",{mode:family});
+      else query.andWhere("JSON_UNQUOTE(JSON_EXTRACT(r.data,'$.archiveType'))=:family",{family});
+      if(scope.ids?.length)query.andWhere('r.id IN (:...ids)',{ids:scope.ids});
+      const records=await query.orderBy('r.id','DESC').getMany();
+      const items=await this.toDtos(this.dataSource.manager,user,def,records);
+      return exportProductReferenceCsv(this.dataSource.manager,user,family,items,createChecker(user.permissions)('product.cost.view')&&!(await isWarehouseMode(this.dataSource.manager,user)),{selectedCount:scope.ids?.length});
+    }
+    if(scope.referenceArchive&&!referenceArchiveCsv(type))throw new BadRequestException('该资料没有原版CSV格式');
     const hidden = restrictedFieldKeys(def, createChecker(user.permissions));
     const fields = def.fields.filter((f) => f.type !== 'secret' && !f.listOnly && !hidden.has(f.key));
     const items: ResourceDto[] = [];
@@ -1878,6 +2168,20 @@ export class ResourcesService implements RuleHost {
       const res = await this.list(user, type, { ...scope, page, pageSize: 200, showHidden: includeHidden });
       items.push(...res.items);
       if (items.length >= res.total) break;
+    }
+    if(scope.referenceArchive){
+      const reference=referenceArchiveCsv(type);if(!reference)throw new BadRequestException('该资料没有原版CSV格式');
+      const columns=reference.columns.filter(column=>column.key.startsWith('$')||fields.some(field=>field.key===column.key));
+      const paths=await this.treePaths(this.dataSource.manager,user.companyId,reference.categoryType);
+      const value=(column:{key:string},dto:ResourceDto)=>{
+        if(column.key==='$status')return dto.status==='active'?'正常':dto.status==='inactive'?'停用':dto.status;
+        if(column.key==='$statusReason')return dto.status==='inactive'?dto.statusReason??'':'';
+        if(column.key===reference.categoryField){const ids=Array.isArray(dto.data[column.key])?dto.data[column.key] as unknown[]:[dto.data[column.key]];return ids.filter((id):id is number=>typeof id==='number').map(id=>paths.get(id)??'').filter(Boolean).join('；');}
+        const field=fields.find(field=>field.key===column.key)!;
+        if(type==='finance-fee-items'&&field.key==='direction'&&dto.data.direction==='expense')return '支出';
+        return this.displayValue(field,dto);
+      };
+      return{filename:`${def.label}.csv`,csv:`\uFEFF${[columns.map(column=>this.csvCell(column.label)).join(','),...items.map(dto=>columns.map(column=>this.csvCell(value(column,dto))).join(','))].join('\r\n')}`,count:items.length};
     }
     const units = fields.some((f) => f.optionsFrom) ? await loadUnitLists(this.dataSource.manager, user.companyId) : undefined;
     const cat = await categoryLabels(this.dataSource.manager, user.companyId, def);
@@ -1917,20 +2221,40 @@ export class ResourcesService implements RuleHost {
     user: AuthUser,
     def: ResourceDef,
     row: Record<string, string>,
-  ): Promise<{ input: Record<string, unknown>; status?: string; errors: string[] }> {
+    reference?:ArchiveCsvImportContext,
+  ): Promise<{ input: Record<string, unknown>; status?: string; statusReason?:string; errors: string[] }> {
     const input: Record<string, unknown> = {};
     const errors: string[] = [];
     let status: string | undefined;
+    const source=reference?referenceArchiveCsv(def.key):undefined;
+    let statusReason:string|undefined;
     let unitLists: UnitLists | undefined;
     let catOpts: Awaited<ReturnType<typeof categoryOptionsFor>>;
     const statusText = (row['状态'] ?? '').trim();
-    if (statusText) {
+    if(source){status=statusText==='停用'?'inactive':statusText&&statusText!=='正常'?def.statuses.find(item=>item.label===statusText||item.value===statusText)?.value:'active';if(!status)errors.push(`状态“${statusText}”不认识`);if(status==='inactive'){statusReason=String(row['停用原因']??'').trim();const problem=validateStatusChange(def,status,statusReason);if(problem)errors.push(problem);}}
+    else if (statusText) {
       status = def.statuses.find((s) => s.label === statusText || s.value === statusText)?.value;
       if (!status) errors.push(`状态“${statusText}”不认识`);
     }
-    for (const f of def.fields) {
+    for (const sourceField of def.fields) {
+      const f = resolveFieldDef(sourceField, input);
       if ((f.type === 'secret' && !f.importable) || f.type === 'files' || f.type === 'attrs' || f.readonly) continue; // 密码、文件、系统计算的字段不走导入（资质的平台登录密码除外）
-      let raw = (row[f.label] ?? (f.aliases ?? []).map((a) => row[a]).find((v) => v !== undefined) ?? '').trim();
+      const sourceLabel=source?.columns.find(column=>column.key===f.key)?.label;
+      if(source&&!sourceLabel)continue;
+      const labels=[...new Set([f.label,...f.aliases??[],...(sourceLabel?[sourceLabel]:[])])];
+      const provided=labels.filter(label=>row[label]!==undefined);
+      if(source&&new Set(provided.map(label=>String(row[label]).trim())).size>1){errors.push(`${f.label}列重复且内容不一致`);continue;}
+      let raw=String(provided.length?row[provided[0]]:'').trim();
+      if(source&&f.key===source.categoryField){
+        if(!reference!.paths)reference!.paths=await this.treePaths(em,user.companyId,source.categoryType);
+        const texts=raw.split(/[；;]/).map(value=>value.trim()).filter(Boolean),ids:number[]=[];
+        for(const text of texts){const normalized=text.split('/').map(part=>part.trim()).join(' / ');const matches=[...reference!.paths].filter(([,path])=>path===normalized||path.split(' / ').at(-1)===text);if(matches.length!==1)errors.push(`${sourceLabel}“${text}”${matches.length?'有重名，无法确定':'找不到'}`);else ids.push(matches[0][0]);}
+        if(!texts.length&&reference?.categoryId){const found=await em.findOneBy(ResourceRecord,{id:reference.categoryId,companyId:user.companyId,type:source.categoryType});if(!found||found.archivedAt||found.status==='deleted')errors.push('当前分类已不可用');else ids.push(found.id);}
+        if(f.type==='refs')input[f.key]=[...new Set(ids)];else if(ids.length>1)errors.push('费用档案只能归入一个分类');else input[f.key]=ids[0]??'';
+        continue;
+      }
+      if(source&&provided.length&&!raw){input[f.key]='';continue;}
+      if(source&&def.key==='finance-fee-items'&&f.key==='direction'&&raw==='支出')raw='expense';
       // Excel 弄坏的手机号（="138…"、138….0、科学计数法）先还原
       if (raw && (f.type === 'phone' || (def.key === 'stores' && f.key === 'phoneNumber'))) raw = normalizePhoneImportText(raw);
       // 店铺的“所属执照”可填统一社会信用代码
@@ -1986,40 +2310,38 @@ export class ResourcesService implements RuleHost {
       }
     }
     if (def.fields.some((f) => f.key === 'source')) input.source = input.source ?? 'import';
-    return { input, status, errors };
+    return { input, status, statusReason, errors };
   }
 
   /**
    * 批量导入：先在事务里真正执行一遍，出任何错都整体回滚；预览（dryRun）也一律回滚。
    * 有唯一字段的资料按它“有则更新、无则新建”，没有唯一字段的都是新建。
    */
-  async importRows(user: AuthUser, type: string, rows: Array<Record<string, string>>, dryRun: boolean, partial = false, parentId?: number) {
-    const def = this.def(type);
-    const parentField = parentId ? def.fields.find(f => f.key === def.parent?.field && f.type === 'ref' && f.ref === def.parent?.type) : undefined;
-    if (parentId && !parentField) throw new BadRequestException('该资料不支持指定上级导入');
-    if (!Array.isArray(rows) || rows.length === 0) throw new BadRequestException('没有可导入的行');
-    if (rows.length > MAX_IMPORT_ROWS) throw new BadRequestException(`一次最多导入 ${MAX_IMPORT_ROWS} 行`);
-
-    const results: Array<{ line: number; action: 'create' | 'update' | 'error'; title?: string; errors: string[]; warnings?: string[] }> = [];
-    const cleanup: string[] = [];
-    // 真正导入前先留一份整类快照，导错了可以一键恢复；预览不留
-    const backupId = dryRun ? null : await this.createImportBackup(user, type);
-    try {
-      await this.dataSource.transaction(async (em) => {
+  /** Shared transactional import kernel. Callers own the outer commit/rollback boundary. */
+  async importRowsInTransaction(em:EntityManager,user:AuthUser,type:string,rows:Array<Record<string,string>>,options:{reference?:ArchiveCsvImportContext;parentId?:number;cleanup?:string[];lines?:number[];matchFields?:readonly string[];createOnly?:boolean;rejectReferencedBy?:readonly {resource:string;field:string}[];strictFields?:boolean;convert?:(row:Record<string,string>,index:number)=>Promise<{input:Record<string,unknown>;status?:string;statusReason?:string;errors:string[]}>;onSaved?:(saved:ResourceRecord,row:Record<string,string>)=>void | Promise<void>}={}) {
+    const def=this.def(type),cleanup=options.cleanup ?? [];
+    const parentId=options.parentId;
+    const parentField=parentId ? def.fields.find(field=>field.key===def.parent?.field && field.type==='ref' && field.ref===def.parent?.type) : undefined;
+    if(parentId && !parentField)throw new BadRequestException('该资料不支持指定上级导入');
+    const results:Array<{line:number;action:'create'|'update'|'error';title?:string;errors:string[];warnings?:string[]}>=[];
         for (let i = 0; i < rows.length; i++) {
-          const line = i + 2; // 第 1 行是表头
+          const line = options.lines?.[i] ?? i + 2; // 第 1 行是表头
           const row = parentField ? Object.fromEntries(Object.entries(rows[i]).filter(([key]) => key !== parentField.key && key !== parentField.label)) : rows[i];
-          const converted = await this.rowToInput(em, user, def, row);
+          const converted = options.convert ? await options.convert(row,i) : await this.rowToInput(em, user, def, row,options.reference);
           if (parentField) converted.input[parentField.key] = parentId;
           if (converted.errors.length > 0) {
             results.push({ line, action: 'error', errors: converted.errors });
             continue;
           }
           try {
-            const uniqueKey = def.uniqueField ? this.uniqueKeyOf(def, converted.input[def.uniqueField]) : null;
+            const uniqueKey = !options.matchFields && def.uniqueField ? this.uniqueKeyOf(def, converted.input[def.uniqueField]) : null;
             let existing = uniqueKey
               ? await this.findByUnique(em, user.companyId, type, String(converted.input[def.uniqueField!]))
               : null;
+            if(options.reference&&!existing&&!uniqueKey&&typeof converted.input.name==='string'){
+              const matches=await em.find(ResourceRecord,{where:{companyId:user.companyId,type,title:converted.input.name},take:2});
+              if(matches.length>1)throw new ConflictException('名称匹配多条资料，请提供唯一编号');existing=matches[0]??null;
+            }
             // 没有唯一字段的资料，按 importMatch 指定的字段组合匹配已有记录
             if (!existing && !def.uniqueField && def.importMatch?.length && def.importMatch.every((k) => converted.input[k] !== undefined && converted.input[k] !== '')) {
               const qb = em.createQueryBuilder(ResourceRecord, 'r').where('r.companyId = :c AND r.type = :t', { c: user.companyId, t: type });
@@ -2036,24 +2358,62 @@ export class ResourcesService implements RuleHost {
                 existing=matches[0] ?? null;
               }
             }
+            if(options.matchFields?.length){
+              const qb=em.createQueryBuilder(ResourceRecord,'r').where('r.companyId = :c AND r.type = :t',{c:user.companyId,t:type});
+              options.matchFields.forEach((field,index)=>{
+                if(!/^[A-Za-z][A-Za-z0-9]*$/.test(field) || !def.fields.some(f=>f.key===field))throw new BadRequestException('导入匹配字段无效');
+                const value=converted.input[field];
+                if(value==null)qb.andWhere(`(JSON_EXTRACT(r.data, '$.${field}') IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${field}')) = 'null')`);
+                else qb.andWhere(`JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${field}')) = :profile${index}`,{[`profile${index}`]:String(value)});
+              });
+              const matches=await qb.take(2).getMany();if(matches.length>1)throw new ConflictException('导入匹配到多条记录，请先处理重复资料');existing=matches[0] ?? null;
+            }
+            if(existing && options.createOnly)throw new ConflictException('系统中已存在该编码，导入不能静默覆盖');
+            if(existing)for(const reference of options.rejectReferencedBy ?? []){
+              if((await this.findWhere(em,user.companyId,reference.resource,reference.field,existing.id)).length)throw new ConflictException('该编码已被下游引用，不允许通过导入覆盖');
+            }
+            if(options.strictFields && existing && converted.status && converted.status!==existing.status && !createChecker(user.permissions)(resourcePermission(permissionOwner(type),'disable')))throw new ForbiddenException('修改导入记录状态需要状态修改权限');
+            if(options.strictFields){const blocked=readOnlyFieldKeys(def,createChecker(user.permissions));for(const key of Object.keys(converted.input))if(!def.fields.some(field=>field.key===key))throw new BadRequestException(`导入配置包含未知字段：${key}`);else if(blocked.has(key))throw new ForbiddenException('导入包含当前权限不可修改的字段');}
             if (!existing) existing = await certImportMatch(type, { em, host: this, user, input: converted.input });
             const saved = await em.transaction((inner) =>
-              this.saveRecord(inner, user, def, existing, converted.input, { status: converted.status, note: '批量导入', cleanup }),
+              this.saveRecord(em, user, def, existing, converted.input, { status: converted.status, ...(converted.statusReason!==undefined?{statusReason:converted.statusReason}:{}), note: '批量导入', cleanup }),
             );
             let warnings: string[] | undefined;
             if (type === 'phones') {
               const storeDef = this.def('stores');
               const bound = await em.transaction((inner) =>
-                bindPhoneStores(inner, user, saved, rows[i], (store, input) => this.saveRecord(inner, user, storeDef, store, input, { note: `手机号导入绑定：${saved.title}`, cleanup })),
+                bindPhoneStores(em, user, saved, rows[i], (store, input) => this.saveRecord(em, user, storeDef, store, input, { note: `手机号导入绑定：${saved.title}`, cleanup })),
               );
               if (bound.warnings.length) warnings = bound.warnings;
             }
+            await options.onSaved?.(saved,rows[i]);
             results.push({ line, action: existing ? 'update' : 'create', title: saved.title, errors: [], warnings });
           } catch (e) {
             const message = (e as { response?: { message?: string | string[] } }).response?.message ?? (e as Error).message;
             results.push({ line, action: 'error', errors: [Array.isArray(message) ? message.join('；') : String(message)] });
           }
         }
+    return results;
+  }
+
+  async importRows(user: AuthUser, type: string, rows: Array<Record<string, string>>, dryRun: boolean, partial = false, parentId?: number, reference?:ArchiveCsvImportContext) {
+    const def = this.def(type);
+    if(reference&&!referenceArchiveCsv(type))throw new BadRequestException('该资料没有原版CSV格式');
+    if(reference&&rows.some(row=>!row||typeof row!=='object'||Array.isArray(row)||Object.values(row).some(value=>typeof value!=='string')))throw new BadRequestException('CSV单元格必须是文本');
+    reference=reference?{categoryId:reference.categoryId}:undefined;
+    if(reference?.categoryId){const config=referenceArchiveCsv(type)!;const category=await this.dataSource.manager.findOneBy(ResourceRecord,{id:reference.categoryId,companyId:user.companyId,type:config.categoryType});if(!category||category.archivedAt||category.status==='deleted')throw new BadRequestException('当前分类已不可用');}
+    const parentField = parentId ? def.fields.find(f => f.key === def.parent?.field && f.type === 'ref' && f.ref === def.parent?.type) : undefined;
+    if (parentId && !parentField) throw new BadRequestException('该资料不支持指定上级导入');
+    if (!Array.isArray(rows) || rows.length === 0) throw new BadRequestException('没有可导入的行');
+    if (rows.length > MAX_IMPORT_ROWS) throw new BadRequestException(`一次最多导入 ${MAX_IMPORT_ROWS} 行`);
+
+    const results: Array<{ line: number; action: 'create' | 'update' | 'error'; title?: string; errors: string[]; warnings?: string[] }> = [];
+    const cleanup: string[] = [];
+    // 真正导入前先留一份整类快照，导错了可以一键恢复；预览不留
+    const backupId = dryRun ? null : await this.createImportBackup(user, type);
+    try {
+      await this.dataSource.transaction(async (em) => {
+        results.push(...await this.importRowsInTransaction(em,user,type,rows,{parentId,cleanup,reference}));
         // 默认有一行有问题就整批不导入；partial=只导入没问题的行（局部成功），有问题的行原样返回
         if (dryRun || (!partial && results.some((r) => r.action === 'error'))) throw new Rollback();
       });
@@ -2074,6 +2434,80 @@ export class ResourcesService implements RuleHost {
       failed,
       results,
     };
+  }
+
+  importProfiles() { return {profiles:RESOURCE_IMPORT_PROFILES}; }
+
+  async importProfile(user:AuthUser,id:string,sheets:ProfileSheetInput[],dryRun:boolean,signature?:string) {
+    const profile=getResourceImportProfile(id);if(!profile)throw new NotFoundException('导入模块不存在');
+    const issues=validateProfileWorkbook(profile,sheets);
+    const can=createChecker(user.permissions);
+    if(!getSourceProductImportProfile(id)&&!can('finance.master-import.view'))throw new ForbiddenException('没有商品数据导入权限');
+    const usedSteps=profile.steps.filter(step=>sheets.some(sheet=>sheet.name===step.sheet && sheet.rows.some(row=>profileStepAccepts(step,row))) || !!step.replaceChildren && profile.steps.some(owner=>owner.namespace?.name===step.replaceChildren!.ownerNamespace && sheets.some(sheet=>sheet.name===owner.sheet && sheet.rows.some(row=>profileStepAccepts(owner,row)))));
+    for(const type of new Set(usedSteps.map(step=>step.resource))){this.def(type);if(!can(resourcePermission(permissionOwner(type),'import')))throw new ForbiddenException('没有目标资料的导入权限');}
+    if(issues.length)return {dryRun,committed:false,created:0,updated:0,mainCreated:0,mainUpdated:0,detailRows:0,failed:issues.length,results:[],issues,signature:null};
+    const results:Array<{sheet:string;step:string;line:number;action:'create'|'update'|'error';title?:string;errors:string[]}>=[];
+    const cleanup:string[]=[];let currentSignature='';let committed=false;
+    try {
+      await this.dataSource.transaction(async em=>{
+        await em.findOne(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}});
+        const baseline=await em.find(ResourceRecord,{where:{companyId:user.companyId},order:{id:'ASC'},lock:{mode:'pessimistic_write'}});
+        currentSignature=this.crypto.indexTokens(JSON.stringify([user.companyId,user.id,profile.id,todayShanghai(),sheets,baseline.map(row=>[row.id,row.type,row.status,row.updatedAt,row.data])]))[0];
+        if(!dryRun && (!signature || signature!==currentSignature))throw new ConflictException('资料或工作簿已变化，请重新预检后导入');
+        const aliases:ProfileAliases={};
+        const owners=(namespace:string)=>[...new Map([...(aliases[namespace]?.values() ?? [])].map(row=>[row.id,row])).values()];
+        const lookupCache=new Map<string,ResourceRecord[]>();
+        const lookup={find:async(type:string,fields:Record<string,unknown>,any?:{fields:readonly string[];value:string})=>{
+          let rows=lookupCache.get(type);
+          if(!rows){rows=await em.find(ResourceRecord,{where:{companyId:user.companyId,type}});lookupCache.set(type,rows);}
+          const equal=(left:unknown,right:unknown)=>left==null && right==null || String(left ?? '').trim().toLocaleLowerCase('zh-CN')===String(right ?? '').trim().toLocaleLowerCase('zh-CN');
+          return rows.filter(row=>Object.entries(fields).every(([field,value])=>equal(row.data[field],value)) && (!any || any.fields.some(field=>equal(field==='title'?row.title:row.data[field],any.value)))) as ProfileRecord[];
+        }};
+        beginPurchaseHistoryBatch(em,null);
+        await withTrustedResourceImport(em,user,profile.id,async()=>{
+          const replaced=new Set<string>();
+          for(const step of usedSteps){
+            lookupCache.clear();
+            if(step.replaceChildren){
+              const {parentField,ownerNamespace}=step.replaceChildren;
+              const key=`${step.resource}:${parentField}:${ownerNamespace}`;
+              if(!replaced.has(key)){
+                replaced.add(key);
+                for(const owner of owners(ownerNamespace)){
+                  const children=await this.findWhere(em,user.companyId,step.resource,parentField,owner.id);
+                  if(children.length && !can(resourcePermission(permissionOwner(step.resource),'delete')))throw new ForbiddenException('覆盖原构成需要目标资料删除权限');
+                  for(const child of children)await this.removeRecord(em,user,step.resource,child.id,'工作簿整组替换构成',cleanup);
+                }
+              }
+            }
+            const rows=await prepareProfileStep(profile,step,sheets,lookup,aliases,todayShanghai());
+            if(step.identity==='product-code')for(const row of rows)if(!row.errors.length)try{row.input.code=await importedProductIdentity(em,user,row.input);}catch(error){row.errors.push((error as Error).message);}
+            for(const constraint of step.conflictingRows ?? [])for(const row of rows.filter(row=>row.input[constraint.field]===constraint.values[1]))if(rows.some(other=>other.input[constraint.field]===constraint.values[0] && [...constraint.identityFields,...constraint.equalFields].every(field=>(other.input[field] ?? null)===(row.input[field] ?? null))))row.errors.push(constraint.message);
+            if(step.rejectDuplicate?.length){const seen=new Set<string>();for(const row of rows){const key=JSON.stringify(step.rejectDuplicate.map(field=>String(row.input[field] ?? '').toLowerCase()));if(seen.has(key))row.errors.push('文件内相同自然键重复');else seen.add(key);}}
+            for(let offset=0;offset<rows.length;offset+=MAX_IMPORT_ROWS){const chunk=rows.slice(offset,offset+MAX_IMPORT_ROWS);
+              const out=await this.importRowsInTransaction(em,user,step.resource,chunk.map(row=>row.source),{cleanup,strictFields:true,lines:chunk.map(row=>row.line),matchFields:step.matchFields,createOnly:step.createOnly,rejectReferencedBy:step.rejectReferencedBy,convert:async(_row,index)=>chunk[index],onSaved:(saved,row)=>bindProfileAlias(step,row,saved,aliases)});
+              results.push(...out.map(row=>({...row,sheet:step.sheet,step:step.id})));
+            }
+          }
+          const weightFacts=profile.finalize==='base-import' ? await em.find(ResourceRecord,{where:{companyId:user.companyId,type:In(['finance-base-code-lines','finance-products','finance-product-units'])}}):[];
+          if(profile.finalize==='base-import')for(const owner of owners('base-codes')){
+            const current=await this.load(em,user,'finance-base-codes',owner.id);
+            const weight=await importedBaseWeight({em,user},current,weightFacts);
+            if(weight!==null && weight!==current.data.weightG)await this.saveRecord(em,user,this.def('finance-base-codes'),current,{weightG:weight},{note:'按原工作簿组成或重量单位补全导入重量',cleanup});
+          }
+          for(const constraint of profile.requiredChildren ?? [])for(const owner of owners(constraint.ownerNamespace)){
+            const children=await this.findWhere(em,user.companyId,constraint.resource,constraint.parentField,owner.id);
+            if(!children.some(child=>child.data[constraint.field]===constraint.equals))results.push({sheet:profile.steps.find(step=>step.namespace?.name===constraint.ownerNamespace)?.sheet ?? '',step:'integrity',line:0,action:'error',title:owner.title,errors:[constraint.message]});
+          }
+          await flushPurchaseHistory(this,em,user);
+        });
+        if(dryRun || results.some(row=>row.action==='error'))throw new Rollback();
+        committed=true;
+      });
+    }catch(error){if(!(error instanceof Rollback))throw error;}
+    if(committed)await this.files.deleteObjects(user.companyId,cleanup);
+    const isDetail=(row:typeof results[number])=>{const step=profile.steps.find(step=>step.id===row.step);return !!step && !!this.def(step.resource).parent;};
+    return {dryRun,committed,created:results.filter(row=>row.action==='create').length,updated:results.filter(row=>row.action==='update').length,mainCreated:results.filter(row=>row.action==='create' && !isDetail(row)).length,mainUpdated:results.filter(row=>row.action==='update' && !isDetail(row)).length,detailRows:results.filter(row=>row.action!=='error' && isDetail(row)).length,failed:results.filter(row=>row.action==='error').length,results,issues:[],signature:currentSignature};
   }
 
   // ---------- 导入备份 ----------

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api/client';
+import { useAuth } from '../../auth/AuthContext';
 import { DocDetail } from './DocDetail';
 import { money } from './common';
 import { CopyButton, DateChips, plainYuan } from './fin-ui';
@@ -18,19 +19,21 @@ function useQuery<R>(fetcher: (p: { from?: string; to?: string; docType?: string
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [at, setAt] = useState<Date | null>(null);
+  const request = useRef(0);
   const load = useCallback((f: F) => {
+    const version = ++request.current;
     setError(''); setBusy(true);
     fetcher({ from: f.from || undefined, to: f.to || undefined, docType: f.docType || undefined })
-      .then((r) => { setAll(r); setAt(new Date()); })
-      .catch((e) => { setAll([]); setError(e instanceof ApiError ? e.message : '加载失败'); })
-      .finally(() => setBusy(false));
+      .then((r) => { if (version === request.current) { setAll(r); setApplied(f); setAt(new Date()); } })
+      .catch((e) => { if (version === request.current) { setAll(current => current ?? []); setError(e instanceof ApiError ? e.message : '加载失败'); } })
+      .finally(() => { if (version === request.current) setBusy(false); });
   }, [fetcher]);
-  useEffect(() => { load(EMPTY); }, [load]);
+  useEffect(() => { load(EMPTY); return () => { request.current++; }; }, [load]);
   const rows = all === null ? null : all.filter((r) => !applied.keyword.trim() || has(text(r), applied.keyword));
   return {
     draft, setDraft, applied, rows, error, busy, at,
-    query: () => { setApplied(draft); load(draft); },
-    reset: () => { setDraft(EMPTY); setApplied(EMPTY); load(EMPTY); },
+    query: () => load(draft),
+    reset: () => { setDraft(EMPTY); load(EMPTY); },
     refresh: () => load(applied),
     filtered: !!(applied.from || applied.to || applied.docType || applied.keyword.trim()),
   };
@@ -38,13 +41,19 @@ function useQuery<R>(fetcher: (p: { from?: string; to?: string; docType?: string
 
 function Filters({ q, placeholder }: { q: ReturnType<typeof useQuery<never>>; placeholder: string }) {
   const { draft, setDraft } = q;
+  const { can } = useAuth();
+  const types = [{ value: 'receipt', label: '收款单' }, { value: 'payment', label: '付款单' }].filter(type => can(`finance.doc-${type.value}.view`) || can('finance.history.view') || can('finance.drafts.view'));
+  const typesKey = types.map(type => type.value).join(',');
+  useEffect(() => {
+    if (draft.docType && !types.some(type => type.value === draft.docType)) setDraft(current => ({ ...current, docType: '' }));
+  }, [typesKey, draft.docType, setDraft]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <FilterBar onQuery={q.query} onReset={q.reset} busy={q.busy}>
       <Field label="关键词" wide><input type="search" aria-label="关键词" placeholder={placeholder} value={draft.keyword} onChange={(e) => setDraft({ ...draft, keyword: e.target.value })} /></Field>
       <Field label="日期范围">
         <span className="qk-range"><input type="date" aria-label="开始日期" value={draft.from} onChange={(e) => setDraft({ ...draft, from: e.target.value })} /><span className="muted">至</span><input type="date" aria-label="结束日期" value={draft.to} onChange={(e) => setDraft({ ...draft, to: e.target.value })} /></span>
       </Field>
-      <Field label="单据类型"><select aria-label="单据类型" value={draft.docType} onChange={(e) => setDraft({ ...draft, docType: e.target.value })}><option value="">收款单和付款单</option><option value="receipt">收款单</option><option value="payment">付款单</option></select></Field>
+      <Field label="单据类型"><select aria-label="单据类型" disabled={!types.length} value={draft.docType} onChange={(e) => setDraft({ ...draft, docType: e.target.value })}><option value="">{types.map(type => type.label).join('和') || '没有可查看的收付款单'}</option>{types.length > 1 && types.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}</select></Field>
       <div className="qk-field wide"><span>快捷日期</span><DateChips from={draft.from} to={draft.to} onChange={(a, b) => setDraft({ ...draft, from: a, to: b })} /></div>
     </FilterBar>
   );
@@ -85,7 +94,7 @@ export function SettlementDetailPage() {
             { label: '被结算单据数', value: new Set(list.map((r) => r.sourceDocId)).size },
             { label: '结算金额合计', value: total(list), tone: 'accent' },
           ]} />}
-          <QueryPanel title="结算明细" hint={rows && rows.length >= 500 ? '最多显示最近 500 笔，请缩小日期范围' : undefined}
+          <QueryPanel title="结算明细"
             actions={<GroupSwitch value={group} onChange={setGroup} options={[['none', '平铺'], ['party', '按往来对象'], ['doc', '按收付款单']]} />}>
             <QueryTable cols={cols} rows={rows} rowKey={(r) => r.id} caption="结算明细" footLabel={() => '合计'} loading="正在加载…"
               group={group === 'party' ? { key: (r) => r.partyName || '无往来对象', label: (k, l) => <><strong>{k}</strong> <span className="muted">{l.length} 笔</span></> }
@@ -130,7 +139,7 @@ export function UnsettledReceiptsPage() {
             { label: '已分配到单据', value: sum('allocatedCents')(list) },
             { label: '未分配合计', value: sum('unallocatedCents')(list), tone: list.length ? 'warn' : undefined },
           ]} />}
-          <QueryPanel title="未完全结算的收付款单" hint={rows && rows.length >= 1000 ? '最多显示最近 1000 张，请缩小日期范围' : undefined}
+          <QueryPanel title="未完全结算的收付款单"
             actions={<GroupSwitch value={group} onChange={setGroup} options={[['none', '平铺'], ['party', '按往来对象'], ['type', '按单据类型']]} />}>
             <QueryTable cols={cols} rows={rows} rowKey={(r) => r.id} caption="未完全结算收付款单" footLabel={() => '合计'} loading="正在加载…"
               group={group === 'party' ? { key: (r) => r.partyName || '无往来对象', label: (k, l) => <><strong>{k}</strong> <span className="muted">{l.length} 张</span></> }

@@ -32,8 +32,12 @@ export class FinanceVoucherHintsService {
   }
 
   /** 明细行提示：账面库存（可按仓库）、最近进价（要成本权限）、最近售价（要价格权限） */
-  async lineHints(user: AuthUser, productIds: number[], warehouseId?: number) {
+  async lineHints(user: AuthUser, productIds: number[], warehouseId?: number, warehouseName?: string) {
     this.needDoc(user);
+    if (warehouseName !== undefined && !warehouseId) {
+      const warehouse = warehouseName.trim() ? await this.dataSource.manager.findOne(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-warehouses', uniqueKey: warehouseName.trim().toLowerCase(), status: 'active' } }) : null;
+      warehouseId = warehouse && !warehouse.archivedAt ? warehouse.id : -1;
+    }
     const ids = [...new Set(productIds)].filter((x) => Number.isInteger(x) && x > 0).slice(0, 100);
     if (!ids.length) return [];
     const owned = await this.dataSource.manager.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-products', id: In(ids) }, select: ['id'] });

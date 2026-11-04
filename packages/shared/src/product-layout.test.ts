@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { validateResourceInput } from './resources';
 import { FINANCE_RESOURCE_DEFS } from './finance-resources';
-import { BLOCK_FIELDS, PRODUCT_LAYOUTS, isBlock, layoutFieldKeys, layoutFieldMeta, productFieldDef, productFormProblems, productLayoutKey, type ProductLayoutKey } from './product-layout';
+import { BLOCK_FIELDS, PRODUCT_LAYOUTS, isBlock, layoutFieldKeys, layoutFieldMeta, productFieldDef, productFormProblems, productLayoutKey, type ProductLayoutKey, resolveProductSections } from './product-layout';
 
 const def = FINANCE_RESOURCE_DEFS.find((d) => d.key === 'finance-products')!;
 const SAMPLE: Record<ProductLayoutKey, Record<string, unknown>> = {
@@ -31,10 +32,11 @@ describe('商品档案布局（详情、新增、编辑共用的一份）', () =
     }
   });
 
-  it('字段定义里的每个字段，至少出现在一种档案类型的布局里（没有字段被排丢）', () => {
+  it('可见字段至少出现在一种档案布局；内部字典来源不进入产品布局', () => {
     const all = new Set(KEYS.flatMap((k) => layoutFieldKeys(PRODUCT_LAYOUTS[k])));
-    const lost = def.fields.map((f) => f.key).filter((k) => !all.has(k));
+    const lost = def.fields.filter(f=>!f.listOnly).map((f) => f.key).filter((k) => !all.has(k));
     expect(lost).toEqual([]);
+    expect(all.has('unitDictionaryKind')).toBe(false);
   });
 
   it('字段的显示条件（showWhen）和布局一致：布局放了它的类型，条件都成立', () => {
@@ -170,3 +172,20 @@ describe('resolveProductSections（表单和详情共用的解析）', () => {
     expect(flat({ archiveType: 'purchased', supplyMode: 'original_purchase', shape: '盒' }, () => true)).toContain('shape');
   });
 });
+
+
+describe('名称规格保留文字', () => {
+  it.each(['shipping_material', 'purchased', 'self_made'])('%s 的规格输入允许尺寸描述且不按正数校验', (archiveType) => {
+    const values = { archiveType, supplyMode: 'original_purchase', specQty: '25*33+4', specUnit: 'EA', categoryId: 1, name: '文字规格' };
+    expect(resolveProductSections(values).flatMap(s => s.nodes).find(n => n.kind === 'field' && n.field.key === 'specQty')).toMatchObject({ field: { type: 'text' } });
+    expect(productFormProblems(values, { canCost: false, sources: [] }).specQty).toBeUndefined();
+    expect(validateResourceInput(def, { specQty: '25*33+4' }, { status: 'active', existing: values })).toMatchObject({ errors: [], values: { specQty: '25*33+4' } });
+  });
+  it('原料仍拒绝文字规格，数字字符串仍规范化成数字', () => {
+    const existing = { archiveType: 'raw', categoryId: 1, name: '原料' };
+    expect(validateResourceInput(def, { specQty: '25*33+4' }, { status: 'active', existing }).errors.join()).toContain('非负数');
+    expect(validateResourceInput(def, { specQty: '2.5' }, { status: 'active', existing }).values.specQty).toBe(2.5);
+  });
+});
+
+it('存量文件人工有真实行和版本即可校验倍数，不需要虚构人工ID',()=>{const values={archiveType:'self_made',categoryId:1,name:'合成自产',brandId:1,productPackagingSpec:'1',productPackagingUnit:'D',purchaseSpec:'斤'};const row={group:'labor' as const,qty:1.123456,sourceRowId:12,sourceVersion:'actual-version'};expect(productFormProblems(values,{canCost:true,composition:[row]})).toEqual({});for(const invalid of [{...row,sourceRowId:0},{...row,sourceVersion:''},{...row,qty:0},{...row,group:'raw' as const}])expect(productFormProblems(values,{canCost:true,composition:[invalid]}).composition).toBeTruthy();});

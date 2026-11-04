@@ -138,6 +138,24 @@ d('财务单据（真实数据库）', () => {
     expect(b.balanceCents).toBe(104200);
   });
 
+  it('其他收入自由金额项目可保存、过账、复制和红冲，保持明细与分录平衡', async () => {
+    const company = await ds.manager.save(Company, ds.manager.create(Company, { code: `free${crypto.randomBytes(5).toString('hex')}`, name: '自由收入隔离公司', status: 'active' }));
+    const user = await ds.manager.save(User, ds.manager.create(User, { companyId: company.id, account: 'admin', passwordHash: 'x', name: '管理员', isCompanyAdmin: true, status: 'active', mustChangePassword: false }));
+    const actor = { ...boss, id: user.id, companyId: company.id };
+    const bank = await svc.create(actor, 'bank-accounts', { kind: 'cashier_account', accountName: '隔离出纳账户', bank: '测试银行', accountNo: '6222000055556666' });
+    const before = (await docs.bankBalances(actor)).find(x => x.id === bank.id)?.balanceCents;
+    const draft = await docs.createDraft(actor, { type: 'other-income', date: day, bankAccountId: bank.id, lines: [{ itemName: '回收余料', qty: 1, unitPriceCents: 1234, memo: '自由项目测试' }] });
+    expect(draft.lines[0]).toMatchObject({ itemName: '回收余料', feeItemId: null, unitPriceCents: 1234 });
+    const posted = await docs.post(actor, draft.id);
+    expect(posted.entries).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'other_income', amountCents: -1234, accountId: 0 }), expect.objectContaining({ kind: 'bank', amountCents: 1234 })]));
+    expect(await sum(actor.companyId, draft.id)).toBe(0);
+    const copy = await docs.copyAsDraft(actor, draft.id);
+    expect(copy.lines[0]).toMatchObject({ itemName: '回收余料', feeItemId: null, unitPriceCents: 1234 });
+    await docs.deleteDraft(actor, copy.id);
+    await docs.reverse(actor, draft.id, '合成数据冲回，避免影响本套其余余额断言');
+    expect((await docs.bankBalances(actor)).find(x => x.id === bank.id)?.balanceCents).toBe(before);
+  });
+
   it('转款、费用、其他收入、付款与预付冲抵', async () => {
     const t = await docs.createDraft(boss, { type: 'transfer', date: day, bankAccountId: ids.bank, toBankAccountId: ids.bank2, amountCents: 2000 });
     await docs.post(boss, t.id);
@@ -197,9 +215,10 @@ d('财务单据（真实数据库）', () => {
   });
 
   it('费用单挂账、经营历程：财务审核后不能冲和改；改表头；复制为草稿；批量过账/删除', async () => {
-    // 现金费用单（不选往来对象）没付清要被拦住；费用单选了供应商可以挂应付
+    // 旧版允许先开立自由单位费用单；真正过账挂应付仍必须关联档案。
     const cash = await docs.createDraft(boss, { type: 'expense', date: day, bankAccountId: ids.bank, paidCents: 100, lines: [{ feeItemId: ids.feeOut, qty: 1, unitPriceCents: 300 }] });
-    await expect(docs.issue(boss, cash.id)).rejects.toThrow(/挂账|付清/);
+    expect((await docs.issue(boss, cash.id)).status).toBe('issued');
+    await expect(docs.post(boss, cash.id)).rejects.toThrow(/挂账|付清/);
     const credit = await docs.post(boss, (await docs.createDraft(boss, { type: 'expense', date: day, partyId: ids.supp, partyKind: 'supplier', bankAccountId: ids.bank, paidCents: 100, lines: [{ feeItemId: ids.feeOut, qty: 1, unitPriceCents: 300 }] })).id);
     expect(await sum(boss.companyId, credit.id)).toBe(0);
     expect(credit.entries.some((e) => e.kind === 'payable' && e.amountCents === -200)).toBe(true);
@@ -256,6 +275,15 @@ d('财务单据（真实数据库）', () => {
     const withObj = await docs.createDraft(boss, { type: 'expense', date: day, bankAccountId: ids.bank, lines: [{ feeItemId: must, qty: 1, unitPriceCents: 3000, relatedNode: phone ? '手机号' : '公司', relatedId: phone?.id ?? null, relatedName: phone ? null : '总公司' }] });
     expect((await docs.issue(boss, withObj.id)).status).toBe('issued');
     await expect(docs.createDraft(boss, { type: 'expense', date: day, lines: [{ feeItemId: must, qty: 1, unitPriceCents: 1, relatedNode: '乱写' }] })).rejects.toThrow(/不认识/);
+  });
+
+  it('费用详情独立修改必挂对象后，开立费用单按保存结果检查对象而非重新猜节点',async()=>{
+    const item=await svc.create(boss,'finance-fee-items',{code:'T-MANUAL-REQ',name:'合成独立归属要求',direction:'expense',defaultObject:'公司'});
+    const changed=await svc.saveForm(boss,'finance-fee-items',{id:item.id,version:item.version,requestKey:crypto.randomUUID(),values:{requiredObject:'yes'},collections:[]});
+    const draft=await docs.createDraft(boss,{type:'expense',date:day,bankAccountId:ids.bank,lines:[{feeItemId:item.id,qty:1,unitPriceCents:100}]});
+    await expect(docs.issue(boss,draft.id)).rejects.toThrow(/必须选挂账节点和挂账对象/);
+    await svc.saveForm(boss,'finance-fee-items',{id:item.id,version:changed.version,requestKey:crypto.randomUUID(),values:{requiredObject:'no'},collections:[]});
+    expect((await docs.issue(boss,draft.id)).status).toBe('issued');
   });
 
   it('员工作为往来对象：同步员工名单（不重复）；费用单挂员工，没付的部分记在员工名下', async () => {

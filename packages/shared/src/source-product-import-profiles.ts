@@ -1,0 +1,37 @@
+import type {ImportValue,ResourceImportProfile,ResourceImportSheet,ResourceImportStep} from './resource-import-profiles';
+export const SOURCE_PRODUCT_FAMILIES=['raw','self_made','original_purchase','supplier_oem','package','oem_package','shipping_material'] as const;
+export type SourceProductFamily=typeof SOURCE_PRODUCT_FAMILIES[number];
+const c=(column:string,extra:Partial<ImportValue>={}):ImportValue=>({column,...extra}),lit=(literal:string|number|boolean|null):ImportValue=>({literal});
+const money=['采购价','运费','装卸费'],end=['状态','停用原因','分类标识'];
+const raw=['系统自动编号','原料生产编码','原料名称','产区','供应商名称','供应商简称编码','所属分类','规格','名称单位','系统规格',...money,'分类标识'];
+const purchased=['外购成品编号','外购成品名称','品牌','名称规格','名称单位','系统规格','所属分类','供货方式','称重重量',...money,...end];
+const packaging=['产品包装编号','所属分类','包装类别','包装名称','品牌','尺寸','尺寸单位','容量明细','包装印刷公司','重量','重量单位','系统规格',...money,'订单库存','实际库存',...end];
+export const SOURCE_PRODUCT_IMPORT_HEADERS:Readonly<Record<SourceProductFamily,readonly string[]>>={raw,shipping_material:raw.map(name=>name==='原料生产编码'?'物料生产编码':name==='原料名称'?'发货物料名称':name==='名称单位'?'规格单位':name),self_made:['自产成品编号','自产成品名称','品牌','名称规格','名称单位','产品包装规格','产品包装单位','系统规格','所属分类','称重重量',...money,...end],original_purchase:purchased,supplier_oem:purchased,package:packaging,oem_package:packaging.filter(name=>!['状态','停用原因'].includes(name)).map(name=>name==='产品包装编号'?'OEM包装编号':name)};
+export const SOURCE_PRODUCT_IMPORT_LABELS:Record<SourceProductFamily,string>={raw:'原料',self_made:'自产成品',original_purchase:'原装采购成品',supplier_oem:'供应商OEM成品',package:'产品包装',oem_package:'OEM包装',shipping_material:'发货物料'};
+const sheet=(name:string,headers:readonly string[],optional=false):ResourceImportSheet=>({name,headers,examples:[],...(optional?{optional:true}:{})});
+const owner=(column:string):ImportValue=>({reference:{resource:'finance-products',fields:{code:c(column,{required:true})},namespace:'products',importedOwner:true}});
+/** 原档案专属文件仅是同一导入引擎的显式格式；不加入七模块主列表。 */
+export function sourceProductImportProfile(family:SourceProductFamily,csv=false):ResourceImportProfile{
+ const self=family==='self_made',source=['raw','shipping_material'].includes(family),pack=['package','oem_package'].includes(family),purchase=['original_purchase','supplier_oem'].includes(family),archive=purchase?'purchased':family;
+ const master=self&&!csv?'自产成品主表':'商品档案',headers=SOURCE_PRODUCT_IMPORT_HEADERS[family],codeColumn=headers[0],nameColumn=source?family==='raw'?'原料名称':'发货物料名称':self?'自产成品名称':pack?'包装名称':'外购成品名称';
+ const unitKind=family==='shipping_material'?'shipping_unit':'archive_unit';
+ const category=(fields:Record<string,ImportValue>,optionalMissing=false):ImportValue=>({reference:{resource:'finance-categories',fields,value:c('所属分类',{required:true}),pathSeparator:'/',pathField:'parentId',optionalMissing}});
+ const categoryRef=family==='supplier_oem'?{firstOf:[category({archiveType:lit(family)},true),category({archiveType:lit('original_purchase'),importArchiveType:lit('purchased')})]}:category({archiveType:lit(family)});
+ const fields:Record<string,ImportValue>={archiveType:lit(archive),unitDictionaryKind:lit(unitKind),code:c(codeColumn,{required:self&&!csv}),name:c(nameColumn,{required:true}),categoryId:categoryRef,purchaseSpec:c('系统规格',{required:true}),purchasePrice:c('采购价',{transform:'money',required:source}),freight:c('运费',{transform:'money'}),handlingFee:c('装卸费',{transform:'money'})};
+ if(purchase)fields.supplyMode=lit(family);
+ if(!pack){fields.specQty=c(source?'规格':'名称规格',{required:!self});fields.specUnit=c(family==='shipping_material'?'规格单位':'名称单位',{transform:'unit',unitKind,required:!self});}
+ if(source)fields.materialCode=c(family==='raw'?'原料生产编码':'物料生产编码');
+ if(!source)fields.brandId={reference:{resource:'finance-brands',fields:{name:c('品牌',{required:true})}}};
+ if(self){fields.productPackagingSpec=c('产品包装规格',{required:true});fields.productPackagingUnit=c('产品包装单位',{required:true,transform:'unit',unitKind:'packaging_unit'});}
+ if(!source){fields.weightG=c(pack?'重量':'称重重量',{transform:pack?'weight-to-g':'kg-to-g',unitColumn:pack?'重量单位':undefined});fields.weightManual={when:{column:pack?'重量':'称重重量',nonEmpty:true,then:lit(true),otherwise:lit(false)}};}
+ if(pack){fields.packagingCategory={reference:{resource:'finance-product-units',fields:{kind:lit('packaging_category')},anyFields:['name','code'],value:c('包装类别',{required:true}),returnField:'code'}};fields.dimensionUnit={reference:{resource:'finance-product-units',fields:{kind:lit('dimension_unit')},anyFields:['name','code'],value:c('尺寸单位'),returnField:'code'}};Object.assign(fields,{dimensions:c('尺寸'),capacities:c('容量明细',{required:true,transform:'semicolon-lines'}),printingCompany:c('包装印刷公司'),weightUnit:c('重量单位',{map:{克:'g',千克:'kg',公斤:'kg',斤:'jin',g:'g',kg:'kg',jin:'jin'}}),orderStock:c('订单库存',{transform:'number',fallback:0}),actualStock:c('实际库存',{transform:'number',fallback:0})});}
+ const status=c('状态',{fallback:'active',map:{正常:'active',启用:'active',停用:'inactive',active:'active',inactive:'inactive'}});
+ const steps:ResourceImportStep[]=[];
+ if(!source)steps.push({id:'source-brands',sheet:master,resource:'finance-brands',where:[{column:'品牌',nonEmpty:true}],fields:{name:c('品牌',{required:true})},matchFields:['name'],deduplicate:['name']});
+ steps.push({id:'source-products',sheet:master,resource:'finance-products',identity:'product-code',fields,status,statusReason:c('停用原因'),namespace:{name:'products',columns:[codeColumn],savedFields:['code'],...(self&&!csv?{uniqueSource:true}:{})},matchFields:['code']});
+ const sheets=[sheet(master,headers)];
+ if(source)steps.push({id:'source-suppliers',sheet:master,resource:'finance-product-sources',fields:{productId:{reference:{resource:'finance-products',fields:{archiveType:fields.archiveType,name:fields.name,categoryId:fields.categoryId,specQty:fields.specQty,specUnit:fields.specUnit,materialCode:fields.materialCode}}},supplierId:{reference:{resource:'finance-suppliers',fields:{name:c('供应商名称',{required:true}),shortCode:c('供应商简称编码')}}},originArea:c('产区',{required:true}),systemSpec:c('系统规格',{required:true}),purchasePrice:c('采购价',{required:true,transform:'money'})},replaceChildren:{parentField:'productId',ownerNamespace:'products'}});
+ if(self&&!csv){for(const[index,name]of ['原料明细','包装明细','OEM包装明细'].entries()){const column=['原料编号','产品包装编号','OEM包装编号'][index];sheets.push(sheet(name,['自产成品编号',column,'用量'],index===2));steps.push({id:'source-component-'+index,sheet:name,resource:'finance-product-boms',fields:{productId:owner('自产成品编号'),componentId:{reference:{resource:'finance-products',fields:{code:c(column,{required:true}),archiveType:lit(['raw','package','oem_package'][index])}}},qty:c('用量',{required:true,transform:'number'})},replaceChildren:{parentField:'productId',ownerNamespace:'products'}});}sheets.push(sheet('人工成本明细',['自产成品编号','人工成本名称','金额']));steps.push({id:'source-labor',sheet:'人工成本明细',resource:'finance-product-boms',fields:{productId:owner('自产成品编号'),importLineKind:lit('labor'),importLaborName:c('人工成本名称',{required:true}),importLaborCost:c('金额',{required:true,transform:'money'}),qty:lit(1)},replaceChildren:{parentField:'productId',ownerNamespace:'products'}});}
+ return{id:'source_product_archives_'+family+(self&&csv?'_csv':''),label:SOURCE_PRODUCT_IMPORT_LABELS[family]+'档案',maxRows:5000,sheets,steps};
+}
+export function getSourceProductImportProfile(id:string){for(const family of SOURCE_PRODUCT_FAMILIES){const profile=sourceProductImportProfile(family);if(profile.id===id)return profile;}const csv=sourceProductImportProfile('self_made',true);return csv.id===id?csv:undefined;}

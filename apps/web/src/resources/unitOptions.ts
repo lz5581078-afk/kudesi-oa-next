@@ -7,21 +7,25 @@ export type UnitOptionsPayload = Record<string, Array<{ value: string; label: st
 
 let cache: UnitOptionsPayload = {};
 let loaded = false;
+export const unitOptionsLoaded = () => loaded;
 let inflight: Promise<void> | null = null;
+let generation = 0, request = 0;
 const listeners = new Set<() => void>();
 
 export function loadUnitOptions(force = false): Promise<void> {
   if (loaded && !force) return Promise.resolve();
   if (inflight && !force) return inflight;
+  const owner=generation,serial=++request,current=()=>owner===generation&&serial===request;
   inflight = api<UnitOptionsPayload>('/resources/unit-options')
-    .then((p) => { cache = p; loaded = true; listeners.forEach((l) => l()); })
-    .catch(() => { loaded = true; })
-    .finally(() => { inflight = null; });
+    .then((p) => { if(current()){cache = p; loaded = true; listeners.forEach((l) => l());} })
+    .catch(() => { if(current())loaded = true; })
+    .finally(() => { if(current())inflight = null; });
   return inflight;
 }
 
 export function useUnitOptions(): UnitOptionsPayload {
-  useEffect(() => { void loadUnitOptions(); }, []);
+  const revision=generation;
+  useEffect(() => { void loadUnitOptions(); }, [revision]);
   return useSyncExternalStore((cb) => { listeners.add(cb); return () => { listeners.delete(cb); }; }, () => cache);
 }
 
@@ -45,4 +49,7 @@ export function unitOptionLabel(field: FieldDef, values: Record<string, unknown>
   return kind ? optionsKindsOf(field, values).flatMap(k => cache[k] ?? []).find(o => o.value === value)?.label : undefined;
 }
 
-export function resetUnitOptionsForTest(p: UnitOptionsPayload = {}) { cache = p; loaded = true; listeners.forEach((l) => l()); }
+function replaceOptions(p:UnitOptionsPayload,ready:boolean){generation++;request++;inflight=null;cache=p;loaded=ready;listeners.forEach(listener=>listener());}
+/** 退出/换公司后立即丢弃旧单位，旧请求不能再覆盖当前公司的目录。 */
+export function resetUnitOptions(){replaceOptions({},false);}
+export function resetUnitOptionsForTest(p: UnitOptionsPayload = {}, ready = true) { replaceOptions(p,ready); }

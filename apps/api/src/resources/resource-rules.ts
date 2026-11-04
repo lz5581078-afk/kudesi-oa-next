@@ -1,23 +1,31 @@
-import { BadRequestException } from '@nestjs/common';
+import type {ResourceFormInput} from '@kudesi/shared';
+import {beforeBomVersionDelete,detachBomOwner} from './bundle-bom-versions';
+import {beforePlatformDelete} from './platform-rules';
+import {markCategorySyncDirty} from '../outbox/category-sync-policy';
+import { directCodeStatus, finishCodeLifecycleSave, resolveCodeStatus, isCodeResource } from './finance-code-lifecycle';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { importingMissingLegacyReason } from '../migration/legacy-state-context';
 import { EntityManager } from 'typeorm';
 import { addDays, normalizePhone, normalizeReconcileDay } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceLink, ResourceRecord } from '../entities';
 import { CERT_AFTER_DELETE, CERT_AFTER_SAVE, CERT_BEFORE_SAVE, custodyRules, licenseFlags } from './entity-rules';
-import { FINANCE_AFTER_DELETE, FINANCE_AFTER_SAVE, FINANCE_BEFORE_SAVE } from './finance-rules';
+import { FINANCE_AFTER_DELETE, FINANCE_AFTER_SAVE, FINANCE_BEFORE_SAVE, FINANCE_BEFORE_FORM_SAVE, FINANCE_AFTER_FORM_SAVE, bundleSnapshotJson } from './finance-rules';
 import { beforeUnitDelete } from './unit-rules';
 import { ASSET_BEFORE_DELETE, ASSET_BEFORE_SAVE } from './asset-rules';
 import { broadbandPhoneRule, isLegacyImport, phoneParentRule } from './fee-rules';
 import { workforceAfterSave, workforceBeforeDelete, workforceBeforeSave } from './workforce-rules';
 import { beforeCostVersionDelete, beforeCostVersionSave } from './cost-version-rules';
 import { COST_VERSION_TYPES } from './cost-version-engine';
+import { beforeLaborDelete } from './labor-rules';
 
 /**
  * 各类资料的专属业务规则。通用的校验（必填、枚举、唯一、引用、停用原因）在 ResourcesService，
  * 这里只放“只有这一类资料才有”的规则，一条规则一个函数，便于单独测试。
  */
 export interface RuleHost {
+  /** 同一事务删除关联资料，保留引用保护及日志。 */
+  removeRecord(em: EntityManager, user: AuthUser, type: string, id: number, reason: string, cleanup?: string[], currentRead?: boolean): Promise<void>;
   findByUnique(em: EntityManager, companyId: number, type: string, uniqueKey: string,preferredId?:number): Promise<ResourceRecord | null>;
   /** 走与手工新增完全相同的校验、日志、关联流程 */
   createRecord(
@@ -26,13 +34,14 @@ export interface RuleHost {
     type: string,
     values: Record<string, unknown>,
     note?: string,
+    status?: string,
   ): Promise<ResourceRecord>;
   titleOf(em: EntityManager, companyId: number, type: string, id: number): Promise<string | null>;
   countWhere(em: EntityManager, companyId: number, type: string, field: string, value: unknown): Promise<number>;
   findWhere(em: EntityManager, companyId: number, type: string, field: string, value: string | number): Promise<ResourceRecord[]>;
   setStatusDirect(em: EntityManager, user: AuthUser, type: string, id: number, status: string, note?: string): Promise<void>;
   /** syncRefs：改了引用字段时同步关联表（默认不同步） */
-  patchData(em: EntityManager, user: AuthUser, type: string, id: number, patch: Record<string, unknown>, note?: string, syncRefs?: boolean): Promise<void>;
+  patchData(em: EntityManager, user: AuthUser, type: string, id: number, patch: Record<string, unknown>, note?: string, syncRefs?: boolean, currentRead?: boolean): Promise<void>;
   /** 读加密字段明文（仅服务端内部） */
   sensitiveOf(record: ResourceRecord, field: string): string | undefined;
   /** 改别的记录的加密字段；value 为空即清除 */
@@ -43,6 +52,10 @@ export interface BeforeSaveContext {
   em: EntityManager;
   host: RuleHost;
   user: AuthUser;
+  /** 原始提交仅供服务端业务字段保护，不写入资料。 */
+  input?: Readonly<Record<string,unknown>>;
+  /** 统一整组复制已在事务内锁定且核验版本的来源，不能从请求字段取得。 */
+  copySource?:ResourceRecord;
   /** 将要保存的字段值（可修改） */
   data: Record<string, unknown>;
   existing: ResourceRecord | null;
@@ -232,10 +245,11 @@ function syncLocations(data: Record<string, unknown>, existing: ResourceRecord |
 }
 
 export async function beforeSaveRule(type: string, ctx: BeforeSaveContext): Promise<void> {
+  if(isCodeResource(type)&&Object.hasOwn(ctx.input??{},'verificationState'))throw new ForbiddenException('验证状态只能由服务端业务动作记录');
   if (COST_VERSION_TYPES.includes(type)) return beforeCostVersionSave(ctx,type);
   if (type === 'workforce') return workforceBeforeSave(ctx);
   const financeRule = FINANCE_BEFORE_SAVE[type];
-  if (financeRule) return financeRule(ctx);
+  if (financeRule) { await financeRule(ctx); await finishCodeLifecycleSave(type,ctx,bundleSnapshotJson); return; }
   const assetRule = ASSET_BEFORE_SAVE[type];
   if (assetRule) return assetRule(ctx);
   switch (type) {
@@ -338,6 +352,10 @@ export interface AfterSaveContext {
 
 /** 删除记录之前（在“还被引用就不能删”的检查之前）：如删除位置时把各处对它的引用置空。 */
 export async function beforeDeleteRule(type: string, ctx: { em: EntityManager; host: RuleHost; user: AuthUser; record: ResourceRecord }): Promise<void> {
+  if(type==='finance-bundle-bom-versions')await beforeBomVersionDelete(ctx.em,ctx.user,ctx.record);
+  if(type==='finance-bundles')await detachBomOwner(ctx.host,ctx.em,ctx.user,ctx.record);
+  if(type==='finance-platforms')await beforePlatformDelete(ctx.em,ctx.user.companyId,ctx.record);
+  if (['finance-labor-versions', 'finance-labor-categories', 'finance-labor-costs'].includes(type)) await beforeLaborDelete(type, ctx);
   if (COST_VERSION_TYPES.includes(type)) await beforeCostVersionDelete(ctx);
   if (type === 'workforce') workforceBeforeDelete();
   const rule = ASSET_BEFORE_DELETE[type];
@@ -350,6 +368,7 @@ export async function afterDeleteRule(type: string, ctx: { em: EntityManager; ho
   const rule = FINANCE_AFTER_DELETE[type];
   if (rule) await rule(ctx);
   await CERT_AFTER_DELETE[type]?.(ctx);
+  await markCategorySyncDirty(ctx.em,ctx.user,type,ctx.record);
 }
 
 /** 每次保存（新建、修改、改状态）之后：用于同步别的记录，如组合行变化后刷新组合编码。 */
@@ -358,6 +377,7 @@ export async function afterSaveRule(type: string, ctx: AfterSaveContext): Promis
   if (rule) await rule(ctx);
   await CERT_AFTER_SAVE[type]?.(ctx);
   if (type === 'workforce') await workforceAfterSave(ctx);
+  await markCategorySyncDirty(ctx.em,ctx.user,type,ctx.record,ctx.existing);
 }
 
 /** 找到手机号档案，没有就建（外部使用）；返回档案 id。 */
@@ -484,3 +504,15 @@ export async function afterCreateRule(type: string, ctx: AfterCreateContext): Pr
     await host.createRecord(em, user, 'bank-accounts', { ...acc, licenseId: record.id }, note);
   }
 }
+
+/** 可选整组阶段；默认资料没有附加动作，仍使用同一事务和资料规则。 */
+export async function beforeFormSaveRule(type: string, ctx: { em: EntityManager; host: RuleHost; user: AuthUser; existing: ResourceRecord | null;input?:ResourceFormInput }) {
+  await FINANCE_BEFORE_FORM_SAVE[type]?.(ctx);
+}
+export async function afterFormSaveRule(type: string, ctx: { em: EntityManager; host: RuleHost; user: AuthUser; record: ResourceRecord }) {
+  await FINANCE_AFTER_FORM_SAVE[type]?.(ctx);
+}
+
+/** 未声明该业务规则的资源保持原状态流程。 */
+export const beforeStatusChangeRule=(type:string,ctx:{em:EntityManager;user:AuthUser;id:number;status:string})=>resolveCodeStatus(type,ctx,bundleSnapshotJson);
+export const beforeDirectStatusRule=directCodeStatus;

@@ -1,6 +1,8 @@
 import { StoreJstBadge } from './StoreJstSelect';
+import {FeeBookingNodeCell} from './FeeBookingNodeCell';
+import {productReferenceText,productReferenceContent} from './productReferenceList';
 import { useRef, type ReactNode } from 'react';
-import { dueBadgeFor, type FieldDef, type ResourceDef } from '@kudesi/shared';
+import { dueBadgeFor, STATUS_COL, type FieldDef, type ResourceDef } from '@kudesi/shared';
 import type { ResourceDto } from './api';
 import { CopyButton, isCopyable } from './CopyValue';
 import { displayValue, statusOf } from './format';
@@ -15,6 +17,9 @@ const ACT_W = 196;
 type Sort = { by: string; dir: 'asc' | 'desc' } | null;
 
 interface Props {
+  showStatus?: boolean;
+  referenceArchive?: boolean;
+  referenceProduct?: boolean;
   def: ResourceDef;
   type: string;
   rows: ResourceDto[] | null;
@@ -45,6 +50,8 @@ interface Props {
   rowActionsLabel?: string;
   /** 操作列宽（默认 196，分级布局的行内操作多一些） */
   actWidth?: number;
+  onCellSaved?:()=>void;
+  onRowMove?:(source:number,target:number)=>void;
 }
 
 /**
@@ -53,19 +60,22 @@ interface Props {
  */
 export function ResourceTable(p: Props) {
   const { def, columns, rows } = p;
+  const rowDrag=useRef<number|null>(null);
+  const showStatus = p.showStatus !== false;
+  const referenceTable=!!(p.referenceArchive||p.referenceProduct);
   // 没手动调过的列：按第一批数据里最长的内容定宽，之后翻页、筛选也不再变，免得列来回跳
   const auto = useRef<{ type: string; w: Record<string, number> }>({ type: p.type, w: {} });
   if (auto.current.type !== p.type) auto.current = { type: p.type, w: {} };
   if (rows && rows.length) for (const f of columns) if (auto.current.w[f.key] === undefined) auto.current.w[f.key] = autoColWidth(f, rows.map((r) => displayValue(f, r)), isCopyable(def, f) ? 44 : 0);
   const widthOf = (f: FieldDef) => p.widths[f.key] ?? auto.current.w[f.key] ?? defaultColWidth(f);
-  const total = CHECK_W + columns.reduce((n, f) => n + widthOf(f), 0) + STATUS_MIN + (p.rowActions ? (p.actWidth ?? ACT_W) : 0);
+  const total = CHECK_W + columns.reduce((n, f) => n + widthOf(f), 0) + (showStatus ? STATUS_MIN : 0) + (p.rowActions ? (p.actWidth ?? ACT_W) : 0);
   const allChecked = !!rows?.length && rows.every((r) => p.checked.includes(r.id));
 
   const drag = useRef<{ key: string; x: number; w: number } | null>(null);
   const startResize = (e: React.PointerEvent, f: FieldDef) => {
     e.preventDefault();
     e.stopPropagation();
-    drag.current = { key: f.key, x: e.clientX, w: widthOf(f) };
+    drag.current = { key: f.key, x: e.clientX, w: p.referenceProduct ? e.currentTarget.closest('th')!.getBoundingClientRect().width : widthOf(f) };
     const move = (ev: PointerEvent) => { if (drag.current) p.onWidth(drag.current.key, drag.current.w + ev.clientX - drag.current.x); };
     const up = () => {
       drag.current = null;
@@ -77,19 +87,24 @@ export function ResourceTable(p: Props) {
     window.addEventListener('pointerup', up);
   };
 
-  const colSpan = columns.length + 2 + (p.rowActions ? 1 : 0);
+  const colSpan = columns.length + 1 + (showStatus ? 1 : 0) + (p.rowActions ? 1 : 0);
   const renderRow = (row: ResourceDto) => {
     const st = statusOf(def, row.status);
     const isSel = row.id === p.selected;
     return (
       <tr
         key={row.id}
-        className={isSel ? 'selected' : undefined}
-        tabIndex={0}
-        aria-selected={isSel}
-        onClick={() => p.onOpen(row.id)}
+        className={!p.referenceProduct&&isSel ? 'selected' : undefined}
+        tabIndex={p.referenceProduct?undefined:0}
+        aria-selected={p.referenceProduct?undefined:isSel}
+        draggable={!!p.onRowMove}
+        onDragStart={e=>{if(!p.onRowMove)return;rowDrag.current=row.id;e.dataTransfer.effectAllowed='move';}}
+        onDragOver={e=>{if(p.onRowMove&&rowDrag.current!==null)e.preventDefault();}}
+        onDrop={e=>{if(!p.onRowMove)return;e.preventDefault();const source=rowDrag.current;rowDrag.current=null;if(source!==null&&source!==row.id)p.onRowMove(source,row.id);}}
+        onDragEnd={()=>{rowDrag.current=null;}}
+        onClick={p.referenceProduct?undefined:() => p.onOpen(row.id)}
         onKeyDown={(e) => {
-          if (e.target !== e.currentTarget) return;
+          if (p.referenceProduct || e.target !== e.currentTarget) return;
           if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); p.onOpen(row.id); }
         }}
       >
@@ -97,50 +112,51 @@ export function ResourceTable(p: Props) {
           <input type="checkbox" aria-label={`勾选 ${row.title}`} checked={p.checked.includes(row.id)} onChange={(e) => p.onCheck([row.id], e.target.checked)} />
         </td>
         {columns.map((f, i) => {
-          const text = displayValue(f, row);
+          const text = p.referenceProduct ? productReferenceText(f,row) ?? displayValue(f,row) : p.referenceArchive && f.key==='paymentQr' ? Array.isArray(row.data[f.key]) && (row.data[f.key] as unknown[]).some(id=>typeof id==='number' && !!row.files[id]) ? '已上传' : '-' : p.type==='finance-fee-items'&&f.key==='requiredObject'?['yes','是'].includes(String(row.data.requiredObject))?'必须挂对象':'可不挂对象':displayValue(f, row);
           const due = dueBadgeFor(p.type, f.key, row.data, row.status, p.today);
           return (
             <td key={f.key} data-label={f.label} className={`${i === 0 ? 'frozen first' : ''}${f.type === 'money' ? ' num' : ''}`}>
               <div className="cell">
-                <span className="cell-t" title={text || undefined}>{p.type === 'stores' && f.key === 'jushuitanShopId' ? <StoreJstBadge data={row.data} /> : text}</span>
-                {isCopyable(def, f) && f.type !== 'number' && text && <CopyButton value={text} label={f.label} />}
+                <span className="cell-t" title={text || undefined}>{p.type === 'stores' && f.key === 'jushuitanShopId' ? <StoreJstBadge data={row.data} /> : p.type==='finance-fee-items'&&f.key==='defaultObject'?<FeeBookingNodeCell record={row} onSaved={p.onCellSaved}/>:p.referenceProduct?productReferenceContent(f,row,text):text}</span>
+                {!p.referenceProduct && isCopyable(def, f) && f.type !== 'number' && text && <CopyButton value={text} label={f.label} />}
                 {due && <span className={`pill ${due.level === 'expired' ? 'bad' : 'warn'}`} title="到期提醒按今天的日期实时计算">{due.text}</span>}
               </div>
             </td>
           );
         })}
-        <td data-label="状态"><span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{st.label}</span></td>
+        {showStatus && <td data-label="状态"><span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{(p.referenceArchive || p.referenceProduct) && row.status==='active' ? '正常' : st.label}</span></td>}
         {p.rowActions && <td data-label={p.rowActionsLabel ?? '办理'} className="c-acts">{p.rowActions(row)}</td>}
       </tr>
     );
   };
   return (
-    <div className="res-table-scroll" data-density={p.density}>
-      <table className="res-table" style={{ minWidth: total }}>
+    <div className={`res-table-scroll${p.referenceArchive ? ' reference-archive-table' : ''}${p.referenceProduct?' reference-product-table':''}`}  data-density={p.density}>
+      <table className="res-table" style={{ minWidth: referenceTable ? 920 : total, tableLayout:referenceTable ? 'auto' : undefined }}>
         <colgroup>
-          <col style={{ width: CHECK_W }} />
-          {columns.map((f) => <col key={f.key} style={{ width: widthOf(f) }} />)}
-          <col style={{ minWidth: STATUS_MIN }} />
-          {p.rowActions && <col style={{ width: p.actWidth ?? ACT_W }} />}
+          <col style={p.referenceProduct?undefined:{ width: CHECK_W }} />
+          {columns.map((f) => <col key={f.key} style={{ width: referenceTable ? p.widths[f.key] : widthOf(f) }} />)}
+          {showStatus && <col style={p.referenceProduct?{width:p.widths[STATUS_COL]}:referenceTable ? undefined : { minWidth: STATUS_MIN }} />}
+          {p.rowActions && <col style={p.referenceProduct?{width:p.widths.__actions??100}:p.referenceArchive ? undefined : { width: p.actWidth ?? ACT_W }} />}
         </colgroup>
         <thead>
           <tr>
-            <th className="c-check frozen" scope="col"><input type="checkbox" aria-label="本页全选" checked={allChecked} onChange={(e) => p.onCheck(rows?.map((r) => r.id) ?? [], e.target.checked)} /></th>
+            <th className="c-check frozen" scope="col"><input type="checkbox" aria-label="本页全选" ref={node=>{if(node&&p.referenceProduct)node.indeterminate=!allChecked&&!!rows?.some(row=>p.checked.includes(row.id));}} checked={allChecked} onChange={(e) => p.onCheck(rows?.map((r) => r.id) ?? [], e.target.checked)} /></th>
             {columns.map((f, i) => {
               const sorted = p.sort?.by === f.key;
+              const sortable=SORTABLE.has(f.type)||!!p.referenceProduct&&['ref','decimal'].includes(f.type);
               return (
-                <th key={f.key} scope="col" className={`${i === 0 ? 'frozen first' : ''}${f.type === 'money' ? ' num' : ''}`} aria-sort={SORTABLE.has(f.type) ? (sorted ? (p.sort!.dir === 'asc' ? 'ascending' : 'descending') : 'none') : undefined}>
-                  {SORTABLE.has(f.type) ? (
+                <th key={f.key} scope="col" className={`${i === 0 ? 'frozen first' : ''}${f.type === 'money' ? ' num' : ''}`} aria-sort={sortable ? (sorted ? (p.sort!.dir === 'asc' ? 'ascending' : 'descending') : 'none') : undefined}>
+                  {sortable ? (
                     <button type="button" className="th-sort" title="点击排序" onClick={() => p.onSort(f.key)}>
-                      {f.label}<span className="th-arrow" aria-hidden="true">{sorted ? (p.sort!.dir === 'asc' ? '↑' : '↓') : ''}</span>
+                      {f.label}<span className="th-arrow" aria-hidden="true">{sorted ? (p.sort!.dir === 'asc' ? '↑' : '↓') : p.referenceProduct?'↕':''}</span>
                     </button>
                   ) : <span className="th-text">{f.label}</span>}
-                  <span className="col-grip" aria-hidden="true" title="拖动调整列宽，双击恢复" onPointerDown={(e) => startResize(e, f)} onDoubleClick={() => p.onWidthReset(f.key)} />
+                  {p.referenceProduct?<button type="button" className="col-grip" aria-label={`调整${f.label}列宽`} onPointerDown={e=>startResize(e,f)}/>:<span className="col-grip" aria-hidden="true" title="拖动调整列宽，双击恢复" onPointerDown={(e) => startResize(e, f)} onDoubleClick={() => p.onWidthReset(f.key)} />}
                 </th>
               );
             })}
-            <th scope="col">状态</th>
-            {p.rowActions && <th scope="col">{p.rowActionsLabel ?? '办理'}</th>}
+            {showStatus && <th scope="col" aria-sort={referenceTable ? p.sort?.by===STATUS_COL ? p.sort.dir==='asc'?'ascending':'descending' : 'none' : undefined}>{referenceTable ? <button type="button" className="th-sort" onClick={()=>p.onSort(STATUS_COL)}>状态<span className="th-arrow" aria-hidden="true">{p.sort?.by===STATUS_COL?p.sort.dir==='asc'?'↑':'↓':p.referenceProduct?'↕':''}</span></button> : '状态'}{p.referenceProduct&&<button type="button" className="col-grip" aria-label="调整状态列宽" onPointerDown={e=>startResize(e,{key:STATUS_COL,label:'状态',type:'text',group:'列表'})}/>}</th>}
+            {p.rowActions && <th scope="col">{p.rowActionsLabel ?? '办理'}{p.referenceProduct&&<button type="button" className="col-grip" aria-label={`调整${p.rowActionsLabel??'办理'}列宽`} onPointerDown={e=>startResize(e,{key:'__actions',label:p.rowActionsLabel??'办理',type:'text',group:'列表'})}/>}</th>}
           </tr>
         </thead>
         <tbody>
@@ -171,14 +187,14 @@ export function ResourceTable(p: Props) {
 }
 
 /** 手机上的卡片列表：第一行是名称和状态，下面最多四项关键内容，点整张卡片查看详情。 */
-export function ResourceCards(p: Pick<Props, 'def' | 'type' | 'rows' | 'columns' | 'checked' | 'onCheck' | 'selected' | 'onOpen' | 'today' | 'empty' | 'loadingText' | 'groups' | 'folded' | 'onToggleGroup' | 'onAddInGroup' | 'rowActions'>) {
+export function ResourceCards(p: Pick<Props, 'def' | 'type' | 'rows' | 'columns' | 'checked' | 'onCheck' | 'selected' | 'onOpen' | 'today' | 'empty' | 'loadingText' | 'groups' | 'folded' | 'onToggleGroup' | 'onAddInGroup' | 'rowActions'|'onCellSaved'>) {
   const { def, rows } = p;
   if (!rows) return <div className="res-cards-wrap"><div className="res-loading" role="status"><span className="res-spin" aria-hidden="true" />{p.loadingText ?? '加载中…'}</div></div>;
   if (rows.length === 0) return <div className="res-cards-wrap">{p.empty}</div>;
   const metaCols = p.columns.filter((f) => f.key !== def.titleField && !(p.type === 'stores' && f.key === 'jushuitanShopId'));
   const renderCard = (row: ResourceDto) => {
     const st = statusOf(def, row.status);
-    const metas = metaCols.map((f) => ({ f, text: displayValue(f, row) })).filter((m) => m.text).slice(0, 4);
+    const metas = metaCols.map((f) => ({ f, text: p.type==='finance-fee-items'&&f.key==='requiredObject'?['yes','是'].includes(String(row.data.requiredObject))?'必须挂对象':'可不挂对象':displayValue(f, row) })).filter((m) => m.text).slice(0, 4);
     return (
       <li key={row.id} className={`res-card${row.id === p.selected ? ' selected' : ''}`} tabIndex={0} aria-selected={row.id === p.selected}
         onClick={() => p.onOpen(row.id)}
@@ -189,6 +205,7 @@ export function ResourceCards(p: Pick<Props, 'def' | 'type' | 'rows' | 'columns'
           <span className={`pill ${st.tone === 'muted' ? 'warn' : st.tone}`}>{st.label}</span>
         </div>
         {p.rowActions && <div className="res-card-actions">{p.rowActions(row)}</div>}
+        {p.type==='finance-fee-items'&&p.columns.some(field=>field.key==='defaultObject')&&!metas.some(({f})=>f.key==='defaultObject')&&<div><span>挂账节点 </span><FeeBookingNodeCell record={row} onSaved={p.onCellSaved}/></div>}
         {p.type === 'stores' && <div style={{ marginTop: 8 }}><StoreJstBadge data={row.data} /></div>}
         {metas.length > 0 && (
           <dl className="res-card-meta">
@@ -197,7 +214,7 @@ export function ResourceCards(p: Pick<Props, 'def' | 'type' | 'rows' | 'columns'
               return (
                 <div key={f.key} data-label={f.label}>
                   <dt>{f.label}</dt>
-                  <dd>{text}{isCopyable(def, f) && f.type !== 'number' && <> <CopyButton value={text} label={f.label} /></>}{due && <> <span className={`pill ${due.level === 'expired' ? 'bad' : 'warn'}`}>{due.text}</span></>}</dd>
+                  <dd>{p.type==='finance-fee-items'&&f.key==='defaultObject'?<FeeBookingNodeCell record={row} onSaved={p.onCellSaved}/>:text}{isCopyable(def, f) && f.type !== 'number' && <> <CopyButton value={text} label={f.label} /></>}{due && <> <span className={`pill ${due.level === 'expired' ? 'bad' : 'warn'}`}>{due.text}</span></>}</dd>
                 </div>
               );
             })}

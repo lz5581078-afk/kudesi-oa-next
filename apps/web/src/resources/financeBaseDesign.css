@@ -211,7 +211,7 @@
 .finance-detail-dialog:is(.finance-detail-raw,.finance-detail-self_made,.finance-detail-purchased,.finance-detail-shipping_material,.finance-detail-package,.finance-detail-oem_package,.finance-detail-custom) .finance-detail-foot-actions { width: 100%; }
 .finance-detail-dialog:is(.finance-detail-raw,.finance-detail-self_made,.finance-detail-purchased,.finance-detail-shipping_material,.finance-detail-package,.finance-detail-oem_package,.finance-detail-custom) .finance-detail-foot-actions > .secondary-button { flex: .8; }
 .finance-detail-dialog:is(.finance-detail-raw,.finance-detail-self_made,.finance-detail-purchased,.finance-detail-shipping_material,.finance-detail-package,.finance-detail-oem_package,.finance-detail-custom) .finance-detail-foot-actions > .primary-button { flex: 1.2; }
-.rd.resource-detail.finance-detail-costs { width: min(1180px,calc(100vw - 48px)); height: auto; max-height: calc(100dvh - 48px); border-radius: 18px; }
+.rd.resource-detail.finance-detail-costs { width: min(1180px,94vw); height: auto; max-height: 90vh; border-radius: 18px; }
 .finance-cost-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 22px 24px; border-bottom: 1px solid #e1e7ee; }
 .finance-cost-head h2 { margin: 0; font-size: 24px; color: #193e31; }
 .finance-cost-head p { margin: 6px 0 0; color: #64748b; font-size: 16px; }
@@ -249,7 +249,7 @@
 .rd.resource-detail.finance-detail-dialog .finance-detail-body { padding: 10px 28px; gap: 8px; }
 .rd.resource-detail.finance-detail-dialog .finance-view-section { padding: 14px; }
 .rd.resource-detail.finance-detail-dialog .finance-view-heading { padding-bottom: 8px; margin-bottom: 10px; }
-.rd.resource-detail.finance-detail-dialog.finance-detail-costs { width: min(1180px,calc(100vw - 48px)); height: auto; max-height: calc(100dvh - 48px); }
+.rd.resource-detail.finance-detail-dialog.finance-detail-costs { width: min(1180px,94vw); height: auto; max-height: 90vh; }
 .rd.resource-detail.finance-detail-costs .finance-detail-body { padding: 20px 24px; }
 @media(max-width:720px) {
  .rd.resource-detail.finance-detail-dialog { width: calc(100vw - 16px) !important; height: calc(100dvh - 16px) !important; max-height: calc(100dvh - 16px) !important; }

@@ -36,8 +36,10 @@ describe('查看与原位编辑的字段一致性', () => {
     await screen.findByRole('button', { name: '编辑' });
     const fields = [...document.querySelectorAll<HTMLElement>('.rd-item[data-field]')].map(el => ({ key: el.dataset.field, wide: el.classList.contains('wide') }));
     fireEvent.click(screen.getByRole('button', { name: '编辑' }));
-    const form = screen.getByRole('group', { name: `编辑${def.label}` });
-    expect([...form.querySelectorAll<HTMLElement>('.rf-field[data-field]')].map(el => ({ key: el.dataset.field, wide: el.classList.contains('wide') }))).toEqual(fields);
+    const form = screen.getByRole('group', { name: def.form?.editTitle ?? `编辑${def.label}` });
+    const formFields = def.form ? def.form.sections.flatMap(section => section.fields.flatMap(key => fields.some(field => field.key === key) ? [{ key, wide: section.wideFields?.includes(key) ?? false }] : [])) : fields.filter(field => !def.fields.find(f => f.key === field.key)?.hideInForm && def.codePreview?.field !== field.key);
+    expect([...form.querySelectorAll<HTMLElement>('.rf-field[data-field]')].map(el => ({ key: el.dataset.field, wide: el.classList.contains('wide') }))).toEqual(formFields);
+    if (def.codePreview) expect(within(form).getByRole('status', { name: def.fields.find(f => f.key === def.codePreview!.field)!.label })).toBeTruthy();
     expect(screen.queryByRole('dialog', { name: `编辑${def.label}` })).toBeNull();
     fireEvent.click(within(form).getByRole('button', { name: '取消' }));
     expect(document.querySelector('.resource-detail-editor')).toBeNull();
@@ -126,7 +128,7 @@ describe('专用资料查看不再遗漏编辑字段', () => {
     ['package', undefined], ['oem_package', undefined], ['shipping_material', undefined], ['custom', undefined],
   ])('%s/%s：每个实际编辑输入字段都能在只读查看中找到', async (archiveType, supplyMode) => {
     const def = getResourceDef('finance-products')!;
-    const record = dto(def, { archiveType, supplyMode, name: '商品字段验收', specQty: 500, specUnit: 'G', shape: '圆形', giftShortName: '赠品简称甲', giftCodeShortName: 'ZP', zeroValueReason: '实际运费为零', freight: 0, brandId: 1, purchaseSpec: '斤', categoryId: 1 });
+    const record = dto(def, { archiveType, supplyMode, name: '商品字段验收', specQty: 500, specUnit: 'G', shape: '圆形', giftShortName: '赠品简称甲', giftCodeShortName: 'ZP', dimensions:'20×30',dimensionUnit:'cm', zeroValueReason: '实际运费为零', freight: 0, brandId: 1, purchaseSpec: '斤', categoryId: 1 });
     const form = render(<MemoryRouter><RecordForm def={def} record={record} onClose={vi.fn()} onSaved={vi.fn()} /></MemoryRouter>);
     const editable = [...form.container.querySelectorAll<HTMLElement>('.rf-field[data-field]')].map(el => el.dataset.field!);
     form.unmount();
@@ -135,6 +137,7 @@ describe('专用资料查看不再遗漏编辑字段', () => {
     await waitFor(() => expect(document.querySelector('.finance-detail-dialog')).toBeTruthy());
     const view = document.querySelector('.resource-detail')!;
     for (const key of editable) expect(view.querySelector(`[data-field="${key}"]`), `${archiveType}/${supplyMode} 缺少 ${key}`).toBeTruthy();
+    if(['package','oem_package'].includes(archiveType))expect(view.querySelector('[data-field=dimensions]')?.textContent).toContain('20×30 cm');
   });
 
   it.each(['raw','self_made'])('仓库只读模式%s不额外读取供货、组成和成本资料', async archiveType => {

@@ -13,7 +13,7 @@ export interface MatrixColumn {
   /** 首重 0 或 1（公斤），只有 formula 用 */
   firstWeight: 0 | 1;
 }
-export interface MatrixCell { a: string; b: string }
+export interface MatrixCell { a: string; b: string; note?: string }
 export type MatrixCells = Record<string, MatrixCell>;
 
 export const MATRIX_ROWS: Array<{ value: string; label: string }> = [{ value: 'ALL', label: '全国统一' }, ...PROVINCES.map((p) => ({ value: p, label: p }))];
@@ -42,7 +42,7 @@ export function rulesToMatrix(rules: RuleRow[]): { columns: MatrixColumn[]; cell
     };
     col.id = columnId(col);
     if (!columns.some((c) => c.id === col.id)) columns.push(col);
-    cells[cellKey(r.province, col.id)] = formula ? { a: centsText(r.firstPrice), b: centsText(r.extraPrice) } : { a: centsText(r.fixedPrice), b: '' };
+    cells[cellKey(r.province, col.id)] = formula ? { a: centsText(r.firstPrice), b: centsText(r.extraPrice), ...(r.note ? { note: r.note } : {}) } : { a: centsText(r.fixedPrice), b: '', ...(r.note ? { note: r.note } : {}) };
   }
   columns.sort((x, y) => x.start - y.start || (x.end ?? Infinity) - (y.end ?? Infinity));
   return { columns, cells };
@@ -66,7 +66,7 @@ export function matrixToRules(columns: MatrixColumn[], cells: MatrixCells): Matr
       const a = yuanToCents(cell.a);
       const where = `${row.label} / ${columnLabel(col)}`;
       if (a === null || Number.isNaN(a) || a < 0) { errors.push(`${where}：价格要填大于等于 0 的金额（最多两位小数）`); continue; }
-      const base: RuleRow = { province: row.value, shipWeightMin: col.start, shipWeightMax: col.end, minExclusive: col.startExclusive || undefined, maxExclusive: col.endExclusive || undefined };
+      const base: RuleRow = { ...(cell.note ? { note: cell.note } : {}), province: row.value, shipWeightMin: col.start, shipWeightMax: col.end, minExclusive: col.startExclusive || undefined, maxExclusive: col.endExclusive || undefined };
       if (col.mode === 'fixed') {
         rules.push({ ...base, fixedPrice: a });
       } else {

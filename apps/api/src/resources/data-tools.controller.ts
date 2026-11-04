@@ -15,6 +15,9 @@ class HistoryDto {
 }
 class RegisterDto {
   @IsOptional() @IsInt() @Min(1) bundleId?: number;
+  @IsOptional() @IsBoolean() missingOnly?: boolean;
+  @IsOptional() @IsBoolean() confirmed?: boolean;
+  @IsOptional() @IsString() @MaxLength(64) signature?: string;
   @IsOptional() @IsString() @MaxLength(200) reason?: string;
 }
 class ZoneDto { @Type(() => Number) @IsNumber() @Min(0.01) @Max(1000) maxWeightKg!: number }
@@ -59,8 +62,12 @@ export class DataToolsController {
   history(@CurrentUser() u: AuthUser, @Query() q: HistoryDto) { return this.tools.costHistory(u, { bundleId: q.bundleId, keyword: q.keyword, page: q.page ?? 1, pageSize: q.pageSize ?? 20 }); }
 
   @RequirePermission('finance.cost-history.view', 'product.cost.edit')
+  @Get('cost-history/register-preview')
+  registerPreview(@CurrentUser() u: AuthUser) { return this.tools.previewCostRegistration(u); }
+
+  @RequirePermission('finance.cost-history.view', 'product.cost.edit')
   @Post('cost-history/register')
-  register(@CurrentUser() u: AuthUser, @Body() b: RegisterDto) { return this.tools.registerCost(u, b.bundleId, b.reason?.trim() || '手工登记'); }
+  register(@CurrentUser() u: AuthUser, @Body() b: RegisterDto) { return this.tools.registerCost(u, b.bundleId, b.reason?.trim() || (b.missingOnly ? '补齐已验证SKU' : '手工登记'), undefined, b.missingOnly ? 'workflow_publish' : 'manual', b.missingOnly === true, { confirmed: b.confirmed, signature: b.signature }); }
 
   @RequirePermission('finance.zone-suggestion.view', 'product.cost.view')
   @Get('zone-suggestion')

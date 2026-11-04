@@ -1,0 +1,16 @@
+import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react';
+import {afterEach,beforeEach,expect,it,vi} from 'vitest';
+import {getResourceDef} from '@kudesi/shared';
+import {BatchBar} from './BatchBar';
+import {resourceApi,type ResourceDto} from './api';
+vi.mock('./RecordForm',()=>({loadRefOptions:vi.fn().mockResolvedValue([])}));
+vi.mock('./ProductArchiveMoveDialog',()=>({ProductArchiveMoveDialog:({onConfirm}:{onConfirm:(id:number)=>Promise<void>})=><button onClick={()=>void onConfirm(73)}>确认合成末级</button>}));
+vi.mock('./api',()=>({resourceApi:{batchStatus:vi.fn(),batch:vi.fn()}}));
+const def=getResourceDef('finance-products')!,done=vi.fn(),clear=vi.fn(),message=vi.fn();
+const row=(id:number,status='active'):ResourceDto=>({id,type:def.key,title:`合成原料${id}`,status,statusReason:null,data:{archiveType:'raw'},files:{},refLabels:{},secretConfigured:{},createdAt:'',updatedAt:''});
+const show=(rows:ResourceDto[])=>render(<BatchBar referenceProduct archiveFamily="raw" def={def} type={def.key} rows={rows} checked={rows.map(row=>row.id)} can={()=>true} filterOpts={{}} onDone={done} onClear={clear} onMessage={message} onExport={vi.fn()}/>);
+beforeEach(()=>{vi.mocked(resourceApi.batchStatus).mockResolvedValue({done:1,failed:[]});vi.mocked(resourceApi.batch).mockResolvedValue({done:2,failed:[]});});
+afterEach(()=>{cleanup();vi.clearAllMocks();});
+it('批量停用跳过已停用、已删除和归档资料，仅提交真实待停用ID及非空原因',async()=>{show([row(1),row(2,'inactive'),row(3,'deleted'),{...row(4),archived:{at:'',by:null,reason:null,fromStatus:'active'}}]);expect(screen.queryByText(/批量修改/)).toBeNull();fireEvent.click(screen.getByRole('button',{name:'批量停用'}));fireEvent.change(screen.getByRole('textbox',{name:'停用原因'}),{target:{value:'停'}});fireEvent.click(screen.getByRole('button',{name:'确认停用'}));await waitFor(()=>expect(resourceApi.batchStatus).toHaveBeenCalledWith(def.key,[1],'inactive','停'));});
+it('批量启用只处理停用状态且不要求原因，移动提交单值categoryId而非往来多分类',async()=>{show([row(1),row(2,'inactive')]);fireEvent.click(screen.getByRole('button',{name:'批量启用'}));expect(screen.queryByRole('textbox')).toBeNull();fireEvent.click(screen.getByRole('button',{name:'确认启用'}));await waitFor(()=>expect(resourceApi.batchStatus).toHaveBeenCalledWith(def.key,[2],'active',undefined));fireEvent.click(screen.getByRole('button',{name:'移动分类'}));fireEvent.click(screen.getByRole('button',{name:'确认合成末级'}));await waitFor(()=>expect(resourceApi.batch).toHaveBeenCalledWith(def.key,[1,2],{categoryId:73}));});
+it('部分失败保持窗口与原原因，重试只发失败ID不重复处理已成功项',async()=>{vi.mocked(resourceApi.batchStatus).mockResolvedValueOnce({done:1,failed:[{id:5,message:'合成冲突'}]});show([row(1),row(5)]);fireEvent.click(screen.getByRole('button',{name:'批量停用'}));fireEvent.change(screen.getByRole('textbox',{name:'停用原因'}),{target:{value:'合成原因'}});fireEvent.click(screen.getByRole('button',{name:'确认停用'}));await screen.findByText('#5：合成冲突');expect(clear).not.toHaveBeenCalled();expect((screen.getByRole('textbox',{name:'停用原因'}) as HTMLTextAreaElement).value).toBe('合成原因');fireEvent.click(screen.getByRole('button',{name:'确认停用'}));await waitFor(()=>expect(resourceApi.batchStatus).toHaveBeenLastCalledWith(def.key,[5],'inactive','合成原因'));await waitFor(()=>expect(clear).toHaveBeenCalledTimes(1));});

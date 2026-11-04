@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { todayInChina } from '@kudesi/shared';
 import { EntityManager } from 'typeorm';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceRecord } from '../entities';
@@ -184,6 +185,9 @@ async function beforeSurcharge({ em, user, data }: BeforeSaveContext) {
 async function afterBranch({ em, host, user, record, existing }: AfterSaveContext) {
   if (!existing || existing.status !== record.status || existing.data.currentVersionId !== record.data.currentVersionId) await syncBranchRules(host, em, user, record.id);
   if (!existing) {
+    await host.createRecord(em, user, 'finance-express-versions', {
+      branchId: record.id, versionName: '创始版本', cooperationStatus: 'pending', effectiveStart: todayInChina(), remark: '新建经营网点时自动生成',
+    }, '新建经营网点自动生成创始价格版本', 'active');
     // 第一个网点自动成为公司默认网点
     const carrier = await rec(em, user.companyId, 'finance-express-carriers', record.data.carrierId);
     if (carrier && !carrier.data.defaultBranchId) await host.patchData(em, user, 'finance-express-carriers', carrier.id, { defaultBranchId: record.id }, '第一个网点自动设为默认网点');

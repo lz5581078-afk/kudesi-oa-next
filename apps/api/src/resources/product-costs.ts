@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
-import { COST_BUCKETS, FINANCE_RESOURCE_DEFS, todayInChina } from '@kudesi/shared';
+import { COST_BUCKETS, FINANCE_RESOURCE_DEFS, todayInChina, sumUnitCents, sumUnitCentsProducts, LOGISTICS_CENT_SCALE, type UnitCentsProduct } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceRecord } from '../entities';
 import type { BeforeSaveContext, RuleHost } from './resource-rules';
@@ -87,9 +87,9 @@ export interface AutoCost { sourceType: 'archive_purchase_price' | 'raw_supply_s
  * 当前生效的记录是手工锁定的，或不是同一种自动来源（有人手工录过），就不动；同一天已有同来源的，更新金额；
  * 否则把之前的自动记录截止到昨天，新增一条今天生效的。
  */
-export async function syncAutoCost(host: RuleHost, em: EntityManager, user: AuthUser, productId: number, auto: AutoCost): Promise<boolean> {
+export async function syncAutoCost(host: RuleHost, em: EntityManager, user: AuthUser, productId: number, auto: AutoCost, businessDate = todayInChina()): Promise<boolean> {
   if (em.queryRunner?.data.legacyImport || !(auto.unitCost >= 0) || !auto.unitName) return false;
-  const today = todayInChina();
+  const today = validDate(businessDate, '业务日期', true)!;
   const rows = (await host.findWhere(em, user.companyId, 'finance-product-costs', 'productId', productId)).filter((r) => r.data.costType === 'purchase');
   const live = rows.filter((r) => r.status === 'active' && str(r.data.effectiveFrom) <= today && (!str(r.data.effectiveTo) || str(r.data.effectiveTo) >= today));
   if (live.some((r) => r.data.manualOverride === true || r.data.sourceType !== auto.sourceType)) return false;
@@ -109,12 +109,17 @@ export async function syncAutoCost(host: RuleHost, em: EntityManager, user: Auth
     }, '系统自动同步档案成本记录');
   });
   await refreshLatestCost(host, em, user, productId);
+  await refreshDerivedArchiveCostRecords(host,em,user,{componentProductIds:[productId],businessDate:today});
   return true;
 }
 
 // ---------- 运费历史 ----------
 
 const FREIGHT_KEY = 'freightHistory';
+const freightBatches=new WeakMap<EntityManager,Map<number,{type:string;ref?:string}>>();
+/** 整组来源/BOM保存完成后再采最终物流事实，避免父档先保存时记下中间采购价。 */
+export function beginFreightHistoryBatch(em:EntityManager){if(!freightBatches.has(em))freightBatches.set(em,new Map());}
+export async function flushFreightHistory(host:RuleHost,em:EntityManager,user:AuthUser){const pending=freightBatches.get(em);freightBatches.delete(em);for(const[id,source]of pending??[]){const product=await rec(em,user.companyId,'finance-products',id);if(product)await recordFreightHistory(host,em,user,product,source);}}
 
 /** 运费历史只能由系统在运费、装卸费、采购价或系统规格变化时追加，不能手工改。 */
 export async function beforeFreightHistory(ctx: BeforeSaveContext): Promise<void> {
@@ -134,6 +139,7 @@ export function afterFreightHistoryDelete(ctx: { em: EntityManager }): Promise<v
 /** 商品档案保存后：运费、装卸费、采购价、系统规格和最新一条历史不同，就追加一条（旧系统 freightHistoryChanged）。 */
 export async function recordFreightHistory(host: RuleHost, em: EntityManager, user: AuthUser, product: ResourceRecord, source: { type: string; ref?: string } = { type: 'manual' }): Promise<void> {
   if (em.queryRunner?.data.legacyImport) return;
+  const pending=freightBatches.get(em);if(pending){pending.set(product.id,source);return;}
   const d = product.data;
   if (num(d.freight) === null && num(d.handlingFee) === null) return;
   const snap = { freight: num(d.freight) ?? 0, handlingFee: num(d.handlingFee) ?? 0, purchasePrice: num(d.purchasePrice), systemSpec: str(d.purchaseSpec) || `${d.specQty ?? ''} ${str(d.specUnit)}`.trim() };
@@ -148,3 +154,38 @@ export async function recordFreightHistory(host: RuleHost, em: EntityManager, us
 }
 
 export type { Data };
+
+
+export interface ArchiveBomCostSnapshot{version:1;componentId?:number;laborId?:number;unitCost:number|null;freight:number|null;handlingFee:number|null;capturedAt:string}
+const costActiveAt=(row:ResourceRecord,day:string)=>row.status==='active'&&!row.archivedAt&&str(row.data.effectiveFrom)<=day&&(!row.data.effectiveTo||str(row.data.effectiveTo)>=day);
+async function latestLogistics(host:RuleHost,em:EntityManager,user:AuthUser,productId:number){return (await host.findWhere(em,user.companyId,'finance-product-freight-history','productId',productId)).sort((a,b)=>str(b.data.recordedAtKey).localeCompare(str(a.data.recordedAtKey))||b.id-a.id)[0];}
+/** 保存组成时的采购价/运装 fallback，与之后按有效成本记录 SUM 的派生台账分开。旧行不回填。 */
+export async function captureArchiveBomCostSnapshot(host:RuleHost,em:EntityManager,user:AuthUser,data:Data):Promise<ArchiveBomCostSnapshot>{
+ const capturedAt=new Date().toISOString();
+ if(data.importLineKind==='labor')return {version:1,unitCost:num(data.importLaborCost),freight:0,handlingFee:0,capturedAt};
+ if(typeof data.laborId==='number'){const labor=await rec(em,user.companyId,'finance-labor-costs',data.laborId);return {version:1,laborId:data.laborId,unitCost:num(labor?.data.unitPrice),freight:0,handlingFee:0,capturedAt};}
+ const componentId=Number(data.componentId),product=await rec(em,user.companyId,'finance-products',componentId),history=await latestLogistics(host,em,user,componentId);
+ return {version:1,componentId,unitCost:num(product?.data.purchasePrice)??num(product?.data.latestUnitCost),freight:num(history?.data.freight)??num(product?.data.freight),handlingFee:num(history?.data.handlingFee)??num(product?.data.handlingFee),capturedAt};
+}
+const derivingOwners=new WeakMap<EntityManager,Set<number>>();
+/** Refresh the original ledger dependents only; archive purchase prices/weight are untouched. */
+export async function refreshDerivedArchiveCostRecords(host:RuleHost,em:EntityManager,user:AuthUser,options:{componentProductIds?:number[];ownerProductIds?:number[];businessDate?:string}):Promise<{refreshed:number[];missing:number[];skipped:number[]}>{
+ const result={refreshed:[] as number[],missing:[] as number[],skipped:[] as number[]};if(em.queryRunner?.data.legacyImport)return result;
+ const day=validDate(options.businessDate??todayInChina(),'业务日期',true)!,owners=new Set(options.ownerProductIds??[]),active=derivingOwners.get(em)??new Set<number>();derivingOwners.set(em,active);
+ for(const componentId of options.componentProductIds??[])for(const line of await host.findWhere(em,user.companyId,'finance-product-boms','componentId',componentId))if(line.status==='active'&&!line.archivedAt&&typeof line.data.productId==='number')owners.add(line.data.productId);
+ for(const ownerId of owners){if(active.has(ownerId))continue;const owner=await rec(em,user.companyId,'finance-products',ownerId);if(!owner||owner.archivedAt||!['self_made','purchased'].includes(str(owner.data.archiveType)))continue;active.add(ownerId);
+  try{const boms=(await host.findWhere(em,user.companyId,'finance-product-boms','productId',ownerId)).filter(row=>row.status==='active'&&!row.archivedAt&&(!row.data.costTreatment||row.data.costTreatment==='include'));if(!boms.length){result.missing.push(ownerId);continue;}const terms:UnitCentsProduct[]=[];let complete=true;
+   for(const line of boms){const data=line.data,qty=num(data.qty),facts=data.archiveBomCostSnapshot as ArchiveBomCostSnapshot|undefined;if(qty===null||qty<=0){complete=false;break;}
+    if(data.importLineKind==='labor'){const price=num(data.importLaborCost);if(price===null){complete=false;break;}terms.push({value:price,quantity:qty});continue;}
+    if(typeof data.laborId==='number'){const price=facts?.version===1&&facts.laborId===data.laborId?num(facts.unitCost):null;if(price===null){complete=false;break;}terms.push({value:price,quantity:qty});continue;}
+    if(typeof data.componentId!=='number'){complete=false;break;}const product=await rec(em,user.companyId,'finance-products',data.componentId);if(!product){complete=false;break;}const costs=(await host.findWhere(em,user.companyId,'finance-product-costs','productId',data.componentId)).filter(row=>costActiveAt(row,day)),snapshot=facts?.version===1&&facts.componentId===data.componentId?facts:undefined;
+    const price=costs.length&&costs.every(row=>num(row.data.unitCost)!==null)?sumUnitCents(costs.map(row=>num(row.data.unitCost)!)):num(snapshot?.unitCost),history=await latestLogistics(host,em,user,data.componentId),freight=num(history?.data.freight)??num(snapshot?.freight),handling=num(history?.data.handlingFee)??num(snapshot?.handlingFee);
+    if(price===null||freight===null||handling===null){complete=false;break;}terms.push(...[price,freight,handling].map(value=>({value,quantity:qty,lossPercent:num(data.lossPercent)??0})));
+   }
+   if(!complete){result.missing.push(ownerId);continue;}const current=(await host.findWhere(em,user.companyId,'finance-product-costs','productId',ownerId)).filter(row=>costActiveAt(row,day)).sort((a,b)=>str(b.data.effectiveFrom).localeCompare(str(a.data.effectiveFrom))||b.id-a.id)[0],unitName=str(owner.data.purchaseSpec)||str(current?.data.unitName)||specUnitLabel(owner.data.specUnit)||'件';
+   if(current?.data.manualOverride===true){result.skipped.push(ownerId);continue;}
+   if(await syncAutoCost(host,em,user,ownerId,{sourceType:'production_bom',unitCost:sumUnitCentsProducts(terms,6,LOGISTICS_CENT_SCALE,2),unitName,sourceRef:boms.map(row=>row.id).join(','),calculationMethod:'按保存生产BOM汇总：有效档案成本 + 运费 + 装卸费 + 保存人工成本'},day))result.refreshed.push(ownerId);else result.skipped.push(ownerId);
+  }finally{active.delete(ownerId);}
+ }
+ if(!active.size)derivingOwners.delete(em);return result;
+}
