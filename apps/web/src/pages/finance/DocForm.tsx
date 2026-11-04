@@ -50,7 +50,13 @@ const ORIGIN: Partial<Record<DocType, { scope: DocType; kind: PartyKind; label: 
  */
 function DocumentHeadCard({ reference, children }: { reference: boolean; children: ReactNode }) { return reference ? <section className="reference-document-head-card">{children}</section> : <Fragment>{children}</Fragment>; }
 
-export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft, onShowList }: Props) {
+export function DocForm(props: Props) {
+  const {user}=useAuth();
+  return <DocumentForm key={props.type==='withdrawal'?undefined:JSON.stringify([props.type,props.doc?.id,user?.companyId,user?.id,user?.permissions])} {...props}/>;
+}
+function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft, onShowList }: Props) {
+  const mounted=useRef(false),saving=useRef(false),savedDraft=useRef<DocDetailDto|null>(null);
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
   const def = DOC_TYPE_MAP.get(type)!;
   const { can, user } = useAuth();
   const ui = def.ui;
@@ -109,16 +115,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
   const [settleBy, setSettleBy] = useState<SettleBy>((doc?.settleBy as SettleBy | null) ?? 'amount');
   const [alloc, setAlloc] = useState<Record<string, string>>(() => Object.fromEntries((doc?.settlements ?? []).map((x) => [x.productId ? `${x.sourceDocId}:${x.productId}` : `${x.sourceDocId}`, centsToYuan(x.amountCents)])));
   const [open, setOpen] = useState<OpenItem[]>([]);
-  // 网店销售：往来对象是店铺时，店铺只有一个收款账户就自动填上；平台佣金率只用来估算净到账，不入账
   const [feeRate, setFeeRate] = useState('');
-  useEffect(() => {
-    if (type !== 'online-sale' || partyKind !== 'store' || !party.id || doc) return;
-    let alive = true;
-    resourceApi.list('bank-accounts', { fieldKey: 'storeId', fieldValue: String(party.id), pageSize: 5 })
-      .then((r) => { const act = r.items.filter((x) => x.status !== 'inactive' && x.status !== 'deleted'); if (alive && act.length === 1) setBank((b) => (b.id ? b : { id: act[0].id, name: act[0].title })); })
-      .catch(() => undefined);
-    return () => { alive = false; };
-  }, [type, partyKind, party.id, doc]);
 
   // 退货关联原单：选了往来对象后列出他已过账的原单，可关联并带入明细、对照退货数量
   const origin = ORIGIN[type];
@@ -126,26 +123,32 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
   const [origId, setOrigId] = useState('');
   const [origNote, setOrigNote] = useState('');
   const [origQty, setOrigQty] = useState<Array<{ productId: number; name: string; qty: number }>>([]);
+  const originImport=useRef(0);
+  useEffect(()=>{originImport.current++;},[origId]);
   useEffect(() => {
+    originImport.current++;
     setOrigId(''); setOrigNote(''); setOrigSales([]); setOrigQty([]);
     if (!origin || partyKind !== origin.kind || !party.id || !party.name) return;
     let alive = true;
     financeApi.docs({ scope: origin.scope, status: 'posted', keyword: party.name })
       .then((r) => alive && setOrigSales(r.rows.filter((x) => x.partyName === party.name).map((x) => ({ id: x.id, docNo: x.docNo, docDate: x.docDate, amountCents: x.amountCents }))))
       .catch(() => alive && setOrigNote(`没有权限查看${origin.label}，不能关联`));
-    return () => { alive = false; };
+    return () => { alive = false; originImport.current++; };
   }, [origin, partyKind, party.id, party.name]);
   async function importOriginal() {
     if (!origId) return;
+    const serial=++originImport.current,current=()=>mounted.current&&originImport.current===serial;
     try {
       const d = await financeApi.doc(Number(origId));
+      if(!current())return;
+      if(!origin||d.docType!==origin.scope||d.status!=='posted'||d.partyKind!==origin.kind||d.partyId!==party.id){setOrigNote('原单不属于当前往来对象或已不是已过账单据，请重新选择。');return;}
       const goods = d.lines.filter((l) => l.productId && l.qty > 0);
       if (!goods.length) { setOrigNote('该单据没有商品明细，无法带入'); return; }
       if (lines.some((l) => l.productId || l.price) && !window.confirm('当前已填写的退货商品会被原单的商品替换，数量默认为原单全部数量，可再修改。')) return;
       setOrigQty(goods.map((l) => ({ productId: l.productId as number, name: l.productName, qty: l.qty })));
       setLines(goods.map((l) => ({ ...emptyLine(), unit: l.unit ?? '', productId: l.productId ?? null, productName: l.productName, qty: String(l.qty), price: unitYuanText(l.unitPriceCents) })));
       setOrigNote(`已带入 ${goods.length} 种商品，数量默认为原单全部数量，请改成实际退回数量`);
-    } catch { setOrigNote('原单明细加载失败，请稍后重试'); }
+    } catch { if(current())setOrigNote('原单明细加载失败，请稍后重试'); }
   }
 
   const [balances, setBalances] = useState<Map<number, number>>(new Map());
@@ -248,6 +251,7 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
   };
 
   const reset = () => {
+    savedDraft.current=null; setNotice('');
     if (type !== 'withdrawal') {
       setDate(today()); setPartyKind(kinds[0] ?? 'customer'); setHandlerId(null); setHandlerName(''); setHandlerLegacy(''); setDepartment(def.warehouse ? '' : '财务部');
     }
@@ -257,6 +261,8 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
 
   const save = async (e: FormEvent | null, then?: 'issue' | 'post') => {
     e?.preventDefault();
+    if(saving.current)return; saving.current=true;
+    const current=()=>mounted.current;
     setError(''); setNotice('');
     setBusy(true);
     try {
@@ -266,19 +272,23 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
         if (errs.length) throw new Error(errs.join('；'));
         const warn = [bankAfter !== null && bankAfter < 0 ? `注意：${bank.name} 余额不足，${def.bank === 'in' ? '' : '付后'}余额约 ${money(bankAfter)}。` : '', origExcess.length ? `注意：退货数量超过原单（${origExcess.join('；')}）。` : '', partyBalance?.creditLimitCents != null && partyBalance.receivableCents + Math.max(rest, 0) > partyBalance.creditLimitCents && def.settle === 'in' && def.lines === 'product' ? `注意：挂账后应收超过赊销额度 ${money(partyBalance.creditLimitCents)}。` : ''].filter(Boolean);
         const text = `${(type === 'expense' ? counterpartyName : party.name) ? `${ui.partyLabel.replace('（选填）', '')}：${type === 'expense' ? counterpartyName : party.name}\n` : ''}${def.lines ? `明细 ${b.lines.length} 行，` : ''}${ui.totalLabel}：${money(total)}${discountC ? `（已优惠 ${money(discountC)}）` : ''}\n${warn.length ? `${warn.join('\n')}\n` : ''}${then === 'post' ? '过账后会动账和库存，只能红冲，请核对。' : '开立后可再过账。'}`;
-        if (!window.confirm(`${then === 'post' ? '确认过账？' : '确认开立？'}\n${text}`)) { setBusy(false); return; }
+        if (!window.confirm(`${then === 'post' ? '确认过账？' : '确认开立？'}\n${text}`)) return;
       }
-      let saved = doc ? await financeApi.update(doc.id, b) : await financeApi.create(b);
+      const draftId=doc?.id??savedDraft.current?.id;
+      let saved = draftId ? await financeApi.update(draftId, b) : await financeApi.create(b);
+      if(!current())return;
+      savedDraft.current=saved;
       if (def.store && (vouchersDirty || (vouchers.length > 0 && !doc))) await sessionApi.bindVouchers(saved.id, vouchers.map((v) => v.id));
+      if(!current())return;
       if (then === 'issue') saved = await financeApi.issue(saved.id);
+      if(!current())return;
       if (then === 'post') saved = await financeApi.post(saved.id);
+      if(!current())return;
       if (inline && !doc) { reset(); setNotice(`已保存 ${saved.docNo}（${then === 'post' ? '已过账' : then === 'issue' ? '已开立' : '草稿'}），可以接着开下一张`); setBalanceTick((t) => t + 1); }
-      setBusy(false);
       onSaved(saved, then === 'post' ? 'posted' : then === 'issue' ? 'issued' : 'draft');
     } catch (err) {
-      setError(err instanceof ApiError || err instanceof Error ? err.message : '保存失败');
-      setBusy(false);
-    }
+      if(current())setError(err instanceof ApiError || err instanceof Error ? err.message : '保存失败');
+    } finally { saving.current=false; if(current())setBusy(false); }
   };
 
   const addLine = () => setLines((ls) => [...ls, freshLines()[0]]);

@@ -1,6 +1,5 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DOC_TYPE_MAP, type DocType } from '@kudesi/shared';
-import { ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { DocForm } from './DocForm';
 import { DocumentsPage } from './DocumentsPage';
@@ -12,6 +11,10 @@ import { financeApi, type DocDetailDto } from './financeApi';
  * 所有单据页共用同一个 DocForm，差别全部来自 packages/shared 的单据配置。
  */
 export function VoucherPage({ type }: { type: DocType }) {
+  const {user}=useAuth();
+  return <VoucherContent key={type==='withdrawal'?undefined:JSON.stringify([type,user?.companyId,user?.id,user?.permissions])} type={type}/>;
+}
+function VoucherContent({ type }: { type: DocType }) {
   const { can } = useAuth();
   const def = DOC_TYPE_MAP.get(type)!;
   const [tick, setTick] = useState(0);
@@ -19,10 +22,17 @@ export function VoucherPage({ type }: { type: DocType }) {
   const [nonce, setNonce] = useState(0);
   const [loadError, setLoadError] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
+  const mounted=useRef(false),request=useRef(0);
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;request.current++;};},[]);
   const pick = async (id: number) => {
+    const serial=++request.current,current=()=>mounted.current&&request.current===serial;
     setLoadError('');
-    try { setEditing(await financeApi.doc(id)); setNonce((n) => n + 1); document.querySelector('.vc-slip')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }); }
-    catch (e) { setLoadError(e instanceof ApiError ? e.message : '草稿调入失败'); }
+    try {
+      const doc=await financeApi.doc(id);if(!current())return;
+      if(doc.docType!==type||doc.status!=='draft')throw new Error('该单据已不是当前类型的草稿，请重新选择。');
+      setEditing(doc);setNonce(n=>n+1);document.querySelector('.vc-slip')?.scrollIntoView?.({behavior:'smooth',block:'start'});
+    }
+    catch (e) { if(current())setLoadError(e instanceof Error ? e.message : '草稿调入失败'); }
   };
   return (
     <div className="vc-page">
