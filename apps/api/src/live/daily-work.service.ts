@@ -276,7 +276,7 @@ export class DailyWorkService {
         +now >= +liveFromText(r.planned_end_text)!
       )
         liveFail('只能在排班开始与结束时间内开始日常工作');
-      if (await closedDay(em, user.companyId, r.day))
+      if (await closedDay(em, user.companyId, r.day,{dailyWorkId:Number(r.id)}))
         liveFail('该日期已进入工资结算，不能开始');
       const types = await positionTypesOf(em, user.companyId, user.id);
       if (!types.has(r.role === 'anchor' ? 'live_anchor' : 'live_control'))

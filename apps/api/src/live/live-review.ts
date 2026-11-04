@@ -165,7 +165,7 @@ export async function resolveWage(em: EntityManager, companyId: number, session:
 export async function approveSession(em: EntityManager, ctx: { companyId: number; actorId: number; runId: number; now: Date }, sessionId: number, form: ReviewForm) {
   await lockCompany(em, ctx.companyId);
   const session = await sessionRow(em, ctx.companyId, sessionId, true);
-  if (await closedDay(em, ctx.companyId, session.session_day)) liveFail('该日期已进入工资结算审批或已结算，不能再新增收入');
+  if (await closedDay(em, ctx.companyId, session.session_day,{sessionId:Number(session.id)})) liveFail('该日期已进入工资结算审批或已结算，不能再新增收入');
   if (session.status !== 'submitted' || Number(session.flow_run_id) !== ctx.runId) liveFail('场次已不在待审核状态，请刷新后核对');
   const reports = await reportsOf(em, ctx.companyId, sessionId);
   const corrections=await requireCheckoutCorrections(em,ctx.companyId,sessionId,form);

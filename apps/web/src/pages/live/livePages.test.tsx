@@ -306,7 +306,7 @@ describe('直播管理', () => {
     expect(within(dlg).getByLabelText('结算明细').textContent).toContain('¥12.00');
     l.submitSettlement.mockResolvedValue({ runId: 1 });
     fireEvent.click(within(dlg).getByRole('button', { name: '提交审批' }));
-    await waitFor(() => expect(l.submitSettlement).toHaveBeenCalledWith(5));
+    await waitFor(() => expect(l.submitSettlement).toHaveBeenCalledWith(5,1));
   });
   it('排场列出所有空房间，按房间新增会带出当前日期与房间，支持新试播主播',async()=>{
     allow=['features.live.view','live.manage'];l.overview.mockResolvedValue(empty() as never);
@@ -378,7 +378,7 @@ describe('直播管理', () => {
     fireEvent.change(await screen.findByLabelText('结算方式'),{target:{value:'range'}});
     fireEvent.change(screen.getByLabelText('结算开始日期'),{target:{value:'2026-09-01'}});fireEvent.change(screen.getByLabelText('结算结束日期'),{target:{value:'2026-09-15'}});
     fireEvent.click(screen.getByRole('button',{name:'生成 / 重新核对'}));
-    await waitFor(()=>expect(l.generateSettlement).toHaveBeenCalledWith('2026-09',undefined,{from:'2026-09-01',to:'2026-09-15'}));
+    await waitFor(()=>expect(l.generateSettlement).toHaveBeenCalledWith('2026-09',undefined,{kind:'wage',userIds:[],from:'2026-09-01',to:'2026-09-15'}));
     expect((await screen.findByRole('alert')).textContent).toContain('重叠');
   });
 
