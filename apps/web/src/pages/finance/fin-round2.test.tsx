@@ -32,7 +32,7 @@ describe('金额类单据：多行明细', () => {
     fireEvent.click(screen.getByRole('button', { name: '+ 加一行' }));
     fireEvent.change(screen.getByLabelText('第2行金额'), { target: { value: '7.5' } });
     fireEvent.change(screen.getByLabelText(/^第2行(?!金额|备注)/), { target: { value: '运费' } });
-    expect(document.querySelector('.slip-foot-total')!.textContent).toContain('¥20.00');
+    expect(document.querySelector('.slip-total-card')!.textContent).toContain('¥20.00');
     fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
     await waitFor(() => expect(fa.create).toHaveBeenCalled());
     const body = fa.create.mock.calls[0][0] as { lines: { itemName: string; unitPriceCents: number }[] };

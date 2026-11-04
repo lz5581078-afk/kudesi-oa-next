@@ -119,7 +119,7 @@ describe('开单页细节', () => {
   it('付款单：选了付款账户后显示账户余额和付后余额；余额为负时过账前确认并可取消', async () => {
     fa.create.mockResolvedValue({ id: 1, docNo: 'FK1' } as never);
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
-    render(<DocForm type="payment" inline onSaved={vi.fn()} />);
+    render(<DocForm type="payment" onSaved={vi.fn()} />);
     fireEvent.click(screen.getByLabelText('付款账户'));
     fireEvent.click(await screen.findByRole('option', { name: '现金户' }));
     fireEvent.change(screen.getByLabelText('第1行金额'), { target: { value: '50' } });
@@ -154,7 +154,7 @@ describe('开单页细节', () => {
     fireEvent.click(screen.getByRole('button', { name: '收了部分款' }));
     fireEvent.change(screen.getByLabelText('收到金额', { selector: 'input' }), { target: { value: '5' } });
     expect((await screen.findByText(/本单还差 ¥15.00 未结清/)).textContent).toContain('挂应收');
-    expect(document.querySelector('.slip-foot-total')!.textContent).toContain('¥20.00');
+    expect(document.querySelector('.slip-total-card')!.textContent).toContain('¥20.00');
   });
   it('转款单：能互换转出/转入账户', async () => {
     render(<DocForm type="transfer" inline onSaved={vi.fn()} />);

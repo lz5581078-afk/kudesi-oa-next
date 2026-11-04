@@ -1,4 +1,4 @@
-import {act,cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react';
+import {act,cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react';
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {DocForm} from './DocForm';
 import {VoucherPage} from './VoucherPage';
@@ -20,13 +20,13 @@ const fillExpense=async()=>{
   fireEvent.click(screen.getByLabelText('第1行费用项目'));fireEvent.click(await screen.findByRole('option',{name:'合成费用'}));fireEvent.change(screen.getByLabelText('第1行金额'),{target:{value:'10'}});fireEvent.click(screen.getByRole('button',{name:'欠款'}));
 };
 it('连续提交和快捷键只能发起一个保存请求，成功只回调一次',async()=>{
-  const pending=deferred(),saved=vi.fn();fa.create.mockReturnValue(pending.promise);render(<DocForm type="sale" inline onSaved={saved}/>);
-  const form=screen.getByRole('form',{name:'普通销售单开单'});fireEvent.submit(form);fireEvent.submit(form);fireEvent.keyDown(window,{key:'g',ctrlKey:true});expect(fa.create).toHaveBeenCalledTimes(1);
+  const pending=deferred(),saved=vi.fn();fa.create.mockReturnValue(pending.promise);render(<DocForm type="expense" inline onSaved={saved}/>);
+  fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));fireEvent.keyDown(window,{key:'g',ctrlKey:true});expect(fa.create).toHaveBeenCalledTimes(1);
   await act(async()=>{pending.resolve(draft as never);});expect(saved).toHaveBeenCalledTimes(1);expect(saved).toHaveBeenCalledWith(draft,'draft');
 });
 it.each(['company','user','permission'])('%s切换重置整个制单表单，旧保存结果不清空新表单或回调',async kind=>{
   const pending=deferred(),saved=vi.fn();fa.create.mockReturnValue(pending.promise);const view=render(<DocForm type="sale" inline onSaved={saved}/>);
-  fireEvent.change(screen.getByLabelText('第1行单位'),{target:{value:'旧上下文单位'}});fireEvent.submit(screen.getByRole('form',{name:'普通销售单开单'}));
+  fireEvent.change(screen.getByLabelText('第1行单位'),{target:{value:'旧上下文单位'}});fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));
   if(kind==='company')auth.companyId=2;else if(kind==='user')auth.id=2;else auth.permissions={...auth.permissions,allow:['synthetic-new-permission']};
   view.rerender(<DocForm type="sale" inline onSaved={saved}/>);expect((screen.getByLabelText('第1行单位') as HTMLInputElement).value).toBe('件');
   fireEvent.change(screen.getByLabelText('第1行单位'),{target:{value:'新上下文单位'}});await act(async()=>{pending.resolve(draft as never);});
@@ -43,12 +43,10 @@ it('创建成功但开立失败后，重试更新同一草稿，不重复创建�
 });
 it('创建失败解除保存互斥，保留输入供重试；明确清空时同时清除旧成功提示',async()=>{
   fa.create.mockRejectedValueOnce(new Error('合成保存失败')).mockResolvedValueOnce(draft as never);render(<DocForm type="sale" inline onSaved={vi.fn()}/>);fireEvent.change(screen.getByLabelText('第1行单位'),{target:{value:'合成箱'}});
-  fireEvent.submit(screen.getByRole('form',{name:'普通销售单开单'}));await screen.findByRole('alert');expect((screen.getByLabelText('第1行单位') as HTMLInputElement).value).toBe('合成箱');fireEvent.submit(screen.getByRole('form',{name:'普通销售单开单'}));await screen.findByText(/已保存 SYNTHETIC-51/);expect(fa.create).toHaveBeenCalledTimes(2);fireEvent.click(screen.getByRole('button',{name:'清空单据'}));expect(screen.queryByText(/已保存 SYNTHETIC-51/)).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));await screen.findByRole('alert');expect((screen.getByLabelText('第1行单位') as HTMLInputElement).value).toBe('合成箱');fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));await screen.findByText(/已保存 SYNTHETIC-51/);expect(fa.create).toHaveBeenCalledTimes(2);fireEvent.click(screen.getByRole('button',{name:'清空单据'}));expect(screen.queryByText(/已保存 SYNTHETIC-51/)).toBeNull();
 });
-it('制单宿主页切换公司后，旧草稿详情迟到不重新装入新公司的开单表单',async()=>{
-  const pending=deferred();fa.doc.mockReturnValue(pending.promise);
-  fa.docs.mockResolvedValue({rows:[{id:42,docNo:'SYNTH-DRAFT',docType:'sale',typeLabel:'普通销售单',status:'draft',docDate:'2026-11-03',amountCents:0,paidCents:0,createdByName:'合成管理员'}],total:1,page:1,pageSize:20} as never);
-  const view=render(<VoucherPage type="sale"/>);fireEvent.click(screen.getByRole('button',{name:'调入草稿'}));const dialog=await screen.findByRole('dialog',{name:'调入草稿'});fireEvent.click(await within(dialog).findByText('SYNTH-DRAFT'));
-  expect(fa.doc).toHaveBeenCalledWith(42);auth.companyId=2;view.rerender(<VoucherPage type="sale"/>);fireEvent.change(screen.getByLabelText('第1行单位'),{target:{value:'新公司合成单位'}});
-  await act(async()=>{pending.resolve({...draft,id:42,docNo:'SYNTH-DRAFT',docType:'sale'} as never);});expect(screen.queryByText(/正在编辑草稿/)).toBeNull();expect((screen.getByLabelText('第1行单位') as HTMLInputElement).value).toBe('新公司合成单位');
+it('制单宿主页切换公司重建表单，原版开单页不再自动读取最近单据或提供额外草稿工具栏',()=>{
+  const view=render(<VoucherPage type="sale"/>);fireEvent.change(screen.getByLabelText('第1行单位'),{target:{value:'旧公司合成单位'}});
+  expect(screen.queryByRole('button',{name:'调入草稿'})).toBeNull();expect(fa.docs).not.toHaveBeenCalled();auth.companyId=2;view.rerender(<VoucherPage type="sale"/>);
+  expect((screen.getByLabelText('第1行单位') as HTMLInputElement).value).toBe('件');expect(screen.queryByText(/最近的普通销售单/)).toBeNull();
 });

@@ -45,10 +45,10 @@ function VoucherContent({ type }: { type: DocType }) {
             onPickDraft={(id) => void pick(id)}
             onShowList={() => listRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })} />
         : <div className="notice">你没有制单权限，只能查看下面的单据。</div>}
-      <div ref={listRef} className="vc-recent">
+      {(type==='withdrawal'||!can('finance.docs.create'))&&<div ref={listRef} className="vc-recent">
         <h2 className="section-title">最近的{def.label}（单据调阅）</h2>
         <DocumentsPage key={`${type}-${tick}`} scope={type} embedded />
-      </div>
+      </div>}
     </div>
   );
 }

@@ -1,0 +1,14 @@
+.reference-document.reference-document-source.vc-slip{display:grid;gap:12px;margin:0;padding:14px 18px 92px;background:#f3f6fa;font:16px Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif;color:#172033;box-sizing:border-box}
+.reference-document-source .slip-title{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:58px;padding:0 2px 10px;border-top:0;border-bottom:1px solid #d9e2ec;background:transparent;box-sizing:border-box}
+.reference-document-source .slip-title h1{margin:0;color:#172033;font:700 23px Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif;letter-spacing:0}
+.reference-document-source .slip-title>.secondary-button{height:38px;min-height:0;padding:0 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#334155;font:400 16px Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif}
+.reference-document-source .slip-body{padding:0}
+.reference-document-source .slip-body .slip-cols{grid-template-columns:minmax(720px,1fr) 310px;gap:14px;align-items:start}
+.reference-document-source .slip-main{gap:12px}
+.reference-document-source .slip-main>section{padding:12px;border-color:#dbe4ef;box-shadow:0 2px 8px #0f172a0a}
+.reference-document-source .slip-body .slip-side{position:sticky;top:66px;gap:12px}
+.reference-document-actions{display:grid;grid-template-columns:108px minmax(0,1fr);gap:10px;position:sticky;bottom:10px;z-index:8;padding:10px;border:1px solid #dbe4ef;border-radius:8px;background:#fffffff5;box-shadow:0 8px 24px #0f172a1f;backdrop-filter:blur(8px);box-sizing:border-box}
+.reference-document-actions>.secondary-button,.reference-document-actions>.primary-button{height:42px;min-height:0;border-radius:6px;box-sizing:border-box}
+.reference-document-actions>.secondary-button{padding:0 12px;border:1px solid #cbd5e1;background:#fff;color:#334155;font:400 16px Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif}
+.reference-document-actions>.primary-button{padding:1px 6px;border:1px solid #126a45;background:#168253;color:#fff;font:900 15px Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif}
+@media(max-width:1180px){.reference-document-source .slip-body .slip-cols{grid-template-columns:minmax(0,1fr)}.reference-document-source .slip-body .slip-side{position:static}}

@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DocForm } from './DocForm';
 import { VoucherPage } from './VoucherPage';
+import { DraftPicker } from './voucher/DraftPicker';
 import { financeApi, type DocDetailDto } from './financeApi';
 import { resourceApi } from '../../resources/api';
 
@@ -137,7 +138,7 @@ describe('赠品与整单优惠', () => {
     fireEvent.change(screen.getByLabelText('第1行数量'), { target: { value: '10' } });
     fireEvent.change(screen.getByLabelText('第1行单价'), { target: { value: '10' } });
     fireEvent.change(screen.getByLabelText('优惠金额'), { target: { value: '3' } });
-    expect(document.querySelector('.slip-foot-total')!.textContent).toContain('¥97.00');
+    expect(document.querySelector('.slip-total-card')!.textContent).toContain('¥97.00');
     fireEvent.click(screen.getByRole('button', { name: '+ 加一行' }));
     fireEvent.click(screen.getByLabelText('第2行赠品'));
     expect((screen.getByLabelText('第2行单价') as HTMLInputElement).disabled).toBe(true);
@@ -338,40 +339,46 @@ describe('费用单与退货单的旧版结算方式', () => {
   });
 });
 
-describe('快捷键、调入草稿', () => {
-  it('Ctrl+G 保存草稿；F8 过账（先确认）', async () => {
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
-    render(<DocForm type="sale" inline onSaved={vi.fn()} />);
+describe('原版开单操作与既有草稿编辑能力', () => {
+  it('保存销售单按原版保存为已制单，提交/主按钮不直接过账，也不增加开立确认框',async()=>{
+    const confirm=vi.spyOn(window,'confirm').mockReturnValue(true),saved=vi.fn();fa.issue.mockResolvedValue({id:1,docNo:'XS1',status:'issued'} as never);
+    try{
+      render(<DocForm type="sale" inline onSaved={saved}/>);
+      fireEvent.click(screen.getByLabelText('客户'));fireEvent.click(await screen.findByRole('option',{name:'老客户'}));await pickProduct();
+      fireEvent.change(screen.getByLabelText('第1行数量'),{target:{value:'1'}});fireEvent.change(screen.getByLabelText('第1行单价'),{target:{value:'10'}});fireEvent.click(screen.getByRole('button',{name:'欠款'}));
+      fireEvent.click(screen.getByRole('button',{name:'保存销售单'}));await waitFor(()=>expect(saved).toHaveBeenCalledWith(expect.objectContaining({status:'issued'}),'issued'));
+      expect(fa.create).toHaveBeenCalledTimes(1);expect(fa.issue).toHaveBeenCalledWith(1);expect(fa.post).not.toHaveBeenCalled();expect(confirm).not.toHaveBeenCalled();
+    }finally{confirm.mockRestore();}
+  });
+  it('原版开单页没有额外工具栏、最近列表或F8过账，保留顶部清空和右侧两个保存动作', () => {
+    render(<VoucherPage type="sale" />);
     fireEvent.keyDown(window, { key: 'g', ctrlKey: true });
-    await waitFor(() => expect(fa.create).toHaveBeenCalled());
     fireEvent.keyDown(window, { key: 'F8' });
-    await screen.findByText(/请选择客户/);
-    confirm.mockRestore();
+    expect(fa.create).not.toHaveBeenCalled();expect(fa.post).not.toHaveBeenCalled();
+    expect(screen.queryByRole('toolbar',{name:'开单操作'})).toBeNull();expect(screen.queryByRole('button',{name:'打印'})).toBeNull();expect(screen.queryByRole('button',{name:'保存并开立'})).toBeNull();
+    expect(screen.getByRole('button',{name:'清空单据'}).closest('.slip-title')).toBeTruthy();
+    expect(screen.getByRole('button',{name:'保存草稿'}).closest('.slip-side')).toBeTruthy();expect(screen.getByRole('button',{name:'保存销售单'}).closest('.slip-side')).toBeTruthy();expect(screen.queryByText(/最近的普通销售单/)).toBeNull();
   });
   it('调入草稿：列出这种单据的草稿，点一张把单号交给页面去装入', async () => {
     fa.docs.mockResolvedValue({ total: 1, amountCents: 0, paidCents: 0, page: 1, pageSize: 20, rows: [{ id: 42, docNo: 'XS-草稿1', partyName: '老客户', amountCents: 12300, docDate: '2026-10-28' }] } as never);
     const pick = vi.fn();
-    render(<DocForm type="sale" inline onSaved={vi.fn()} onPickDraft={pick} />);
-    fireEvent.click(screen.getByRole('button', { name: '调入草稿' }));
+    render(<DraftPicker type="sale" onPick={pick} onClose={vi.fn()} />);
     const dlg = await screen.findByRole('dialog', { name: '调入草稿' });
     expect(fa.docs).toHaveBeenCalledWith(expect.objectContaining({ scope: 'sale', status: 'draft' }));
     fireEvent.click(await within(dlg).findByText('XS-草稿1'));
     expect(pick).toHaveBeenCalledWith(42);
   });
-  it('制单页：调入草稿后进入编辑，保存走更新接口，之后回到空白新单', async () => {
+  it('既有草稿编辑仍保留原优惠与单位，重存走更新接口，不新建单据', async () => {
     const d = { id: 42, docNo: 'XS-草稿1', docType: 'sale', status: 'draft', docDate: '2026-10-28', partyId: 7, partyName: '老客户', partyKind: 'customer', warehouseId: 9, warehouseName: '总仓', bankAccountId: null, bankName: '', toBankAccountId: null, toBankName: '', storeId: null, storeName: '', refNo: null, amountCents: 9700, offsetCents: 0, paidCents: 0, discountCents: 300, handler: '老板', department: null, memo: null, settleBy: null, accounts: [], lines: [{ id: 1, productId: 3, productName: '小油菜', feeItemId: null, feeItemName: '', qty: 10, unitPriceCents: 1000, unit: '斤', lineNo: 1, relatedNode: null, relatedId: null, relatedName: null }], entries: [], events: [] } as unknown as DocDetailDto;
     fa.docs.mockResolvedValue({ total: 1, amountCents: 0, paidCents: 0, page: 1, pageSize: 20, rows: [{ id: 42, docNo: 'XS-草稿1', partyName: '老客户', amountCents: 9700, docDate: '2026-10-28', typeLabel: '普通销售单', status: 'draft', paidCents: 0 }] } as never);
     fa.doc.mockResolvedValue(d);
     fa.update.mockResolvedValue(d);
-    render(<VoucherPage type="sale" />);
-    fireEvent.click(screen.getAllByRole('button', { name: '调入草稿' })[0]);
-    const dlg = await screen.findByRole('dialog', { name: '调入草稿' });
-    fireEvent.click(await within(dlg).findByText('XS-草稿1'));
+    const saved=vi.fn();render(<DocForm type="sale" doc={d} inline onSaved={saved}/>);
     expect(await screen.findByText(/正在编辑草稿 XS-草稿1/)).toBeTruthy();
     expect((screen.getByLabelText('优惠金额') as HTMLInputElement).value).toBe('3.00');
-    expect(document.querySelector('.slip-foot-total')!.textContent).toContain('¥97.00');
+    expect(document.querySelector('.slip-total-card')!.textContent).toContain('¥97.00');
     fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
     await waitFor(() => expect(fa.update).toHaveBeenCalledWith(42, expect.objectContaining({ discountCents: 300 })));
-    await waitFor(() => expect(screen.queryByText(/正在编辑草稿/)).toBeNull());
+    await waitFor(() => expect(saved).toHaveBeenCalledWith(d,'draft'));expect(fa.create).not.toHaveBeenCalled();
   });
 });

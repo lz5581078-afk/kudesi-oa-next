@@ -20,6 +20,7 @@ import { VoucherToolbar } from './voucher/VoucherToolbar';
 import { printSlip } from './voucher/printSlip';
 import { emptyLine, emptyLines, emptyMoney, type AcctState, type LineState, type MoneyLine } from './voucher/types';
 import { useLineHints, usePartyBalance } from './voucher/useVoucherHints';
+import './referenceVoucherShell.css';
 
 const unitPriceOf = (v: string) => { if (!v.trim()) return null; try { return yuanToPreciseCents(v); } catch { return NaN; } };
 
@@ -60,6 +61,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
   const def = DOC_TYPE_MAP.get(type)!;
   const { can, user } = useAuth();
   const ui = def.ui;
+  const sourceInline=!!inline&&type!=='withdrawal'&&type!=='expense';
   const hasPayment = !!def.settle || !!def.moneySettlement;
   const structuredLines = !!def.lines && !ui.moneyEntry;
   const kinds = def.partyKinds;
@@ -272,7 +274,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
         if (errs.length) throw new Error(errs.join('；'));
         const warn = [bankAfter !== null && bankAfter < 0 ? `注意：${bank.name} 余额不足，${def.bank === 'in' ? '' : '付后'}余额约 ${money(bankAfter)}。` : '', origExcess.length ? `注意：退货数量超过原单（${origExcess.join('；')}）。` : '', partyBalance?.creditLimitCents != null && partyBalance.receivableCents + Math.max(rest, 0) > partyBalance.creditLimitCents && def.settle === 'in' && def.lines === 'product' ? `注意：挂账后应收超过赊销额度 ${money(partyBalance.creditLimitCents)}。` : ''].filter(Boolean);
         const text = `${(type === 'expense' ? counterpartyName : party.name) ? `${ui.partyLabel.replace('（选填）', '')}：${type === 'expense' ? counterpartyName : party.name}\n` : ''}${def.lines ? `明细 ${b.lines.length} 行，` : ''}${ui.totalLabel}：${money(total)}${discountC ? `（已优惠 ${money(discountC)}）` : ''}\n${warn.length ? `${warn.join('\n')}\n` : ''}${then === 'post' ? '过账后会动账和库存，只能红冲，请核对。' : '开立后可再过账。'}`;
-        if (!window.confirm(`${then === 'post' ? '确认过账？' : '确认开立？'}\n${text}`)) return;
+        if (!(sourceInline&&then==='issue')&&!window.confirm(`${then === 'post' ? '确认过账？' : '确认开立？'}\n${text}`)) return;
       }
       const draftId=doc?.id??savedDraft.current?.id;
       let saved = draftId ? await financeApi.update(draftId, b) : await financeApi.create(b);
@@ -327,7 +329,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
   const act = useRef({ save, doPrint });
   act.current = { save, doPrint };
   useEffect(() => {
-    if (!inline) return undefined;
+    if (!inline||sourceInline) return undefined;
     const on = (e: KeyboardEvent) => {
       if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'g') { e.preventDefault(); void act.current.save(null); }
       else if (e.key === 'F8' && !e.ctrlKey) { e.preventDefault(); if (can('finance.docs.post')) void act.current.save(null, 'post'); }
@@ -336,7 +338,17 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
     };
     window.addEventListener('keydown', on);
     return () => window.removeEventListener('keydown', on);
-  }, [inline, can]);
+  }, [inline, can, sourceInline]);
+
+  const buttons = sourceInline ? <><button type="button" className="secondary-button" disabled={busy} onClick={()=>void save(null)}>保存草稿</button><button type="submit" className="primary-button" disabled={busy}>{busy?'保存中':ui.saveText}</button></> : (
+    <>
+      {!inline && <button type="button" className="secondary-button" onClick={onClose}>取消</button>}
+      <button type="submit" className="secondary-button" disabled={busy}>{inline ? '保存草稿' : '存为草稿'}</button>
+      <button type="button" className="secondary-button" disabled={busy} onClick={() => save(null, 'issue')}>保存并开立</button>
+      {can('finance.docs.post') && <button type="button" className="primary-button" disabled={busy} onClick={() => save(null, 'post')}>{ui.saveText.replace('保存', '保存并过账')}</button>}
+    </>
+  );
+
 
   const content = (
     <div className="slip-cols">
@@ -418,7 +430,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
         </section>
       )}
 
-      {type !== 'withdrawal' && <details className="reference-document-extra"><summary>过账说明</summary><p className="muted slip-hint">过账结果：{def.posting}</p></details>}
+      {type !== 'withdrawal' && !sourceInline && <details className="reference-document-extra"><summary>过账说明</summary><p className="muted slip-hint">过账结果：{def.posting}</p></details>}
       </div>
       <aside className="slip-side" aria-label="单据功能区">
       <div className="slip-total-card"><span className="muted">{ui.totalLabel}</span><b>{money(total)}</b>{def.lines && <span className="muted">共 {parsedCount} 行{discountC > 0 ? ` · 已优惠 ${money(discountC)}` : ''}</span>}</div>
@@ -489,32 +501,25 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
         <label>单据摘要<input aria-label="单据摘要" placeholder="不填则自动生成" maxLength={255} value={summary} onChange={e => setSummary(e.target.value)} /></label>
         <label>单据备注<textarea rows={2} maxLength={500} aria-label="备注" value={memo} onChange={e => setMemo(e.target.value)} /></label>
       </section> : <label>{def.lines ? '备注' : `${moneyItem} / 备注`}<textarea rows={2} maxLength={500} aria-label="备注" value={memo} onChange={e => setMemo(e.target.value)} /></label>}
-      <div ref={noticeRef}>
+      {sourceInline&&<div className="reference-document-actions">{buttons}</div>}
+      {(!sourceInline||notice||error)&&<div ref={noticeRef}>
         {notice && <div role="status" className="notice ok">{notice}</div>}
         {error && <div role="alert" className="notice error">{error}</div>}
-      </div>
+      </div>}
       </aside>
     </div>
   );
 
-  const buttons = (
-    <>
-      {!inline && <button type="button" className="secondary-button" onClick={onClose}>取消</button>}
-      <button type="submit" className="secondary-button" disabled={busy}>{inline ? '保存草稿' : '存为草稿'}</button>
-      <button type="button" className="secondary-button" disabled={busy} onClick={() => save(null, 'issue')}>保存并开立</button>
-      {can('finance.docs.post') && <button type="button" className="primary-button" disabled={busy} onClick={() => save(null, 'post')}>{ui.saveText.replace('保存', '保存并过账')}</button>}
-    </>
-  );
 
   if (inline) {
     return (
-      <ReferencePickContext.Provider value={type !== 'withdrawal'}><form className={`card slip vc-slip${type !== 'withdrawal' ? ' reference-document' : ''}`} data-doc-type={type} aria-label={`${def.label}开单`} onSubmit={(e) => save(e)}>
-        <div className="slip-title">{type === 'withdrawal' ? <strong>{def.label} / 手工开单</strong> : <h1>{def.label} / 手工开单</h1>}{doc && <span className="vc-editing">正在编辑草稿 {doc.docNo}</span>}</div>
-        <div className="slip-toolbar-row"><VoucherToolbar type={type} busy={busy} editing={!!doc}
+      <ReferencePickContext.Provider value={type !== 'withdrawal'}><form className={`card slip vc-slip${type !== 'withdrawal' ? ' reference-document' : ''}${sourceInline?' reference-document-source':''}`} data-doc-type={type} aria-label={`${def.label}开单`} onSubmit={(e) => save(e,sourceInline?'issue':undefined)}>
+        <div className="slip-title">{type === 'withdrawal' ? <strong>{def.label} / 手工开单</strong> : <h1>{def.label} / 手工开单</h1>}{doc && <span className="vc-editing">正在编辑草稿 {doc.docNo}</span>}{sourceInline&&<button type="button" className="secondary-button" disabled={busy} onClick={()=>{if(doc)onClose?.();else reset();}}>清空单据</button>}</div>
+        {!sourceInline&&<div className="slip-toolbar-row"><VoucherToolbar type={type} busy={busy} editing={!!doc}
           onClear={() => { if (doc) onClose?.(); else reset(); }} onPrint={doPrint} onList={() => onShowList?.()} onPickDraft={(id) => onPickDraft?.(id)} />
-          <span className="vc-keys muted">Ctrl+G 保存草稿 · F8 过账 · Ctrl+F9 打印 · Ctrl+F8 回到明细</span></div>
+          <span className="vc-keys muted">Ctrl+G 保存草稿 · F8 过账 · Ctrl+F9 打印 · Ctrl+F8 回到明细</span></div>}
         <div className="slip-body">{content}</div>
-        <div className="slip-foot"><div className="slip-foot-total"><span className="muted">{ui.totalLabel}</span> <b>{money(total)}</b></div>{buttons}</div>
+        {!sourceInline&&<div className="slip-foot"><div className="slip-foot-total"><span className="muted">{ui.totalLabel}</span> <b>{money(total)}</b></div>{buttons}</div>}
       </form></ReferencePickContext.Provider>
     );
   }

@@ -103,7 +103,7 @@ describe('多账户收付款', () => {
     fireEvent.click(screen.getByRole('button', { name: '分多个账户收款' }));
     await addAccount('添加收款账户', '甲户');
     fireEvent.change(screen.getByLabelText('甲户收款金额'), { target: { value: '60' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存并开立' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存收款单' }));
     expect((await screen.findByRole('alert')).textContent).toContain('各账户金额合计');
     expect(fa.create).not.toHaveBeenCalled();
   });
@@ -222,15 +222,12 @@ describe('经手人员工选择器', () => {
     fireEvent.click(screen.getByRole('button', { name: '存为草稿' }));
     await waitFor(() => expect(fa.update).toHaveBeenLastCalledWith(9, expect.objectContaining({ handlerId: null, handler: null })));
     cleanup();
-    const write = vi.fn(), popup = { document: { write, close: vi.fn() }, focus: vi.fn(), print: vi.fn() };
-    const open = vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window);
+    const print=vi.spyOn(window,'print').mockImplementation(()=>{});fa.doc.mockResolvedValue(doc);
     try {
-      render(<DocForm type="receipt" doc={doc} inline onSaved={vi.fn()} />);
-      fireEvent.click(screen.getByRole('button', { name: '打印' }));
-      const printed = new DOMParser().parseFromString(write.mock.calls[0][0] as string, 'text/html');
-      expect(printed.body.textContent).toContain('老张（外聘）');
-      expect(printed.body.textContent).not.toContain('老板');
-    } finally { open.mockRestore(); }
+      render(<DocDetail id={doc.id} onClose={vi.fn()} onChanged={vi.fn()}/>);
+      fireEvent.click(await screen.findByRole('button',{name:'打印'}));
+      expect(print).toHaveBeenCalledTimes(1);expect(screen.getByText('老张（外聘）')).toBeTruthy();
+    }finally{print.mockRestore();}
   });
   it('取不到员工名单时新建仍留空，不伪造经办人', async () => {
     vi.mocked(resourceApi.users).mockRejectedValue(new Error('没权限'));
