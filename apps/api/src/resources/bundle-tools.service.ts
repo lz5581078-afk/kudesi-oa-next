@@ -3,7 +3,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
 import { createChecker, getResourceDef } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { ResourceRecord } from '../entities';
+import { Company, ResourceRecord } from '../entities';
 import { OutboxService } from '../outbox/outbox.service';
 import { COST_FIELDS, sigOf } from './base-code-support';
 import { composeBundle } from './bundle-naming';
@@ -313,24 +313,33 @@ export class BundleToolsService {
     return '';
   }
 
-  async deletionPreview(user: AuthUser, id: number) {
-    const em = this.ds.manager;
+  async deletionPreview(user: AuthUser, id: number, em: EntityManager = this.ds.manager) {
     const b = await this.load(em, user, id);
     const reason = await this.deletable(em, user, b);
-    return { id, code: str(b.data.code), name: str(b.data.name), canDelete: !reason, reason, token: sigOf('bundle-del', b.id, b.updatedAt ? new Date(b.updatedAt).getTime() : 0) };
+    const lines = await this.lineRecords(em, user, id);
+    const revisionId = num(b.data.pendingRevisionId);
+    const revision = revisionId ? await em.findOne(ResourceRecord, { where: { id: revisionId, companyId: user.companyId, type: 'finance-bundle-revisions' } }) : null;
+    const token = sigOf('bundle-del', b.id, b.status, b.updatedAt ? new Date(b.updatedAt).getTime() : 0, JSON.stringify(b.data),
+      JSON.stringify(lines.map(line => [line.id, line.status, line.data])), JSON.stringify(revision ? [revision.id, revision.status, revision.data] : null));
+    return { id, code: str(b.data.code), name: str(b.data.name), canDelete: !reason, reason, token };
   }
 
   async deletionExecute(user: AuthUser, id: number, token: string, confirmCode: string, reason: string) {
     if (reason.trim().length < 2) throw new BadRequestException('必须写明删除原因');
-    const pre = await this.deletionPreview(user, id);
-    if (pre.token !== token) throw new ConflictException('资料在预览之后变了，请重新预览');
-    if (!pre.canDelete) throw new BadRequestException(pre.reason);
-    if (confirmCode.trim().toUpperCase() !== pre.code.toUpperCase()) throw new BadRequestException('请完整输入要删除的组合编码来确认');
-    for (const l of await this.lineRecords(this.ds.manager, user, id)) await this.resources.remove(user, 'finance-bundle-lines', l.id, reason.trim());
-    const pend = num((await this.load(this.ds.manager, user, id)).data.pendingRevisionId);
-    if (pend) await this.resources.remove(user, 'finance-bundle-revisions', pend, reason.trim());
-    await this.resources.remove(user, TYPE, id, reason.trim());
-    return { ok: true };
+    return this.ds.transaction(async em => {
+      await em.findOneOrFail(Company, { where: { id: user.companyId }, lock: { mode: 'pessimistic_write' } });
+      const bundle = await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type: TYPE }, lock: { mode: 'pessimistic_write' } });
+      if (!bundle) throw new NotFoundException('组合不存在');
+      const pre = await this.deletionPreview(user, id, em);
+      if (pre.token !== token) throw new ConflictException('资料在预览之后变了，请重新预览');
+      if (!pre.canDelete) throw new BadRequestException(pre.reason);
+      if (confirmCode.trim().toUpperCase() !== pre.code.toUpperCase()) throw new BadRequestException('请完整输入要删除的组合编码来确认');
+      for (const line of await this.lineRecords(em, user, id)) await this.resources.removeRecord(em, user, 'finance-bundle-lines', line.id, reason.trim(), [], true);
+      const pend = num((await this.load(em, user, id)).data.pendingRevisionId);
+      if (pend) await this.resources.removeRecord(em, user, 'finance-bundle-revisions', pend, reason.trim(), [], true);
+      await this.resources.removeRecord(em, user, TYPE, id, reason.trim(), [], true);
+      return { ok: true };
+    });
   }
 
   /** 失效归档：组合不再使用。上传过聚水潭的，同时把“停用旧编码”加入出站队列（需要确认，且只有管理员能做）。 */

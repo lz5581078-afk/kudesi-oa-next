@@ -1,3 +1,5 @@
+import { beginPurchaseHistoryBatch, rememberPurchaseBaseline, recordPurchaseHistory, flushPurchaseHistory } from './product-purchase-history';
+import { archiveBaseCodeIdentity } from './product-base-code-sync';
 import { capacityQuantityCode, packagingCapacities } from './packaging-capacities';
 import { costCompositionFacts } from './cost-components';
 import { archiveCodePrefix, beforeArchivePrefix } from './archive-prefix';
@@ -216,6 +218,7 @@ const FREIGHT_ZERO = [['purchasePrice', '采购价'], ['freight', '运费'], ['h
 
 async function beforeProduct(ctx: BeforeSaveContext) {
   const { em, host, user, data, existing } = ctx;
+  rememberPurchaseBaseline(em, existing);
   const type = str(data.archiveType);
   if (type === 'purchased' && !data.supplyMode) throw new BadRequestException('采购成品请选择采购方式（原装采购 / 供应商 OEM）');
   if (type !== 'purchased') delete data.supplyMode;
@@ -557,23 +560,29 @@ async function beforeBaseCode(ctx: BeforeSaveContext) {
     // 旧版把分类码、品牌码、首字母连在一起；碰到旧格式的已存编码，当作自动生成的重新生成
     const legacyStyle = `${chain.map((c) => str(c.data.code)).join('')}${brand}${initials(composed ? variety : str(product.data.name))}`;
     const legacyCode = legacyStyle + suffix;
-    const reasoned = !!str(data.codeChangeReason).trim();
-    const manualStyle = str(data.styleCode).toUpperCase();
-    const keepStyle = !!manualStyle && manualStyle !== generatedStyle && manualStyle !== legacyStyle && (reasoned || existing?.data.styleCode === manualStyle);
-    if (manualStyle && manualStyle !== generatedStyle && manualStyle !== legacyStyle && !keepStyle) throw new BadRequestException('手改款式编码必须写明原因');
-    const style = keepStyle ? manualStyle : generatedStyle;
-    if (keepStyle) checkCode(style, '款式编码');
-    data.styleCode = style;
-    const generated = style + suffix;
-    const manual = str(data.code).toUpperCase();
-    if (manual && manual !== generated && manual !== legacyCode) {
-      checkCode(manual, '基础编码');
-      if (!reasoned && !(existing && existing.data.code === manual)) throw new BadRequestException('手改编码必须写明原因');
-      data.code = manual;
+    const archiveIdentity = !composed && data.origin === 'archive_sync' && em.queryRunner?.data.baseCodeSync === true
+      ? archiveBaseCodeIdentity(product.data.code) : null;
+    if (archiveIdentity) {
+      Object.assign(data, archiveIdentity);
     } else {
-      checkCode(generated, '基础编码');
-      data.code = generated;
-      if (!keepStyle) delete data.codeChangeReason;
+      const reasoned = !!str(data.codeChangeReason).trim();
+      const manualStyle = str(data.styleCode).toUpperCase();
+      const keepStyle = !!manualStyle && manualStyle !== generatedStyle && manualStyle !== legacyStyle && (reasoned || existing?.data.styleCode === manualStyle);
+      if (manualStyle && manualStyle !== generatedStyle && manualStyle !== legacyStyle && !keepStyle) throw new BadRequestException('手改款式编码必须写明原因');
+      const style = keepStyle ? manualStyle : generatedStyle;
+      if (keepStyle) checkCode(style, '款式编码');
+      data.styleCode = style;
+      const generated = style + suffix;
+      const manual = str(data.code).toUpperCase();
+      if (manual && manual !== generated && manual !== legacyCode) {
+        checkCode(manual, '基础编码');
+        if (!reasoned && !(existing && existing.data.code === manual)) throw new BadRequestException('手改编码必须写明原因');
+        data.code = manual;
+      } else {
+        checkCode(generated, '基础编码');
+        data.code = generated;
+        if (!keepStyle) delete data.codeChangeReason;
+      }
     }
     data.varietyName = str(data.varietyName).trim() || undefined;
     if (!str(data.spec).trim() && specCode) data.spec = `${composed ? str(qty) : str(product.data.specQty)}${srcUnit}`;
@@ -781,7 +790,7 @@ async function beforeBundleRevision({ em, host, user, data, existing, status }: 
 
 async function beforeBundleLine(ctx: BeforeSaveContext) {
   const { em, user, data } = ctx;
-  const bundle = await rec(em, user.companyId, 'finance-bundles', data.bundleId);
+  const bundle = typeof data.bundleId === 'number' ? await em.findOne(ResourceRecord, { where: { id: data.bundleId, companyId: user.companyId, type: 'finance-bundles' }, lock: { mode: 'pessimistic_write' } }) : null;
   if (!bundle) throw new BadRequestException('组合不存在');
   if (bundle.status === 'archived') throw new BadRequestException('组合已失效归档，不能再改构成');
   if (!((num(data.qty) ?? 0) > 0)) throw new BadRequestException('数量必须大于 0');
@@ -1157,13 +1166,14 @@ async function syncProductBaseCode(host: RuleHost, em: EntityManager, user: Auth
   const p = await rec(em, user.companyId, 'finance-products', productId);
   if (!p || p.status !== 'active' || !SYNC_ARCHIVE_TYPES.includes(str(p.data.archiveType))) return;
   const full = str(p.data.basicInfoFullName) || p.title;
+  const archiveIdentity = archiveBaseCodeIdentity(p.data.code);
   const reals = (await host.findWhere(em, user.companyId, 'finance-base-codes', 'productId', productId)).filter((r) => !r.data.canonicalId && !isComposed(r));
   if (reals.length === 0) {
     const values = { productId, name: full, shortName: full, varietyName: str(p.data.name) };
     try {
       await createSynced(host, em, user, values);
     } catch (e) {
-      if (!(e instanceof ConflictException)) throw e;
+      if (archiveIdentity || !(e instanceof ConflictException)) throw e;
       // 生成的编码和别的编码撞了：加序号避开，并写明原因
       const chain = await categoryChain(em, user.companyId, Number(p.data.categoryId));
       const brand = p.data.archiveType === 'raw' ? '' : await brandCode(em, user.companyId, p.data.brandId);
@@ -1181,8 +1191,9 @@ async function syncProductBaseCode(host: RuleHost, em: EntityManager, user: Auth
   }
   for (const bc of reals) {
     if (bc.data.origin !== 'archive_sync' || bc.data.profileManual === true || ['disabled', 'deleted'].includes(bc.status)) continue;
-    if (str(bc.data.name) !== full || str(bc.data.shortName) !== full) {
-      await host.patchData(em, user, 'finance-base-codes', bc.id, { name: full, shortName: full }, '商品档案变化，同步基础编码名称');
+    const patch = { name: full, shortName: full, ...archiveIdentity };
+    if (Object.entries(patch).some(([key, value]) => bc.data[key] !== value)) {
+      await host.patchData(em, user, 'finance-base-codes', bc.id, patch, '商品档案变化，同步基础编码资料');
     }
   }
 }
@@ -1239,6 +1250,8 @@ export async function recomputeProduct(host: RuleHost, em: EntityManager, user: 
     const patch: Data = { totalCost: cost, weightG };
     const changed = patch.totalCost !== (p.data.totalCost ?? null) || patch.weightG !== p.data.weightG;
     await host.patchData(em, user, 'finance-products', productId, patch, '构成变化，自动汇总成本和重量');
+    const priced = await rec(em, user.companyId, 'finance-products', productId);
+    if (priced) await recordPurchaseHistory(host, em, user, priced, p);
     if (cost !== null) await syncAutoCost(host, em, user, productId, { sourceType: 'production_bom', unitCost: cost, unitName: specUnitText(p.data) || '件', calculationMethod: '按构成汇总：组成档案成本 + 人工 + 运费 + 装卸费' });
     if (changed) await markReverify(host, em, user, productId);
   }
@@ -1259,6 +1272,8 @@ export async function refreshFromSources(host: RuleHost, em: EntityManager, user
   const patch: Data = { purchasePrice: price, supplierId: cur ? cur.data.supplierId : null, totalCost: price !== null && f !== null && h !== null ? sumUnitCents([price,f,h]) : null };
   if (p.data.archiveType === 'shipping_material' && cur?.data.systemSpec) patch.purchaseSpec = cur.data.systemSpec;
   await host.patchData(em, user, 'finance-products', productId, patch, '供货来源变化，更新当前采购价');
+  const priced = await rec(em, user.companyId, 'finance-products', productId);
+  if (priced) await recordPurchaseHistory(host, em, user, priced, p);
   if (cur && price !== null) await syncAutoCost(host, em, user, productId, { sourceType: 'raw_supply_source', unitCost: price, unitName: str(cur.data.systemSpec) || str(p.data.purchaseSpec) || specUnitText(p.data), sourceRef: cur.title, calculationMethod: '取最新启用的供货来源采购价' });
 }
 
@@ -1478,6 +1493,7 @@ export const FINANCE_AFTER_SAVE: Record<string, (ctx: AfterSaveContext) => Promi
     if (!em.queryRunner?.data.legacyImport) {
       const fresh = (await rec(em, user.companyId, 'finance-products', record.id)) ?? record;
       await recordFreightHistory(host, em, user, fresh);
+      await recordPurchaseHistory(host, em, user, fresh, existing);
       // 直接采购的档案：采购价同步成“采购成本”记录（自产、OEM 由构成汇总，原料、物料取供货来源）
       const d = fresh.data;
       if (fresh.status === 'active' && ['package', 'oem_package', 'purchased'].includes(str(d.archiveType)) && d.supplyMode !== 'supplier_oem' && num(d.purchasePrice) !== null) {
@@ -1590,4 +1606,11 @@ export const FINANCE_AFTER_DELETE: Record<string, (ctx: DeleteCtx) => Promise<vo
       if (b?.status === 'verified') await host.setStatusDirect(em, user, 'finance-bundles', b.id, 'reverify', '构成变了，需要重新验证');
     }
   },
+};
+
+export const FINANCE_BEFORE_FORM_SAVE: Record<string, (ctx: { em: EntityManager; host: RuleHost; user: AuthUser; existing: ResourceRecord | null }) => Promise<void>> = {
+  'finance-products': async ({ em, existing }) => beginPurchaseHistoryBatch(em, existing),
+};
+export const FINANCE_AFTER_FORM_SAVE: Record<string, (ctx: { em: EntityManager; host: RuleHost; user: AuthUser; record: ResourceRecord }) => Promise<void>> = {
+  'finance-products': async ({ em, host, user }) => flushPurchaseHistory(host, em, user),
 };

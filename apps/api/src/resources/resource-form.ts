@@ -6,6 +6,8 @@ import { ResourceFormMutation, ResourceRecord } from '../entities';
 import { AuthUser } from '../common/auth.decorators';
 
 interface FormHost {
+  before?(em: EntityManager, def: ResourceDef, existing: ResourceRecord | null): Promise<void>;
+  after?(em: EntityManager, def: ResourceDef, parent: ResourceRecord): Promise<void>;
   version(record: ResourceRecord): string;
   save(em: EntityManager, def: ResourceDef, existing: ResourceRecord | null, values: Record<string, unknown>, options: { status?: string; reason?: string; cleanup: string[]; note: string }): Promise<ResourceRecord>;
   remove(em: EntityManager, type: string, id: number, reason: string, cleanup: string[]): Promise<unknown>;
@@ -73,6 +75,7 @@ export async function saveResourceForm(ds: DataSource, user: AuthUser, def: Reso
         const problem = validateStatusChange(def, input.status!, input.statusReason);
         if (problem) throw new BadRequestException(problem);
       }
+      await host.before?.(em, def, existing);
       const parent = await host.save(em, def, existing, input.values, { status: input.status, reason: input.statusReason, cleanup, note: '整组保存资料' });
       if (changingStatus) { parent.statusReason = input.statusReason?.trim() || null; await em.save(ResourceRecord, parent); }
       for (const { child, field, rows, removed } of prepared) {
@@ -85,6 +88,7 @@ export async function saveResourceForm(ds: DataSource, user: AuthUser, def: Reso
         }
         for (const row of removed) await host.remove(em, child.key, row.id, '在主档表单中移除', cleanup);
       }
+      await host.after?.(em, def, parent);
       await em.update(ResourceFormMutation, { id: attempt.id }, { recordId: parent.id });
       return parent.id;
     });

@@ -5,7 +5,7 @@ import { addDays, normalizePhone, normalizeReconcileDay } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceLink, ResourceRecord } from '../entities';
 import { CERT_AFTER_DELETE, CERT_AFTER_SAVE, CERT_BEFORE_SAVE, custodyRules, licenseFlags } from './entity-rules';
-import { FINANCE_AFTER_DELETE, FINANCE_AFTER_SAVE, FINANCE_BEFORE_SAVE } from './finance-rules';
+import { FINANCE_AFTER_DELETE, FINANCE_AFTER_SAVE, FINANCE_BEFORE_SAVE, FINANCE_BEFORE_FORM_SAVE, FINANCE_AFTER_FORM_SAVE } from './finance-rules';
 import { beforeUnitDelete } from './unit-rules';
 import { ASSET_BEFORE_DELETE, ASSET_BEFORE_SAVE } from './asset-rules';
 import { broadbandPhoneRule, isLegacyImport, phoneParentRule } from './fee-rules';
@@ -488,4 +488,12 @@ export async function afterCreateRule(type: string, ctx: AfterCreateContext): Pr
     }
     await host.createRecord(em, user, 'bank-accounts', { ...acc, licenseId: record.id }, note);
   }
+}
+
+/** 可选整组阶段；默认资料没有附加动作，仍使用同一事务和资料规则。 */
+export async function beforeFormSaveRule(type: string, ctx: { em: EntityManager; host: RuleHost; user: AuthUser; existing: ResourceRecord | null }) {
+  await FINANCE_BEFORE_FORM_SAVE[type]?.(ctx);
+}
+export async function afterFormSaveRule(type: string, ctx: { em: EntityManager; host: RuleHost; user: AuthUser; record: ResourceRecord }) {
+  await FINANCE_AFTER_FORM_SAVE[type]?.(ctx);
 }

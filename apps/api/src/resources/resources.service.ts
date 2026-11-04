@@ -1,3 +1,4 @@
+import { beforeFormSaveRule, afterFormSaveRule } from './resource-rules';
 import { saveResourceForm } from './resource-form';
 import type { ResourceFormInput } from '@kudesi/shared';
 import { ExternalConfigService } from '../integrations/external-config.service';
@@ -1234,6 +1235,8 @@ export class ResourcesService implements RuleHost {
     const cleanup: string[] = [];
     const id = await saveResourceForm(this.dataSource, user, this.def(type), input, {
       version: recordVersion,
+      before: (em, def, existing) => beforeFormSaveRule(def.key, { em, host: this, user, existing }),
+      after: (em, def, record) => afterFormSaveRule(def.key, { em, host: this, user, record }),
       save: (em, def, existing, values, options) => this.saveRecord(em, user, def, existing, values, options),
       remove: (em, childType, childId, reason, objects) => this.removeRecord(em, user, childType, childId, reason, objects),
     }, cleanup);
