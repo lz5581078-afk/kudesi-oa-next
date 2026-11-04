@@ -1,3 +1,4 @@
+import { PersonPhotoName } from './PersonPhotoName';
 import { useAuth } from '../../auth/AuthContext';
 import { DailyWorkPanel } from './DailyWorkPanel';
 import { LiveCheckinPanel } from './LiveCheckinPanel';
@@ -82,7 +83,7 @@ export function LiveDeskPage() {
             <ul className="live-list">{d.active.map((s) => {
               const own = s.myCheckin, endAt = own ? own.endAt : s.endAt;
               return <li key={s.id}>
-                <div className="main"><strong>{s.roomName} · {s.date} {hm(own?.startAt ?? s.startAt, s.date)}{endAt ? `–${hm(endAt, s.date)}` : ' 起'}</strong><small>主播 {s.anchor.name}{s.control ? `，中控 ${s.control.name}` : ''} · {s.douyinAccount.name}{s.returnReason ? ` · 退回原因：${s.returnReason}` : ''}</small></div>
+                <div className="main"><strong>{s.roomName} · {s.date} {hm(own?.startAt ?? s.startAt, s.date)}{endAt ? `–${hm(endAt, s.date)}` : ' 起'}</strong><small>主播 <PersonPhotoName personId={s.anchor.id} name={s.anchor.name}/>{s.control ? `，中控 ${s.control.name}` : ''} · {s.douyinAccount.name}{s.returnReason ? ` · 退回原因：${s.returnReason}` : ''}</small></div>
                 <PersonalSessionStatus session={s} />
                 <button type="button" className="secondary-button small" onClick={() => setOpenId(s.id)}>{s.checkinMode && !own ? '查看详情' : own?.endAt ? '下播记录 / 详情' : s.status === 'live' ? '报下播 / 详情' : s.status === 'pending_report' || s.status === 'returned' ? '补报 / 提交审核' : '详情'}</button>
               </li>;
@@ -93,7 +94,7 @@ export function LiveDeskPage() {
             {d.schedules.length === 0 && <p className="muted pad">这几天没有安排你的排场。</p>}
             <ul className="live-list">{d.schedules.map((s) => (
               <li key={s.id}>
-                <div className="main"><strong>{s.date} {s.startTime}–{s.endTime} · {s.roomName}</strong><small>我是{s.mineRole === 'anchor' ? '主播' : s.mineRole === 'control' ? '中控' : '运营'} · 主播 {s.anchor.name}{s.control ? `，中控 ${s.control.name}` : ''} · {s.douyinAccount.name}{s.note ? ` · ${s.note}` : ''}</small></div>
+                <div className="main"><strong>{s.date} {s.startTime}–{s.endTime} · {s.roomName}</strong><small>我是{s.mineRole === 'anchor' ? '主播' : s.mineRole === 'control' ? '中控' : '运营'} · 主播 <PersonPhotoName personId={s.anchor.id} name={s.anchor.name}/>{s.control ? `，中控 ${s.control.name}` : ''} · {s.douyinAccount.name}{s.note ? ` · ${s.note}` : ''}</small></div>
                 {d.active.find(session => session.id === s.sessionId)?.myCheckin?.endAt ? <span className="pill ok">本人已下播</span> : <SchedulePill status={s.status} label={s.statusLabel} />}
                 {!d.identity.isOperations && s.status === 'scheduled' && s.mineRole !== 'operator' && <button type="button" className="primary-button" disabled={!s.canStart} title={s.canStart ? '' : '排班已过结束时间'} onClick={() => setStarting({ schedule: s })}>上播</button>}
               </li>

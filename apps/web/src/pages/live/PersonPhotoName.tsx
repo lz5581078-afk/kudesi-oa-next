@@ -1,3 +1,4 @@
+import { AnchorMonthPanel } from './AnchorMonthPanel';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { PersonPhotoUpload } from './PersonPhotoUpload';
@@ -13,7 +14,7 @@ export interface PersonPhoto {
 export const personPhotoApi = {
   read: (id: number) => api<PersonPhoto>(`/live/people/${id}/photo`),
 };
-/** 按员工编号读取，点击时才申请短期照片链接，不加载人事附件或工资。 */
+/** 点击姓名读取受控照片和服务器本月业绩；按员工编号隔离，避免同名串人。 */
 export function PersonPhotoName({
   personId,
   name,
@@ -28,6 +29,7 @@ export function PersonPhotoName({
   const trigger = useRef<HTMLButtonElement>(null),
     panel = useRef<HTMLDivElement>(null);
   const [cropOpen, setCropOpen] = useState(false);
+  const [detailOpen,setDetailOpen]=useState(false);
   const [position, setPosition] = useState({
     left: 8,
     top: 8,
@@ -59,7 +61,7 @@ export function PersonPhotoName({
       );
       const above = a.top - oy - 16,
         belowSpace = oy + height - a.bottom - 16;
-      const below = above < Math.min(p.scrollHeight, 170) && belowSpace > above;
+      const below = belowSpace > above;
       const maxHeight = Math.max(80, below ? belowSpace : above);
       const top = below
         ? a.bottom + 8
@@ -84,7 +86,7 @@ export function PersonPhotoName({
     window.visualViewport?.addEventListener('resize', place);
     const outside = (e: PointerEvent) => {
       if (
-        !cropOpen &&
+        !cropOpen && !detailOpen &&
         !panel.current?.contains(e.target as Node) &&
         !trigger.current?.contains(e.target as Node)
       )
@@ -92,7 +94,7 @@ export function PersonPhotoName({
     };
     document.addEventListener('pointerdown', outside);
     const escape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !cropOpen) {
+      if (e.key === 'Escape' && !cropOpen && !detailOpen && document.querySelectorAll('[role=dialog]').item(document.querySelectorAll('[role=dialog]').length-1)===panel.current) {
         e.stopPropagation();
         close();
       }
@@ -106,7 +108,8 @@ export function PersonPhotoName({
       document.removeEventListener('pointerdown', outside);
       document.removeEventListener('keydown', escape);
     };
-  }, [open, cropOpen]);
+  }, [open, cropOpen, detailOpen]);
+  useEffect(()=>{if(open)panel.current?.querySelector<HTMLButtonElement>('button')?.focus();},[open]);
   const valid = Number.isSafeInteger(personId) && Number(personId) > 0;
   useEffect(() => {
     if (!open || !valid) return;
@@ -138,9 +141,10 @@ export function PersonPhotoName({
         ref={trigger}
         aria-expanded={open}
         aria-haspopup="dialog"
-        title={`查看${name}的人员照片`}
-        aria-label={`查看${name}照片`}
+        title={`查看${name}的照片与本月直播业绩`}
+        aria-label={`查看${name}资料`}
         onClick={(e) => {
+          e.preventDefault();
           e.stopPropagation();
           if (open) {
             close();
@@ -159,7 +163,7 @@ export function PersonPhotoName({
             ref={panel}
             className={`live-person-photo-popover${position.below ? ' is-below' : ''}`}
             role="dialog"
-            aria-label={`${name} · 人员照片`}
+            aria-label={`${name} · 主播资料`}
             style={
               {
                 left: position.left,
@@ -169,14 +173,20 @@ export function PersonPhotoName({
               } as React.CSSProperties
             }
             onKeyDown={(e) => {
+              if(e.key==='Tab'&&!cropOpen&&!detailOpen){
+                const controls=[...(panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), [tabindex="0"]')??[])].filter(el=>el.getClientRects().length);
+                const first=controls[0],last=controls[controls.length-1];
+                if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}
+                else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}
+              }
               if (e.key === 'Escape') {
                 e.stopPropagation();
-                if (!cropOpen) close();
+                if (!cropOpen && !detailOpen) close();
               }
             }}
           >
             <div className="live-person-photo-heading">
-              <strong>{name} · 人员照片</strong>
+              <strong>{name} · 主播资料</strong>
               <button
                 type="button"
                 className="icon-button"
@@ -224,10 +234,17 @@ export function PersonPhotoName({
                   )}
                 </>
               )}
+              <AnchorMonthPanel userId={personId!} onOverlayChange={setDetailOpen}/>
             </div>
           </div>,
           document.body,
         )}
     </span>
   );
+}
+
+/** Native options cannot contain buttons; keep a separate name link beside the selected value. */
+export function SelectedAnchorProfile({personId,name}:{personId?:number;name?:string}) {
+  if(!Number.isSafeInteger(personId)||Number(personId)<=0||!name)return null;
+  return <span className="live-selected-anchor-profile">主播资料：<PersonPhotoName key={personId} personId={personId} name={name}/></span>;
 }

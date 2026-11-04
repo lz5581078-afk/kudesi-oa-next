@@ -1,3 +1,4 @@
+import { PersonPhotoName } from './PersonPhotoName';
 import { ScheduleDialog } from './ScheduleDialog';
 import { productText } from './liveProducts';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -27,7 +28,7 @@ function CancelDialog({ row, onClose, onDone }: { row: ScheduleRow; onClose: () 
   return (
     <Modal title="取消排场" size="small" onClose={onClose} foot={<><button type="button" className="secondary-button" onClick={onClose}>返回</button><button type="button" className="primary-button danger-fill" onClick={() => void go()}>确认取消</button></>}>
       {error && <div role="alert" className="notice error">{error}</div>}
-      <p>{row.date} {row.startTime}–{row.endTime} · {row.roomName} · 主播 {row.anchor.name}。取消后会通知相关人员。</p>
+      <p>{row.date} {row.startTime}–{row.endTime} · {row.roomName} · 主播 <PersonPhotoName personId={row.anchor.id} name={row.anchor.name}/>。取消后会通知相关人员。</p>
       <label className="live-field">取消原因（必填）<textarea aria-label="取消原因" rows={3} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} /></label>
     </Modal>
   );
@@ -70,7 +71,7 @@ export function SchedulesTab() {
             const st = day === today || s.date <= today ? stateOf(s, now) : { label: s.statusLabel, tone: '' };
             return (
               <li key={s.id}>
-                <div className="main"><strong>{s.startTime}–{s.endTime}{s.end.slice(0, 10) > s.date ? '（次日）' : ''} · 主播 {s.anchor.name}</strong><small>{s.control ? `中控 ${s.control.name}` : '无中控'}{s.operator ? ` · 运营 ${s.operator.name}` : ''} · {s.channels?.length ? s.channels.map(c => `${c.accountName}（${c.stores.map(store => store.name).join('、')}）`).join('；') : `${s.douyinAccount.name}${s.store ? ` · ${s.store.name}` : ''}`}{` · 产品 ${productText(s.products)}`}{s.note ? ` · ${s.note}` : ''}{s.cancelReason ? ` · 取消原因：${s.cancelReason}` : ''}</small></div>
+                <div className="main"><strong>{s.startTime}–{s.endTime}{s.end.slice(0, 10) > s.date ? '（次日）' : ''} · 主播 <PersonPhotoName personId={s.anchor.id} name={s.anchor.name}/></strong><small>{s.control ? `中控 ${s.control.name}` : '无中控'}{s.operator ? ` · 运营 ${s.operator.name}` : ''} · {s.channels?.length ? s.channels.map(c => `${c.accountName}（${c.stores.map(store => store.name).join('、')}）`).join('；') : `${s.douyinAccount.name}${s.store ? ` · ${s.store.name}` : ''}`}{` · 产品 ${productText(s.products)}`}{s.note ? ` · ${s.note}` : ''}{s.cancelReason ? ` · 取消原因：${s.cancelReason}` : ''}</small></div>
                 {st.tone ? <span className={`pill ${st.tone}`}>{st.label}</span> : <SchedulePill status={s.status} label={st.label} />}
                 {d?.canManage && s.status === 'scheduled' && <div className="live-actions"><button type="button" className="secondary-button small" onClick={() => setEditing(s)}>修改</button><button type="button" className="secondary-button small danger" onClick={() => setCancelling(s)}>取消</button></div>}
               </li>

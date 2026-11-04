@@ -31,7 +31,7 @@ it('点击姓名才读取照片，使用人员编号且不触发场次行点击'
     </div>,
   );
   expect(read).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: '查看同名主播照片' }));
+  fireEvent.click(screen.getByRole('button', { name: '查看同名主播资料' }));
   expect(
     (
       await screen.findByRole('img', { name: '同名主播的人员照片' })
@@ -39,7 +39,7 @@ it('点击姓名才读取照片，使用人员编号且不触发场次行点击'
   ).toBe('https://test.invalid/p.jpg');
   expect(read).toHaveBeenCalledWith(7);
   expect(screen.getByRole('dialog').closest('.modal-backdrop')).toBeNull();
-  expect(screen.getByRole('button', { name: '查看同名主播照片' }).getAttribute('aria-expanded')).toBe('true');
+  expect(screen.getByRole('button', { name: '查看同名主播资料' }).getAttribute('aria-expanded')).toBe('true');
   expect(row).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: '关闭' }));
   expect(row).not.toHaveBeenCalled();
@@ -50,7 +50,7 @@ it('未上传明确提示，失败可重试且不会显示旧照片', async () =
     .mockRejectedValueOnce(new Error('读取失败'))
     .mockResolvedValue({ userId: 8, name: '主播乙', photo: null });
   render(<PersonPhotoName personId={8} name="主播乙" />);
-  fireEvent.click(screen.getByRole('button', { name: '查看主播乙照片' }));
+  fireEvent.click(screen.getByRole('button', { name: '查看主播乙资料' }));
   await screen.findByRole('alert');
   fireEvent.click(screen.getByRole('button', { name: '重新读取照片' }));
   await screen.findByText(/尚未上传人员照片/);
@@ -61,7 +61,7 @@ it('未上传明确提示，失败可重试且不会显示旧照片', async () =
 it('缺少照片且有档案编辑权限时可原地补传，Escape关闭并回到姓名', async () => {
   vi.spyOn(personPhotoApi, 'read').mockResolvedValue({ userId: 7, name: '主播', photo: null, upload: { recordId: 77 } });
   render(<PersonPhotoName personId={7} name="主播" />);
-  const name = screen.getByRole('button', { name: '查看主播照片' });
+  const name = screen.getByRole('button', { name: '查看主播资料' });
   fireEvent.click(name);
   await screen.findByText('电脑上传');
   expect(screen.getByText('手机扫码')).toBeTruthy();
@@ -79,7 +79,7 @@ it('同名编号变化时不展示上个人照片，旧响应不能覆盖新人�
       : Promise.resolve({ userId: 2, name: '同名', photo: null }),
   );
   const v = render(<PersonPhotoName personId={1} name="同名" />);
-  fireEvent.click(screen.getByRole('button', { name: '查看同名照片' }));
+  fireEvent.click(screen.getByRole('button', { name: '查看同名资料' }));
   v.rerender(<PersonPhotoName personId={2} name="同名" />);
   await screen.findByText(/尚未上传人员照片/);
   resolve({

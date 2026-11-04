@@ -5,7 +5,7 @@ import { primaryReport } from './live-checkin-core';
 import { channelStores, channelsOf, linesOf } from './live-platforms';
 import { type Row } from './live-core';
 
-interface Inputs {
+export interface Inputs {
   snapshots: Row[]; reports: Row[]; checkins: Row[]; profiles: Row[]; wages: Row[]; commissions: Row[];
   versions: Array<{id:number;effectiveFrom:string;rules:LiveRules}>; commissionOnly: Set<number>;
 }
@@ -28,7 +28,7 @@ function sessionAdSpend(session:Row, reports:Row[], commissions:Row[]):number|nu
 }
 
 /** Read-only estimate; approved sessions use ledger amounts, never ledger + estimate. */
-export function computeDayEstimate(sessions: Row[], now: string, input: Inputs, canViewCosts: boolean) {
+export function computeDayEstimate(sessions: Row[], now: string, input: Inputs, canViewCosts: boolean, anchorOnly = false) {
   sessions = sessions.filter(s => s.start_text <= now);
   let turnoverCents = 0, wageCents = 0, commissionCents = 0, adSpendCents = 0;
   const missingSales = new Set<number>(), missingCosts = new Set<number>(), missingAdSpend = new Set<number>();
@@ -72,11 +72,11 @@ export function computeDayEstimate(sessions: Row[], now: string, input: Inputs, 
     const ads = sessionAdSpend(s,reports,input.commissions.filter(r=>Number(r.session_id)===id));
     if (ads === null) missingAdSpend.add(id); else adSpendCents += ads;
     if (s.status === 'approved') {
-      wageCents += input.wages.filter(r => Number(r.session_id) === id && ['anchor','control'].includes(r.role)).reduce((n,r) => n + Number(r.amount_cents),0);
-      commissionCents += input.commissions.filter(r => Number(r.session_id) === id).reduce((n,r) => n + Number(r.amount_cents),0);
+      if (!anchorOnly) wageCents += input.wages.filter(r => Number(r.session_id) === id && ['anchor','control'].includes(r.role)).reduce((n,r) => n + Number(r.amount_cents),0);
+      commissionCents += input.commissions.filter(r => Number(r.session_id) === id && (!anchorOnly || (r.role === 'anchor' && Number(r.user_id) === Number(s.anchor_user_id)))).reduce((n,r) => n + Number(r.amount_cents),0);
       continue;
     }
-    for (const role of ['anchor','control'] as const) {
+    if (!anchorOnly) for (const role of ['anchor','control'] as const) {
       const userId = Number(s[role + '_user_id']);
       if (!userId || (role === 'control' && input.commissionOnly.has(userId))) continue;
       const clock = input.checkins.find(c => Number(c.session_id) === id && c.role === role && Number(c.user_id) === userId);
@@ -102,8 +102,8 @@ export function computeDayEstimate(sessions: Row[], now: string, input: Inputs, 
       for (const r of livePlatformCommissions(version.rules,lines)) {
         const attended = (role:'anchor'|'control') => !s.checkin_mode || input.checkins.some(c => Number(c.session_id) === id && c.role === role && Number(c.user_id) === Number(s[role+'_user_id'])) || reports.some(p => p.role === role && p.manual_actor_id);
         if (attended('anchor')) commissionCents += r.anchor.amountCents;
-        if (s.control_user_id && attended('control')) commissionCents += r.control.amountCents;
-        if (s.operator_user_id && Number(s.operator_user_id) !== Number(s.control_user_id)) commissionCents += r.operator.amountCents;
+        if (!anchorOnly && s.control_user_id && attended('control')) commissionCents += r.control.amountCents;
+        if (!anchorOnly && s.operator_user_id && Number(s.operator_user_id) !== Number(s.control_user_id)) commissionCents += r.operator.amountCents;
       }
     } catch { missingCosts.add(id); }
   }
@@ -113,10 +113,10 @@ export function computeDayEstimate(sessions: Row[], now: string, input: Inputs, 
 }
 
 /** Bounded by the selected company/day; no external order requests or per-session reads. */
-export async function dayEstimate(em:EntityManager,a:LiveAccess,sessions:Row[],now:string) {
+export async function loadEstimateInputs(em:EntityManager,a:LiveAccess,sessions:Row[],now:string,anchorOnly=false):Promise<Inputs> {
   sessions = sessions.filter(s => s.start_text <= now);
   const input:Inputs={snapshots:[],reports:[],checkins:[],profiles:[],wages:[],commissions:[],versions:[],commissionOnly:new Set()};
-  if (!sessions.length) return computeDayEstimate(sessions,now,input,a.canViewAll);
+  if (!sessions.length) return input;
   const ids=sessions.map(s=>Number(s.id));
   const read=(table:string,fields='*')=>em.query(`SELECT ${fields} FROM ${table} WHERE company_id=? AND session_id IN (?)`,[a.companyId,ids]) as Promise<Row[]>;
   [input.snapshots,input.reports]=await Promise.all([
@@ -127,12 +127,17 @@ export async function dayEstimate(em:EntityManager,a:LiveAccess,sessions:Row[],n
     const people=[...new Set(sessions.flatMap(s=>[s.anchor_user_id,s.control_user_id]).filter(Boolean).map(Number))];
     const [checkins,profiles,wages,commissions,versions,commissionOnly]=await Promise.all([
       read('live_session_checkins',"*,DATE_FORMAT(start_at,'%Y-%m-%d %H:%i:%s') start_text,DATE_FORMAT(end_at,'%Y-%m-%d %H:%i:%s') end_text"),
-      em.query('SELECT id,pay_type,hourly_rate FROM users WHERE company_id=? AND id IN (?)',[a.companyId,people]),
-      read('live_wage_records','session_id,role,amount_cents'),read('live_commission_records','session_id,platform,ad_spend_cents,amount_cents'),
+      anchorOnly ? Promise.resolve([]) : em.query('SELECT id,pay_type,hourly_rate FROM users WHERE company_id=? AND id IN (?)',[a.companyId,people]),
+      anchorOnly ? Promise.resolve([]) : read('live_wage_records','session_id,role,amount_cents'),read('live_commission_records','session_id,user_id,role,platform,ad_spend_cents,amount_cents'),
       em.query("SELECT id,DATE_FORMAT(effective_from,'%Y-%m-%d') effective_from,rules_json FROM live_commission_rule_versions WHERE company_id=?",[a.companyId]),
-      commissionOnlyControlIds(em,a.companyId),
+      anchorOnly ? Promise.resolve(new Set<number>()) : commissionOnlyControlIds(em,a.companyId),
     ]);
     Object.assign(input,{checkins,profiles,wages,commissions,commissionOnly,versions:versions.map((v:Row)=>({id:Number(v.id),effectiveFrom:v.effective_from,rules:liveRulesFromStored(v.rules_json)}))});
   }
-  return computeDayEstimate(sessions,now,input,a.canViewAll);
+  if (anchorOnly && !a.canViewAll) input.checkins = await read('live_session_checkins',"*,DATE_FORMAT(start_at,'%Y-%m-%d %H:%i:%s') start_text,DATE_FORMAT(end_at,'%Y-%m-%d %H:%i:%s') end_text");
+  return input;
+}
+
+export async function dayEstimate(em:EntityManager,a:LiveAccess,sessions:Row[],now:string) {
+  return computeDayEstimate(sessions,now,await loadEstimateInputs(em,a,sessions,now),a.canViewAll);
 }

@@ -14,7 +14,7 @@ afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 describe('排场产品与上次配置', () => {
   it('新增排场选择单店账号后直接保存，无需第二次勾选', async () => {
-    open(); await screen.findByRole('option', {name:'主播甲'});
+    open(); await screen.findByRole('option', {name:/^主播甲/});
     fireEvent.change(screen.getByLabelText('开始时间'),{target:{value:'15:00'}});
     fireEvent.change(screen.getByLabelText('结束时间'),{target:{value:'18:00'}});
     fireEvent.change(screen.getByLabelText('主播'),{target:{value:'3'}});
@@ -36,7 +36,7 @@ describe('排场产品与上次配置', () => {
   });
   it('导入后保留本次日期时间，保存人员、账号、店铺、产品和备注', async () => {
     open();
-    await screen.findByRole('option', { name: '主播甲' });
+    await screen.findByRole('option', { name: /^主播甲/ });
     fireEvent.change(screen.getByLabelText('开始时间'), { target: { value: '15:00' } });
     fireEvent.change(screen.getByLabelText('结束时间'), { target: { value: '18:00' } });
     fireEvent.click(screen.getByRole('button', { name: '一键导入上次排场' }));
@@ -51,7 +51,7 @@ describe('排场产品与上次配置', () => {
   it('导入多平台排场同时保留全部账号店铺和产品',async()=>{
     l.options.mockResolvedValue({...options,douyinAccounts:[...options.douyinAccounts,{id:21,name:'快手号',platform:'kuaishou',storeIds:[31]}],stores:[...options.stores,{id:31,name:'快手店',platform:'kuaishou',hasJstShop:true}]} as never);
     l.previousSchedule.mockResolvedValue({...previous,channels:[{accountId:20,accountName:'抖音号',platform:'douyin',storeIds:[30],stores:[{id:30,name:'店铺',jstShopId:'D'}]},{accountId:21,accountName:'快手号',platform:'kuaishou',storeIds:[31],stores:[{id:31,name:'快手店',jstShopId:'K'}]}]});
-    open();await screen.findByRole('option',{name:'主播甲'});
+    open();await screen.findByRole('option',{name:/^主播甲/});
     fireEvent.change(screen.getByLabelText('开始时间'),{target:{value:'15:00'}});fireEvent.change(screen.getByLabelText('结束时间'),{target:{value:'18:00'}});
     fireEvent.click(screen.getByRole('button',{name:'一键导入上次排场'}));await screen.findByText(/已导入 2026/);
     expect(screen.getByText('快手店')).toBeTruthy();
@@ -61,7 +61,7 @@ describe('排场产品与上次配置', () => {
   });
   it('没有上次排场时保持表单，停用人员清空并提醒', async () => {
     l.previousSchedule.mockResolvedValueOnce(null).mockResolvedValueOnce({ ...previous, control: { id: 404, name: '已停用' } });
-    open(); await screen.findByRole('option', { name: '主播甲' });
+    open(); await screen.findByRole('option', { name: /^主播甲/ });
     fireEvent.click(screen.getByRole('button', { name: '一键导入上次排场' }));
     await screen.findByText(/没有可导入的排场/);
     fireEvent.click(screen.getByRole('button', { name: '一键导入上次排场' }));
@@ -72,7 +72,7 @@ describe('排场产品与上次配置', () => {
     let resolve!: (v: ScheduleRow) => void;
     l.previousSchedule.mockReturnValue(new Promise((r) => { resolve = r; }));
     render(<ScheduleDialog initial={null} days={['2026-11-02', '2026-11-03']} defaultRoom={10} onClose={vi.fn()} onDone={vi.fn()} />);
-    await screen.findByRole('option', { name: '主播甲' });
+    await screen.findByRole('option', { name: /^主播甲/ });
     fireEvent.click(screen.getByRole('button', { name: '一键导入上次排场' }));
     fireEvent.change(screen.getByLabelText('排场日期'), { target: { value: '2026-11-03' } });
     resolve(previous);
@@ -82,7 +82,7 @@ describe('排场产品与上次配置', () => {
   });
   it('修改排场带出产品，可更换并持久保存', async () => {
     render(<ScheduleDialog initial={previous} days={['2026-11-01']} onClose={vi.fn()} onDone={vi.fn()} />);
-    await screen.findByRole('option', { name: '主播甲' });
+    await screen.findByRole('option', { name: /^主播甲/ });
     expect(screen.queryByRole('button', { name: '一键导入上次排场' })).toBeNull();
     expect((screen.getByLabelText('场次产品 1') as HTMLInputElement).value).toBe('花育25（大包）');
     fireEvent.click(screen.getByRole('button', { name: '移除场次产品 1' }));
@@ -101,7 +101,7 @@ describe('排场产品与上次配置', () => {
   });
   it('手填多个产品，可加行、删行；保存名称，不请求或伪造编码产品', async () => {
     render(<ScheduleDialog initial={previous} days={['2026-11-01']} onClose={vi.fn()} onDone={vi.fn()} />);
-    await screen.findByRole('option', { name: '主播甲' });
+    await screen.findByRole('option', { name: /^主播甲/ });
     expect(screen.queryByLabelText('搜索产品')).toBeNull();
     fireEvent.change(screen.getByLabelText('场次产品 1'), { target: { value: '花育25 大包' } });
     fireEvent.click(screen.getByRole('button', { name: '添加场次产品' }));
@@ -117,7 +117,7 @@ describe('排场产品与上次配置', () => {
   it('上次排场的手填产品可导入，并按排场带入上播', async () => {
     const manual = { ...previous, products: [{ id: null, code: '', name: '花育25 大包', spec: '' }, { id: null, code: '', name: '甜玉米种子', spec: '' }] };
     l.previousSchedule.mockResolvedValue(manual);
-    open(); await screen.findByRole('option', { name: '主播甲' });
+    open(); await screen.findByRole('option', { name: /^主播甲/ });
     fireEvent.click(screen.getByRole('button', { name: '一键导入上次排场' }));
     await screen.findByText(/已导入 2026/);
     expect((screen.getByLabelText('场次产品 1') as HTMLInputElement).value).toBe('花育25 大包');

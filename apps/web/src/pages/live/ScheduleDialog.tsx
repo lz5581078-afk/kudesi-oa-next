@@ -1,3 +1,4 @@
+import { AnchorMonthSelect } from './AnchorMonthSelect';
 import { ChannelPicker, initialChannels } from './ChannelPicker';
 import { useEffect, useRef, useState } from 'react';
 import { TrialPersonDialog } from './TrialPersonDialog';
@@ -72,7 +73,7 @@ export function ScheduleDialog({ initial, days, defaultRoom, defaultDay,onClose,
           <label className="live-field">开始时间<input aria-label="开始时间" type="time" value={f.startTime} onChange={set('startTime')} /></label>
           <label className="live-field">结束时间<input aria-label="结束时间" type="time" value={f.endTime} onChange={set('endTime')} /></label>
           </div><p className="live-section-help">时间均为北京时间。结束时间早于开始时间表示次日结束，单场最长 16 小时；直播间和主播的时间不能冲突。</p></section>
-          <section className="wide live-schedule-section"><h3><span>02</span> 本场人员</h3><div className="live-fields live-people-fields"><label className="live-field">主播<select aria-label="主播" value={f.anchorId} onChange={set('anchorId')}><option value="">请选择</option>{opts.anchors.map((p) => <option key={p.id} value={p.id}>{p.name}{p.trial?'（试播）':p.partTime?'（兼职）':''}</option>)}</select><button type="button" className="link-button" onClick={()=>setTrial(true)}>＋ 新增试播主播</button></label>
+          <section className="wide live-schedule-section"><h3><span>02</span> 本场人员</h3><div className="live-fields live-people-fields"><label className="live-field">主播<AnchorMonthSelect people={opts.anchors} value={f.anchorId} onChange={set('anchorId')}/><button type="button" className="link-button" onClick={()=>setTrial(true)}>＋ 新增试播主播</button></label>
           <label className="live-field">中控（可选）<select aria-label="中控" value={f.controlId} onChange={set('controlId')}><option value="">无</option>{opts.controls.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
           <label className="live-field">运营（可选）<select aria-label="运营" value={f.operatorId} onChange={set('operatorId')}><option value="">无</option>{opts.operators.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
           </div></section>
