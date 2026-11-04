@@ -50,17 +50,25 @@ describe('核对并验证基础编码', () => {
 });
 
 describe('资料维护 · 商品资料上传', () => {
-  it('必填项没填完不能提交；编码重复是高风险，不让传', async () => {
+  it('未填写完整必填项时显示原提示，不提前发起查重或上传', async () => {
     m.uploadOptions.mockResolvedValue({ categories: ['水果/苹果类'], brands: [] });
     m.uploadLogs.mockResolvedValue({ total: 0, rows: [] });
-    m.uploadCheck.mockResolvedValue({ hasHighRisk: true, hasWarning: false, matches: [{ source: '聚水潭普通商品', field: 'skuId', level: 'high', hit: 'SKU1' }] });
     render(<JstUploadPage />);
-    fireEvent.click(screen.getByRole('button',{name:'上传普通商品资料'}));
-    const submit = await screen.findByRole('button', { name: '查重并加入同步队列' });
-    expect((submit as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/还需填写：商品编码/)).toBeTruthy();
-    fireEvent.change(screen.getByLabelText(/^商品编码（必填）/), { target: { value: 'SKU1' } });
-    fireEvent.click(screen.getByRole('button', { name: '检查是否重复' }));
-    await screen.findByText(/【不能上传】/);
+    fireEvent.click(screen.getByRole('button', { name: '上传普通商品资料' }));
+    fireEvent.click(await screen.findByRole('button', { name: '查重并上传' }));
+    expect(await screen.findByText(/请先填写必填项：商品编码/)).toBeTruthy();
+    expect(m.uploadCheck).not.toHaveBeenCalled();
+    expect(m.upload).not.toHaveBeenCalled();
   });
+});
+
+it('已验证检查资料和只读核对均不展示验证/同步写操作',async()=>{
+ m.baseReport.mockResolvedValue(report({status:'verified'}));
+ const view=render(<VerifyDialog ids={[1]} isAdmin onClose={()=>{}} onDone={()=>{}}/>);
+ await screen.findByRole('dialog',{name:'检查基础编码资料'});
+ expect(screen.queryByLabelText(/我已核对/)).toBeNull();expect(screen.queryByRole('button',{name:/^验证 \d/})).toBeNull();
+ view.unmount();m.baseReport.mockResolvedValue(report({status:'pending'}));
+ render(<VerifyDialog ids={[1]} isAdmin readOnly onClose={()=>{}} onDone={()=>{}}/>);
+ await screen.findByText('SG-PG-HFS-1KG',{selector:'td'});
+ expect(screen.queryByLabelText(/加入聚水潭同步队列/)).toBeNull();expect(m.baseVerify).not.toHaveBeenCalled();
 });

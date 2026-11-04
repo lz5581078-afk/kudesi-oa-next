@@ -4,7 +4,7 @@ import { cellKey, matrixToRules, rulesToMatrix, standardColumns } from './matrix
 describe('价格矩阵', () => {
   it('规则 → 矩阵 → 规则 原样往返（固定价、首重续重、开闭区间、不限上限）', () => {
     const rules = [
-      { province: '广东', shipWeightMin: 0, shipWeightMax: 1, fixedPrice: 300 },
+      { province: '广东', shipWeightMin: 0, shipWeightMax: 1, fixedPrice: 300, note: '广东价格备注' },
       { province: '新疆', shipWeightMin: 0, shipWeightMax: 1, fixedPrice: 800 },
       { province: 'ALL', shipWeightMin: 1, shipWeightMax: null, minExclusive: true, firstWeight: 0 as const, firstPrice: 350, extraPrice: 50 },
     ];

@@ -1,6 +1,9 @@
+import {independentDefinitionFacts} from './base-definition-facts';
+import type {SnapshotReadContext} from './snapshot-read-context';
+import {purchasePriceSnapshot} from './product-purchase-history';
 import * as crypto from 'crypto';
 import { EntityManager } from 'typeorm';
-import { sumUnitCents, multiplyUnitCents } from '@kudesi/shared';
+import { sumUnitCentsProducts, quantizeUnitCents, LOGISTICS_CENT_SCALE, unitYuanText, scaledDecimal,unitCentsTicks } from '@kudesi/shared';
 import { ResourceRecord } from '../entities';
 
 /**
@@ -16,12 +19,14 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : v === undefined
 export const sigOf = (...parts: unknown[]) => crypto.createHash('sha256').update(parts.map((p) => String(p ?? '')).join('|')).digest('hex').slice(0, 24);
 
 /** 带成本/价格的字段（没有 product.cost.view 的人看不到） */
-export const COST_FIELDS = new Set(['totalCost', 'purchasePrice', 'freight', 'handlingFee', 'cost', 'cost_price', 'purchase_price']);
+export const COST_FIELDS = new Set(['totalCost', 'purchasePrice', 'freight', 'handlingFee', 'cost', 'cost_price', 'purchase_price','importLaborAmounts']);
 
 export const FIELD_LABELS: Record<string, string> = {
   code: '编码', styleCode: '款式编码', components: '商品组成', name: '名称', shortName: '简称', spec: '颜色及规格', varietyName: '品种',
   weightG: '重量(克)', totalCost: '总成本', purchasePrice: '采购价', freight: '运费', handlingFee: '装卸费',
   specQty: '规格数量', specUnit: '规格单位', categoryName: '分类', archiveType: '档案类型', bom: '配方构成', brandName: '品牌',
+  importLaborAmounts:'原文件人工成本金额',
+  profileWeightG: '专属重量(克)', profileCategoryId: '专属分类',
 };
 
 export interface ArchiveSnap {
@@ -38,11 +43,12 @@ export interface ArchiveSnap {
   purchasePrice: number | null;
   freight: number | null;
   handlingFee: number | null;
-  specQty: number | null;
+  specQty: number | string | null;
   specUnit: string;
   /** 从谁引用到它：自上而下的档案名 */
   parentPath: string[];
   bom: string;
+  importLaborAmounts?:string;
 }
 
 export interface Issue {
@@ -55,6 +61,7 @@ export interface Issue {
 
 export interface Snapshot {
   profile: Record<string, unknown>;
+  canonical?: Record<string, unknown>;
   archives: ArchiveSnap[];
 }
 
@@ -69,18 +76,23 @@ export async function byField(em: EntityManager, companyId: number, type: string
 const one = (em: EntityManager, companyId: number, type: string, id: unknown) =>
   typeof id === 'number' ? em.findOne(ResourceRecord, { where: { id, companyId, type } }) : Promise.resolve(null);
 
-export async function categoryPath(em: EntityManager, companyId: number, categoryId: unknown): Promise<ResourceRecord[]> {
+export async function categoryPath(em: EntityManager, companyId: number, categoryId: unknown,reader?:SnapshotReadContext): Promise<ResourceRecord[]> {
+  reader?.assertScope(em,companyId);
+  const readOne=(id:unknown)=>reader?reader.one('finance-categories',id):one(em,companyId,'finance-categories',id);
   const chain: ResourceRecord[] = [];
-  let cur = await one(em, companyId, 'finance-categories', categoryId);
+  let cur = await readOne(categoryId);
   for (let i = 0; cur && i < 8; i++) {
     chain.unshift(cur);
-    cur = await one(em, companyId, 'finance-categories', cur.data.parentId);
+    cur = await readOne(cur.data.parentId);
   }
   return chain;
 }
 
 /** 走商品档案和它的配方链，收集快照和问题清单 */
-export async function buildSnapshot(em: EntityManager, companyId: number, bc: ResourceRecord): Promise<{ snapshot: Snapshot; issues: Issue[]; signature: string }> {
+export async function buildSnapshot(em: EntityManager, companyId: number, bc: ResourceRecord,reader?:SnapshotReadContext): Promise<{ snapshot: Snapshot; issues: Issue[]; signature: string }> {
+  reader?.assertScope(em,companyId);
+  const readOne=(type:string,id:unknown)=>reader?reader.one(type,id):one(em,companyId,type,id);
+  const readByField=(type:string,field:string,value:number)=>reader?reader.byField(type,field,value):byField(em,companyId,type,field,value);
   const archives: ArchiveSnap[] = [];
   const issues: Issue[] = [];
   const seen = new Set<number>();
@@ -94,25 +106,26 @@ export async function buildSnapshot(em: EntityManager, companyId: number, bc: Re
     }
     if (seen.has(productId) || path.length > 10) return;
     seen.add(productId);
-    const p = await one(em, companyId, 'finance-products', productId);
-    if (!p) return;
+    const p = await readOne('finance-products', productId);
+    if (!p) {issues.push({archiveKey:'product:'+productId,productId,archiveName:'商品档案',parentPath:path,message:'组成商品档案不存在或不属于当前公司'});return;}
     const d = p.data;
-    const cat = await categoryPath(em, companyId, d.categoryId);
-    const brand = await one(em, companyId, 'finance-brands', d.brandId);
-    const boms = (await byField(em, companyId, 'finance-product-boms', 'productId', productId)).sort((a, b) => a.id - b.id);
+    const cat = await categoryPath(em, companyId, d.categoryId,reader);
+    const brand = await readOne('finance-brands', d.brandId);
+    const boms = (await readByField('finance-product-boms', 'productId', productId)).sort((a, b) => a.id - b.id);
     const a: ArchiveSnap = {
       key: `product:${p.id}`, productId: p.id, name: p.title, code: str(d.code), archiveType: str(d.archiveType),
       categoryId: num(d.categoryId), categoryName: cat.map((c) => c.title).join('/'), brandName: brand?.title ?? '',
       weightG: num(d.weightG), totalCost: num(d.totalCost), purchasePrice: num(d.purchasePrice), freight: num(d.freight), handlingFee: num(d.handlingFee),
-      specQty: num(d.specQty), specUnit: str(d.specUnit), parentPath: path,
-      bom: boms.map((b) => `${b.data.laborId ? `L${b.data.laborId}` : `P${b.data.componentId}`}x${b.data.qty}+${b.data.lossPercent ?? 0}`).join(';'),
+      specQty: typeof d.specQty === 'string' && d.specQty.trim() ? (Number.isFinite(Number(d.specQty)) ? Number(d.specQty) : d.specQty.trim()) : num(d.specQty), specUnit: str(d.specUnit), parentPath: path,
+      ...(boms.some(b=>b.data.importLineKind==='labor')?{importLaborAmounts:JSON.stringify(boms.filter(b=>b.data.importLineKind==='labor').map(b=>[b.id,b.data.importLaborCost]))}:{}),
+      bom: boms.map((b) => `${b.data.importLineKind==='labor' ? `IMPORT-LABOR:${b.data.importLaborName}` : b.data.laborId ? `L${b.data.laborId}` : `P${b.data.componentId}`}x${b.data.qty}+${b.data.lossPercent ?? 0}`).join(';'),
     };
     archives.push(a);
 
-    if (p.status !== 'active') issue(a, '这个档案已经删除');
+    if (p.status !== 'active' || p.archivedAt) issue(a, p.status==='deleted'||p.archivedAt ? '这个档案已经删除' : '这个档案已停用');
     if (!str(d.name).trim()) issue(a, '没有填名称');
     if (cat.length === 0) issue(a, '没有选分类');
-    else if ((await byField(em, companyId, 'finance-categories', 'parentId', cat[cat.length - 1].id)).length > 0) issue(a, '所选分类不是最末级');
+    else if ((await readByField('finance-categories', 'parentId', cat[cat.length - 1].id)).length > 0) issue(a, '所选分类不是最末级');
     if (!((a.weightG ?? 0) > 0)) issue(a, '重量必须大于 0（克）');
     if (a.totalCost === null) issue(a, '没有完整成本（采购价、运费、装卸费）');
     if (['raw', 'shipping_material'].includes(a.archiveType)) {
@@ -128,20 +141,39 @@ export async function buildSnapshot(em: EntityManager, companyId: number, bc: Re
 
   const productId = num(bc.data.productId);
   const composed = bc.data.origin === 'composed';
-  const lines = composed && bc.id ? (await byField(em, companyId, 'finance-base-code-lines', 'baseCodeId', bc.id)).sort((a, b) => a.id - b.id) : [];
+  const lines = composed && bc.id ? (await readByField('finance-base-code-lines', 'baseCodeId', bc.id)).sort((a, b) => a.id - b.id) : [];
   if (composed) {
     // 多构成：每个组成商品档案都按自己的配方链收集快照
     if (lines.length === 0) issues.push({ archiveKey: 'base-code', productId: productId ?? 0, archiveName: str(bc.data.name) || bc.title || '', parentPath: [], message: '尚未添加商品组成' });
     for (const l of lines) if (typeof l.data.productId === 'number') await visit(l.data.productId, [], []);
   } else if (productId !== null) await visit(productId, [], []);
+  const profile = (record: ResourceRecord): Record<string, unknown> => ({
+    code: str(record.data.code), styleCode: str(record.data.styleCode), name: str(record.data.name), shortName: str(record.data.shortName),
+    spec: str(record.data.spec), varietyName: str(record.data.varietyName),
+    ...(record.data.profileWeightOverride !== undefined ? { profileWeightG: record.data.profileWeightOverride } : {}),
+    ...(record.data.profileCategoryOverride !== undefined ? { profileCategoryId: record.data.profileCategoryOverride } : {}),
+  });
+  const real = typeof bc.data.canonicalId === 'number' ? await readOne('finance-base-codes', bc.data.canonicalId) : null;
+  if (typeof bc.data.canonicalId === 'number' && !real) issues.push({ archiveKey: 'canonical', productId: productId ?? 0, archiveName: str(bc.data.name), parentPath: [], message: '真实基础编码不存在' });
+  const external=bc.data.origin==='external_import';
+  const externalProfile=external ? {origin:'external_import',codeDictionaryCategoryId:bc.data.codeDictionaryCategoryId,varietyDictionaryId:bc.data.varietyDictionaryId,weightG:num(bc.data.weightG),cost:num(bc.data.externalCost),purchasePrice:num(bc.data.externalPurchasePrice),specQty:bc.data.codeSpecQty,specUnit:bc.data.codeSpecUnit,baseUnit:bc.data.baseUnit} : {};
+  if(external){
+    const missing=(message:string)=>issues.push({archiveKey:'base-code',productId:0,archiveName:str(bc.data.name)||bc.title,parentPath:[],message});
+    if(!bc.data.codeDictionaryCategoryId)missing('没有选择商品编码分类');
+    if(!(Number(bc.data.weightG)>0))missing('重量必须大于0（克）');
+    if(num(bc.data.externalCost)===null)missing('没有导入成本价');
+    if(!(Number(bc.data.codeSpecQty)>0) || !bc.data.codeSpecUnit)missing('规格数量和规格单位没有填全');
+  }
+  let definition:unknown;
+  if(composed&&bc.data.codeDictionaryCategoryId){try{const facts=await independentDefinitionFacts(em,companyId,bc.data,reader);definition=facts.definition;for(const message of facts.errors)issues.push({archiveKey:'definition',productId:0,archiveName:bc.title,parentPath:[],message});}catch(error){issues.push({archiveKey:'definition',productId:0,archiveName:bc.title,parentPath:[],message:error instanceof Error?error.message:'独立商品定义无效'});}}
   const snapshot: Snapshot = {
     profile: {
-      code: str(bc.data.code), styleCode: str(bc.data.styleCode), name: str(bc.data.name), shortName: str(bc.data.shortName),
-      spec: str(bc.data.spec), varietyName: str(bc.data.varietyName),
-      ...(bc.data.profileWeightOverride !== undefined ? { profileWeightG: bc.data.profileWeightOverride } : {}),
-      ...(bc.data.profileCategoryOverride !== undefined ? { profileCategoryId: bc.data.profileCategoryOverride } : {}),
+      ...profile(bc),
+      ...externalProfile,
+      ...(definition?{definition}:{}),
       ...(composed ? { components: lines.map((l) => `${l.data.productId}x${l.data.qty}:${l.data.role}`).join(';') } : {}),
     },
+    ...(real ? { canonical: profile(real) } : {}),
     archives,
   };
   return { snapshot, issues, signature: sigOf(JSON.stringify(snapshot)) };
@@ -156,12 +188,13 @@ export function diffSnapshots(before: Snapshot, after: Snapshot): Change[] {
     if (JSON.stringify(b ?? null) !== JSON.stringify(a ?? null)) out.push({ source, field, label: FIELD_LABELS[field] ?? field, before: b ?? null, after: a ?? null });
   };
   for (const k of Object.keys({ ...before.profile, ...after.profile })) push('基础编码', k, before.profile[k], after.profile[k]);
+  for (const k of Object.keys({ ...before.canonical, ...after.canonical })) push('真实基础编码', k, before.canonical?.[k], after.canonical?.[k]);
   const was = new Map(before.archives.map((x) => [x.key, x]));
   const now = new Map(after.archives.map((x) => [x.key, x]));
   for (const [key, a] of now) {
     const b = was.get(key);
     if (!b) { out.push({ source: a.name, field: 'archive', label: '新增的下级档案', before: null, after: a.name }); continue; }
-    for (const f of ['code', 'name', 'weightG', 'totalCost', 'purchasePrice', 'freight', 'handlingFee', 'specQty', 'specUnit', 'categoryName', 'brandName', 'bom'] as const) push(a.name, f, b[f], a[f]);
+    for (const f of ['code', 'name', 'weightG', 'totalCost', 'purchasePrice', 'freight', 'handlingFee', 'specQty', 'specUnit', 'categoryName', 'brandName', 'bom','importLaborAmounts'] as const) push(a.name, f, b[f], a[f]);
   }
   for (const [key, b] of was) if (!now.has(key)) out.push({ source: b.name, field: 'archive', label: '去掉的下级档案', before: b.name, after: null });
   return out;
@@ -207,16 +240,25 @@ export interface BaseCodeOutbound {
 }
 
 export async function baseCodeOutbound(em: EntityManager, companyId: number, bc: ResourceRecord): Promise<BaseCodeOutbound> {
-  const composed = bc.data.origin === 'composed';
-  const p = await one(em, companyId, 'finance-products', bc.data.productId);
-  const cat = await categoryPath(em, companyId, composed ? bc.data.codeCategoryId : p?.data.categoryId ?? bc.data.categoryId);
-  const brand = await one(em, companyId, 'finance-brands', composed ? bc.data.codeBrandId : p?.data.brandId);
-  const facts = composed ? await composedFacts(em, companyId, bc.id) : null;
-  const w = composed ? facts!.weightG : num(p?.data.weightG) ?? num(bc.data.weightG);
-  const cost = composed ? facts!.cost : num(p?.data.totalCost) ?? num(bc.data.cost);
-  const buy = composed ? facts!.purchasePrice ?? cost : num(p?.data.purchasePrice) ?? cost;
-  const qty = composed ? num(bc.data.codeSpecQty) : num(p?.data.specQty);
-  const unit = composed ? str(bc.data.codeSpecUnit) : str(p?.data.specUnit);
+  const candidate=bc.data.canonicalId==null?bc:typeof bc.data.canonicalId==='number'?await one(em,companyId,'finance-base-codes',bc.data.canonicalId):null;
+  const real=candidate?.data.canonicalId==null?candidate:null;
+  const composed = real?.data.origin === 'composed';
+  const p = await one(em, companyId, 'finance-products', real?.data.productId);
+  const external=real?.data.origin==='external_import',independent=composed&&real?.data.codeDictionaryCategoryId!=null;
+  const codingPath:ResourceRecord[]=[];
+  if(bc.data.codeDictionaryCategoryId){let cur=await one(em,companyId,'finance-code-dictionaries',bc.data.codeDictionaryCategoryId);const seen=new Set<number>();while(cur && !seen.has(cur.id)){seen.add(cur.id);codingPath.unshift(cur);cur=await one(em,companyId,'finance-code-dictionaries',cur.data.parentId);}}
+  const cat = codingPath.length ? codingPath : await categoryPath(em, companyId, bc.data.profileCategoryOverride ?? (composed ? bc.data.codeCategoryId : p?.data.categoryId ?? bc.data.categoryId));
+  const brand = await one(em, companyId, 'finance-brands', composed || external ? bc.data.codeBrandId : p?.data.brandId);
+  const facts = composed ? await composedFacts(em, companyId, real!.id) : null;
+  const w = real?.data.profileWeightOverride !== undefined ? num(real.data.profileWeightOverride) : composed ? facts!.weightG : num(p?.data.weightG) ?? num(real?.data.weightG);
+  // Source V3 reads the saved real cost_price, whose derived quote column is DECIMAL(18,4).
+  // A current product total is a different fact and must not backfill an unknown saved quote.
+  const storedCost=num(real?.data.cost);
+  const cost=storedCost===null?null:external?storedCost:quantizeUnitCents(storedCost,LOGISTICS_CENT_SCALE,2);
+  const storedBuy=num(real?.data.purchasePrice);
+  const buy=external?num(real?.data.externalPurchasePrice):storedBuy===null?null:quantizeUnitCents(storedBuy,LOGISTICS_CENT_SCALE,2);
+  const qty = composed || external ? num(bc.data.codeSpecQty) : p?.data.specQty == null ? null : str(p.data.specQty).trim() || null;
+  const unit = composed || external ? str(bc.data.codeSpecUnit) : str(p?.data.specUnit);
   return {
     sku_id: str(bc.data.code),
     i_id: str(bc.data.styleCode),
@@ -225,29 +267,36 @@ export async function baseCodeOutbound(em: EntityManager, companyId: number, bc:
     properties_value: str(bc.data.spec) || (qty !== null ? `${qty}${unit}` : ''),
     c_name: cat.map((c) => c.title).join('/'),
     brand: brand?.title ?? '',
-    unit,
+    unit: independent ? str(real?.data.baseUnit)||unit : unit,
     weight: w === null ? null : Math.round(w * 1000) / 1_000_000,
-    cost_price: cost === null ? null : cost / 100,
-    purchase_price: buy === null ? null : buy / 100,
+    cost_price: cost === null ? null : Number(unitYuanText(cost)),
+    purchase_price: buy === null ? null : Number(unitYuanText(buy)),
   };
 }
 
 /** 多构成基础编码的重量、成本、采购价：按构成行 数量×商品档案 汇总；有一个组成缺成本，成本就是空。 */
 export async function composedFacts(em: EntityManager, companyId: number, baseCodeId: number): Promise<{ weightG: number; cost: number | null; purchasePrice: number | null; count: number }> {
-  const lines = baseCodeId ? await byField(em, companyId, 'finance-base-code-lines', 'baseCodeId', baseCodeId) : [];
-  let weight = 0;
-  let cost: number | null = 0;
-  let buy: number | null = 0;
+  const lines = !baseCodeId ? [] : em.queryRunner?.isTransactionActive ? await em.createQueryBuilder(ResourceRecord,'r').where('r.companyId=:company AND r.type=:type',{company:companyId,type:'finance-base-code-lines'}).andWhere("JSON_EXTRACT(r.data, '$.baseCodeId')=:id",{id:baseCodeId}).orderBy('r.id','ASC').setLock('pessimistic_read').getMany() : await byField(em, companyId, 'finance-base-code-lines', 'baseCodeId', baseCodeId);
+  let weight = 0n;
+  const costTerms:Array<{value:number;quantity:number}>=[],buyTerms:Array<{value:number;quantity:number}>=[];
+  let costMissing=false,buyMissing=false;
   for (const l of lines) {
     const p = await one(em, companyId, 'finance-products', l.data.productId);
     const qty = num(l.data.qty) ?? 0;
-    weight += qty * (num(p?.data.weightG) ?? 0);
+    const weightProduct=scaledDecimal(qty,6)*scaledDecimal(num(p?.data.weightG)??0,6);
+    weight += weightProduct;
     const c = num(p?.data.totalCost);
-    cost = cost === null || c === null ? null : sumUnitCents([cost, multiplyUnitCents(c, qty)]);
-    const pp = num(p?.data.purchasePrice) ?? c;
-    buy = buy === null || pp === null ? null : sumUnitCents([buy, multiplyUnitCents(pp, qty)]);
+    if(c===null)costMissing=true;else costTerms.push({value:c,quantity:qty});
+    const pp = p?purchasePriceSnapshot(p)?.purchasePrice??null:null;
+    if(pp===null)buyMissing=true;else buyTerms.push({value:pp,quantity:qty});
   }
-  return { weightG: Math.round(weight * 100) / 100, cost: lines.length ? cost : null, purchasePrice: lines.length ? buy : null, count: lines.length };
+  // Active V3 build totals (product-base-codes-v3.js): sum all products first,
+  // then costPrice/purchasePrice.toFixed(4) in yuan. Inputs retain eight-yuan-digit logistics.
+  const cost=costMissing?null:sumUnitCentsProducts(costTerms,6,LOGISTICS_CENT_SCALE,2);
+  const buy=buyMissing?null:sumUnitCentsProducts(buyTerms,6,LOGISTICS_CENT_SCALE,2);
+  const weightTicks=(weight+500_000n)/1_000_000n;
+  if(weightTicks>BigInt(Number.MAX_SAFE_INTEGER)||[cost,buy].some(value=>value!==null&&unitCentsTicks(value)>BigInt(Number.MAX_SAFE_INTEGER)))throw new Error('组成汇总超出安全精度范围');
+  return { weightG: Number(weightTicks)/1_000_000, cost: lines.length ? cost : null, purchasePrice: lines.length ? buy : null, count: lines.length };
 }
 
 export const OUTBOUND_LABELS: Record<keyof BaseCodeOutbound, string> = {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { createChecker, getResourceDef, multiplyUnitCents, sumUnitCents } from '@kudesi/shared';
+import { createChecker, getResourceDef, LOGISTICS_CENT_SCALE, unitYuanText, multiplyUnitCents } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { api } from '../api/client';
 import { resourceApi, type ResourceDto } from './api';
@@ -8,12 +8,16 @@ import { referenceRecordLabel } from './referenceFormLayout';
 
 const baseRef = (row: ResourceDto): [string, number] | null => typeof row.data.productId === 'number' ? ['finance-products', row.data.productId] : null;
 const bundleRef = (row: ResourceDto): [string, number] | null => typeof row.data.laborId === 'number' ? ['finance-labor-costs', row.data.laborId] : typeof row.data.baseCodeId === 'number' ? ['finance-base-codes', row.data.baseCodeId] : null;
-const times = (value: unknown, qty: unknown) => {
+const times = (value: unknown, qty: unknown, baseReadonly=false) => {
   const price = detailNumber(value), count = detailNumber(qty);
   if (price === null || count === null) return null;
-  try { return multiplyUnitCents(price, count); } catch { return null; }
+  try { return baseReadonly?multiplyUnitCents(price,count,0,6,LOGISTICS_CENT_SCALE,2):multiplyUnitCents(price, count); } catch { return null; }
 };
-const total = (values: Array<number | null>) => values.length && values.every((n): n is number => n !== null) ? sumUnitCents(values) : null;
+const baseCostText=(value:unknown)=>{
+ const cents=detailNumber(value);if(cents===null)return '未维护';
+ try{const [whole,fraction='']=unitYuanText(cents,LOGISTICS_CENT_SCALE).split('.');return `¥${whole}.${fraction.padEnd(3,'0')}`;}catch{return '未维护';}
+};
+const basePurchaseText=(value:unknown)=>detailNumber(value)===null?'未维护':`¥${(Number(value)/100).toFixed(3)}`;
 
 function CodeSummary({ record, source }: { record: ResourceDto; source?: ResourceDto | null }) {
   const bundle = record.type === 'finance-bundles', d = record.data;
@@ -33,8 +37,8 @@ function CodeSummary({ record, source }: { record: ResourceDto; source?: Resourc
 function ComponentTable({ rows, bundle = false, canCost, canPrice }: { rows: DetailRow[]; bundle?: boolean; canCost: boolean; canPrice: boolean }) {
   return <div className="finance-detail-table"><table><thead><tr><th>{bundle ? '商品' : '商品档案'}</th><th>规格</th><th>数量</th>{canCost && <th>成本小计</th>}{(!bundle && canCost || bundle && canPrice) && <th>{bundle ? '销售小计' : '采购小计'}</th>}<th>重量小计</th></tr></thead><tbody>{rows.map(({ row, item }) => {
     const d = item?.data ?? {}, qty = detailNumber(row.data.qty), weight = detailNumber(d.weightG);
-    const cost = times(d[bundle ? 'cost' : 'totalCost'], qty), other = bundle && row.data.role === 'gift' ? qty !== null && qty > 0 ? 0 : null : times(d[bundle ? 'salePrice' : 'purchasePrice'], qty);
-    return <tr key={row.id} className={row.data.role === 'gift' ? 'finance-gift-line' : undefined}><td><strong>{String(d.name || item?.title || row.refLabels.productId || row.refLabels.baseCodeId || '资料暂不可读')}</strong><small>{String(d.code || '无编码')}{!bundle && item ? ` · ${referenceRecordLabel('finance-products', d)}` : ''}</small></td><td>{String(d.spec || d.purchaseSpec || [d.specQty, d.specUnit].filter(v => v != null && v !== '').join('') || row.data.unit || '—')}</td><td>{qty ?? '—'}</td>{canCost && <td>{detailMoney(cost)}</td>}{(!bundle && canCost || bundle && canPrice) && <td>{detailMoney(other)}</td>}<td>{detailWeight(qty === null || weight === null ? null : qty * weight)}</td></tr>;
+    const cost = times(d[bundle ? 'cost' : 'totalCost'], qty,!bundle), other = bundle && row.data.role === 'gift' ? qty !== null && qty > 0 ? 0 : null : times(d[bundle ? 'salePrice' : 'purchasePrice'], qty,!bundle);
+    return <tr key={row.id} className={row.data.role === 'gift' ? 'finance-gift-line' : undefined}><td><strong>{String(d.name || item?.title || row.refLabels.productId || row.refLabels.baseCodeId || '资料暂不可读')}</strong><small>{String(d.code || '无编码')}{!bundle && item ? ` · ${referenceRecordLabel('finance-products', d)}` : ''}</small></td><td>{String(d.spec || d.purchaseSpec || [d.specQty, d.specUnit].filter(v => v != null && v !== '').join('') || row.data.unit || '—')}</td><td>{qty ?? '—'}</td>{canCost && <td>{bundle?detailMoney(cost):baseCostText(cost)}</td>}{(!bundle && canCost || bundle && canPrice) && <td>{bundle?detailMoney(other):basePurchaseText(other)}</td>}<td>{detailWeight(qty === null || weight === null ? null : qty * weight)}</td></tr>;
   })}</tbody></table></div>;
 }
 
@@ -64,12 +68,12 @@ export function FinanceBaseCodeDetail({ record }: { record: ResourceDto }) {
   const { rows, error } = useFinanceDetailRows('finance-base-code-lines', 'baseCodeId', Number(record.data.canonicalId) || record.id, record.updatedAt, baseRef);
   const composed = (canonical ?? record).data.origin === 'composed';
   const components = composed ? rows : source ? [{ row: { ...source, data: { qty: 1 }, refLabels: {} }, item: source }] : null;
-  const cost = components ? total(components.map(r => times(r.item?.data.totalCost, r.row.data.qty))) : null;
-  const purchase = components ? total(components.map(r => times(r.item?.data.purchasePrice, r.row.data.qty))) : null;
-  return <><CodeSummary record={record} source={source} /><FinanceSection title="商品编码专属信息"><FinanceFields def={getResourceDef(record.type)!} record={record} keys={['code','styleCode','name','shortName','spec','categoryId']} /><dl className="finance-view-fields"><div data-field="weightG"><dt>重量（kg）</dt><dd>{detailWeight(record.data.weightG)}</dd></div></dl></FinanceSection><FinanceSection title="商品组成明细" hint={components ? `共 ${components.length} 项` : undefined}>
+  // Active V3 GET returns its stored top-level quote; missing quote facts must not be recomputed from live components.
+  const actual=canonical??record,readonlyDef={...getResourceDef(record.type)!,fields:getResourceDef(record.type)!.fields.map(field=>field.key==='cost'?{...field,scale:LOGISTICS_CENT_SCALE}:field)};
+  return <><CodeSummary record={record} source={source} /><FinanceSection title="商品编码专属信息"><FinanceFields def={readonlyDef} record={record} keys={['code','styleCode','name','shortName','spec','categoryId']} /><dl className="finance-view-fields"><div data-field="weightG"><dt>重量（kg）</dt><dd>{detailWeight(record.data.weightG)}</dd></div></dl></FinanceSection><FinanceSection title="商品组成明细" hint={components ? `共 ${components.length} 项` : undefined}>
     <DetailRowsState error={sourceError || error} loading={!components && !sourceError && !error} empty={components?.length === 0} />
-    {components && components.length > 0 && <><ComponentTable rows={components} canCost={canCost} canPrice={false} /><div className="finance-detail-total"><span>合计</span>{canCost && <><b>成本 {detailMoney(record.data.cost ?? cost)}</b><b>采购 {detailMoney(record.data.purchasePrice ?? purchase)}</b></>}<b>重量 {detailWeight(record.data.weightG)}</b></div></>}
-  </FinanceSection><BaseReferences record={record} /><SupplementalFinanceFields def={getResourceDef(record.type)!} record={record} covered={['name', 'shortName', 'styleCode', 'codeCategoryId', 'codeBrandId', 'varietyName', 'spec', 'code', 'categoryId', 'weightG', 'cost', 'purchasePrice']} /></>;
+    {components && components.length > 0 && <><ComponentTable rows={components} canCost={canCost} canPrice={false} /><div className="finance-detail-total"><span>合计</span>{canCost && <><b>成本 {baseCostText(actual.data.cost)}</b><b>采购 {basePurchaseText(actual.data.purchasePrice)}</b></>}<b>重量 {detailWeight(record.data.weightG)}</b></div></>}
+  </FinanceSection><BaseReferences record={record} /><SupplementalFinanceFields def={readonlyDef} record={record} covered={['name', 'shortName', 'styleCode', 'codeCategoryId', 'codeBrandId', 'varietyName', 'spec', 'code', 'categoryId', 'weightG', 'cost', 'purchasePrice']} /></>;
 }
 
 export function FinanceBundleDetail({ record }: { record: ResourceDto }) {

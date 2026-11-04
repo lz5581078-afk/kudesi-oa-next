@@ -121,6 +121,7 @@ export function parseWeightScope(raw: string): WeightRange | null {
 // ---------- 价格表草稿 ----------
 
 export interface PriceRuleDraft {
+  note?: string;
   province: string;
   shipWeightMin: number;
   shipWeightMax: number | null;
@@ -183,7 +184,7 @@ export function normalizePriceTable(raw: Record<string, unknown>, provinces: rea
       continue;
     }
     const push = (partial: Omit<PriceRuleDraft, 'province' | 'warnings'>, extra: string[] = []) => {
-      for (const province of names) rows.push({ province, ...partial, warnings: [...rowWarnings, ...extra] });
+      for (const province of names) rows.push({ province, ...(text(r.note ?? r.remark) ? { note: text(r.note ?? r.remark).slice(0, 5000) } : {}), ...partial, warnings: [...rowWarnings, ...extra] });
     };
     for (const [keys, start, end, startInc] of STANDARD_COLUMNS) {
       const cents = toCents(keys.map((k) => r[k]).find((v) => v !== undefined && v !== ''));
@@ -197,7 +198,7 @@ export function normalizePriceTable(raw: Record<string, unknown>, provinces: rea
       const range = parseWeightScope(text(x.weightScope ?? x.weight_scope));
       if (!range) { rowWarnings.push(`重量范围「${text(x.weightScope) || '空'}」没读懂，这条规则已跳过`); continue; }
       const formula = (x.ruleType ?? x.price_rule_type) === 'formula' || toNum(x.continuedWeightAmount ?? x.continued_weight_amount) !== null;
-      const common = { shipWeightMin: range.start, shipWeightMax: range.end, minExclusive: !range.startInclusive, maxExclusive: !range.endInclusive };
+      const common = { ...(text(x.note ?? x.remark) ? { note: text(x.note ?? x.remark).slice(0, 5000) } : {}), shipWeightMin: range.start, shipWeightMax: range.end, minExclusive: !range.startInclusive, maxExclusive: !range.endInclusive };
       if (formula) {
         const first = text(x.firstWeightType ?? x.first_weight_type);
         const firstCents = toCents(x.firstWeightAmount ?? x.first_weight_amount ?? x.baseAmount);
@@ -229,6 +230,7 @@ export function normalizePriceTable(raw: Record<string, unknown>, provinces: rea
 // ---------- 加收通知草稿 ----------
 
 export interface SurchargeDraft {
+  note?: string;
   name: string;
   effectiveStart: string;
   effectiveEnd: string;
@@ -243,7 +245,7 @@ export interface SurchargeDraft {
   warnings: string[];
 }
 
-export interface SurchargeNoticeDraft { batchName: string; rows: SurchargeDraft[]; warnings: string[] }
+export interface SurchargeNoticeDraft { batchNote?: string; batchName: string; rows: SurchargeDraft[]; warnings: string[] }
 
 export function normalizeSurchargeNotice(raw: Record<string, unknown>, provinces: readonly string[]): SurchargeNoticeDraft {
   const warnings: string[] = [];
@@ -271,6 +273,7 @@ export function normalizeSurchargeNotice(raw: Record<string, unknown>, provinces
     if (!names.length) rw.push('没有识别出适用省份，按“全部省份”处理，请核对');
     for (const area of targets) {
       rows.push({
+        ...(text(r.note ?? r.remark) ? { note: text(r.note ?? r.remark).slice(0, 5000) } : {}),
         name: (text(r.surchargeName ?? r.surcharge_name ?? r.name) || '临时加收').slice(0, 160),
         effectiveStart: normalizeDate(r.effectiveStart ?? r.effective_start), effectiveEnd: normalizeDate(r.effectiveEnd ?? r.effective_end),
         areaScope: area === 'ALL' ? '全部省份' : area, chargeType: type,
@@ -280,7 +283,7 @@ export function normalizeSurchargeNotice(raw: Record<string, unknown>, provinces
     }
   }
   if (!rows.length) warnings.push('没有识别出加收规则');
-  return { batchName: text(raw.batchName ?? raw.batch_name).slice(0, 160), rows, warnings };
+  return { ...(text(raw.batchNote ?? raw.batchRemark) ? { batchNote: text(raw.batchNote ?? raw.batchRemark).slice(0, 5000) } : {}), batchName: text(raw.batchName ?? raw.batch_name).slice(0, 160), rows, warnings };
 }
 
 // ---------- 读文件 ----------

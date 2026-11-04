@@ -1,25 +1,52 @@
+import {finishSourceProductQuality,sourceProductQualityActive,sourceQualityConfirmedLegacyZero} from './source-product-quality';
+import {beginSourceBomCopy,bindSourceBomCopy,applySourceBomCopy,finishSourceBomCopy} from './source-product-bom-copy';
+import {assertSourceFinishedProductInput,beginSourceFinishedNameForm,endSourceFinishedNameForm,finishSourceFinishedNameForm,sourceFinishedAliasPlans,trustedSourceFinishedAlias,withSourceFinishedAliasWrite} from './source-product-finished-names';
+import {beginSourceUnitForm,finishSourceUnitForm,beginSourceProductForm,sourceProductFormKind,endSourceProductForm} from './source-unit-form';
+import type {ResourceFormInput} from '@kudesi/shared';
+import {sourceBrandCode} from './finance-dictionary-codes';
+import {assertBrandReferenceChanges} from './brand-references';
+import {beforeIndependentBaseCode,beginIndependentBaseForm,finishIndependentBaseForm} from './independent-base-code';
+import {financeCodeInitials,definitionCodeInitials} from './code-initials';
+import {beforeBomVersionSave,captureBomVersion,captureRevisionBom,nextBundleBomVersion,syncBomComponentLinks} from './bundle-bom-versions';
+import {beforeSalesPlatform} from './platform-rules';
+import {codeCategoryNamingRule,codeCategoryRuleSet,namingRuleData} from './bundle-naming-source';
+import {beforeSalesScenario} from './scenario-rules';
+import {assertCodeCategoryName} from './code-category-names';
+import {normalizeBundleComponent} from './bundle-component-validation';
+import {assertCompositionToken,bundleCompositionToken,readRevisionPayload,normalizedRevisionWeight,revisionWeightPatch,writeRevisionPayload} from './bundle-revision-facts';
+import {unfinishedApplications} from './bundle-guards';
+import { codeVerificationState, codeVerificationSignature } from './finance-code-lifecycle';
+import { trustedSourceProductImport, trustedResourceImport } from './resource-import-capability';
+import { beforeCodeDictionary } from './code-dictionary-rules';
+import { beforeExternalBaseCode, validateCodingReferences } from './external-base-code-rules';
+import { purchasePriceSnapshot, beginPurchaseHistoryBatch, rememberPurchaseBaseline, recordPurchaseHistory, flushPurchaseHistory } from './product-purchase-history';
+import { archiveBaseCodeIdentity } from './product-base-code-sync';
+import { capacityQuantityCode, packagingCapacities } from './packaging-capacities';
+import { costCompositionFacts } from './cost-components';
 import { archiveCodePrefix, beforeArchivePrefix } from './archive-prefix';
-import { systemWeightG } from '@kudesi/shared';
+import { getResourceDef, systemWeightG, specificationWeightG, sourcePriceTime } from '@kudesi/shared';
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import * as crypto from 'crypto';
-import { pinyin } from 'pinyin-pro';
-import { EntityManager } from 'typeorm';
-import { multiplyUnitCents, sumUnitCents, ARCHIVE_TYPE_CODE, UNIT_OPTIONS, FEE_BOOKING_NODE_MAP, FINANCE_RESOURCE_DEFS, createChecker, inspectArchiveSimilarity, formatSimilarityMatch, SIMILARITY_FIELDS } from '@kudesi/shared';
+import { EntityManager,IsNull,Not } from 'typeorm';
+import { sumUnitCents, sumUnitCentsProducts, LOGISTICS_CENT_SCALE, type UnitCentsProduct, ARCHIVE_TYPE_CODE, UNIT_OPTIONS, FEE_BOOKING_NODE_MAP, FINANCE_RESOURCE_DEFS, createChecker, inspectArchiveSimilarity, formatSimilarityMatch, SIMILARITY_FIELDS,FEE_SIMILARITY_FIELDS } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { ProductVerificationEvent, ResourceLink, ResourceRecord } from '../entities';
+import { Company, ProductVerificationEvent, ResourceLink, ResourceRecord } from '../entities';
 
 const parseJsonOrNull = (v: unknown): unknown => { if (typeof v !== 'string') return v ?? null; try { return JSON.parse(v); } catch { return null; } };
+function productMoneySum(values:number[]):number{try{return sumUnitCents(values,LOGISTICS_CENT_SCALE);}catch{throw new BadRequestException('商品成本金额超出安全精度范围');}}
+function productMoneyProducts(terms:UnitCentsProduct[],outputScale=LOGISTICS_CENT_SCALE):number{try{return sumUnitCentsProducts(terms,6,LOGISTICS_CENT_SCALE,outputScale);}catch{throw new BadRequestException('商品成本金额超出安全精度范围');}}
+
 import { beforeExclusive } from './product-exclusive';
 import { buildSnapshot, aliasCode, rawNames } from './base-code-support';
-import { NamingInput, NamingItem, NamingRule, composeBundle, parseFieldList, parseOverrides, validateRule } from './bundle-naming';
+import { NamingInput, NamingItem, NamingRule, composeBundle, resolvedMainStyleCode, parseFieldList, parseOverrides, validateRule } from './bundle-naming';
 import type { AfterSaveContext, BeforeSaveContext, RuleHost } from './resource-rules';
 import { beforeUnit } from './unit-rules';
-import { loadUnitLists } from './unit-options';
+import { allowedValues, loadUnitLists, type UnitLists } from './unit-options';
 import { EXPRESS_AFTER_SAVE, EXPRESS_BEFORE_SAVE } from './express-rules';
 import { applyGiftAliases, basicInfoFullName } from './product-extras';
 import { afterBaseCodeLineDelete, afterBaseCodeLineSave, baseCodesUsingProduct, beforeBaseCodeLine, guardReferenced, inspectBaseCodeReferences, isComposed, refreshComposedTotals, seedMainLine } from './base-code-composed';
 import { composedFacts } from './base-code-support';
-import { asAdmin, afterFreightHistoryDelete, beforeFreightHistory, beforeProductCost, recordFreightHistory, refreshLatestCost, syncAutoCost } from './product-costs';
+import { asAdmin, afterFreightHistoryDelete, beforeFreightHistory, beforeProductCost, recordFreightHistory, beginFreightHistoryBatch, flushFreightHistory, refreshLatestCost, syncAutoCost, captureArchiveBomCostSnapshot, refreshDerivedArchiveCostRecords } from './product-costs';
 import { bundleIssues, hasChildren, normalizeLineExtras, pickLine, LINE_EXTRA_KEYS } from './bundle-checks';
 import { recordSourceChange } from './cost-snapshot';
 import { assertLaborUsable, LABOR_AFTER_SAVE, LABOR_BEFORE_SAVE } from './labor-rules';
@@ -38,17 +65,24 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : v === undefined
 const dstr = (n: number) => String(n).replace('.', 'D');
 
 /** 取拼音首字母（大写）；英文数字原样保留，其它符号去掉。 */
-export function initials(text: string): string {
-  const out: string[] = [];
-  for (const ch of text.normalize('NFKC')) {
-    if (/[A-Za-z0-9]/.test(ch)) out.push(ch.toUpperCase());
-    else if (/[一-龥]/.test(ch)) out.push(pinyin(ch, { pattern: 'first', toneType: 'none' }).toUpperCase());
-  }
-  return out.join('');
+export function initials(text: string): string { return financeCodeInitials(text); }
+
+/** 名称规格可为文字；只有纯数字规格才参与数量/重量换算。 */
+function numericSpecification(value: unknown): number | null {
+  if (typeof value === 'number') return num(value);
+  if (typeof value !== 'string' || !/^\d+(?:\.\d+)?$/.test(value.trim())) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** 数字沿用既有编码；文字规格取拼音/字母数字，尺寸连接符不进入编码。 */
+function specificationCode(value: unknown): string {
+  const qty = numericSpecification(value);
+  return qty !== null ? dstr(qty) : initials(str(value));
 }
 
 const rec = (em: EntityManager, companyId: number, type: string, id: unknown) =>
-  typeof id === 'number' ? em.findOne(ResourceRecord, { where: { id, companyId, type } }) : Promise.resolve(null);
+  typeof id === 'number' && Number.isFinite(id) ? em.findOne(ResourceRecord, { where: { id, companyId, type } }) : Promise.resolve(null);
 
 async function categoryChain(em: EntityManager, companyId: number, categoryId: number): Promise<ResourceRecord[]> {
   const chain: ResourceRecord[] = [];
@@ -69,8 +103,8 @@ const FAMILY: Record<string, (data: Data) => string | null> = {
   purchased: (d) => (d.supplyMode === 'supplier_oem' ? 'supplier_oem' : d.supplyMode === 'original_purchase' ? 'original_purchase' : null),
 };
 
-function checkCode(code: string, label: string) {
-  if (code.length > 48) throw new BadRequestException(`${label}不能超过 48 位`);
+function checkCode(code: string, label: string, maxLength = 48) {
+  if (code.length > maxLength) throw new BadRequestException(`${label}不能超过 ${maxLength} 位`);
   if (!CODE_RE.test(code)) throw new BadRequestException(`${label}只能用大写字母、数字、+、*，段与段之间用 - 连接`);
 }
 
@@ -83,9 +117,15 @@ async function brandCode(em: EntityManager, companyId: number, brandId: unknown)
 
 async function beforeCategory(ctx: BeforeSaveContext) {
   const { em, host, user, data, existing } = ctx;
+  if(!trustedResourceImport(em,user,'archive_categories') && data.importArchiveType!==existing?.data.importArchiveType)throw new BadRequestException('不能更换原文件分类归属');
   data.name = str(data.name).normalize('NFKC').trim().replace(/\s+/g, ' ');
   const parent = await rec(em, user.companyId, 'finance-categories', data.parentId);
-  if (parent) data.archiveType = parent.data.archiveType;
+  if (parent) {
+    data.archiveType = parent.data.archiveType;
+    if(parent.data.importArchiveType==='purchased' && parent.data.archiveType==='original_purchase')data.importArchiveType='purchased';
+    else if(existing?.data.importArchiveType==='purchased')throw new BadRequestException('原外购共享分类不能移入其他归属的分类树');
+  }
+  await assertCodeCategoryName(em,user.companyId,'finance-categories',data,existing);
   if (existing && existing.data.archiveType !== data.archiveType && await hasChildren(em,user.companyId,existing.id)) throw new BadRequestException('这个分类下还有下级分类，不能改所属类型');
   const family = (await em.find(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-categories' }, select: ['id', 'title', 'data'] })).filter(r => r.id !== existing?.id && r.data.archiveType === data.archiveType);
   data.code = str(data.code).toUpperCase();
@@ -97,7 +137,7 @@ async function beforeCategory(ctx: BeforeSaveContext) {
     for (let n = 2; used.has(code) && n < 1000; n++) code = `${base.slice(0, 8 - String(n).length)}${n}`;
     data.code = code;
   }
-  if (!/^[A-Z0-9]{1,8}$/.test(str(data.code))) throw new BadRequestException('分类码只能是 1～8 位大写字母或数字');
+  if (!/^[A-Z0-9]{1,8}$/.test(str(data.code)) && !((trustedResourceImport(em,user,'archive_categories') || existing?.data.code===data.code) && /^[A-Z0-9+*]+(-[A-Z0-9+*]+)*$/.test(str(data.code)) && str(data.code).length<=48)) throw new BadRequestException('分类码只能是 1～8 位大写字母或数字');
   const codeClash = family.find(r => str(r.data.code) === data.code);
   if (codeClash) {
     const used = new Set(family.map(r => str(r.data.code)));
@@ -138,7 +178,8 @@ async function rememberZeroReasons(host: RuleHost, em: EntityManager, user: Auth
 async function assertCodeFree(ctx: BeforeSaveContext, type: string, code: string, label: string) {
   const { em, user, existing } = ctx;
   if (em.queryRunner?.data.legacyImport) return;
-  const all = (await em.find(ResourceRecord, { where: { companyId: user.companyId, type }, select: ['id', 'title', 'data'] })).filter((r) => r.id !== existing?.id && str(r.data.code));
+  const records=type==='finance-brands'?await em.createQueryBuilder(ResourceRecord,'r').where('r.companyId=:companyId AND r.type=:type',{companyId:user.companyId,type}).orderBy('r.id','ASC').setLock('pessimistic_read').getMany():await em.find(ResourceRecord,{where:{companyId:user.companyId,type},select:['id','title','data']});
+  const all=records.filter(r=>r.id!==existing?.id&&str(r.data.code));
   const used = new Map(all.map((r) => [str(r.data.code).toUpperCase(), r.title] as const));
   if (!used.has(code)) return;
   let n = 2;
@@ -148,32 +189,56 @@ async function assertCodeFree(ctx: BeforeSaveContext, type: string, code: string
 }
 
 async function beforeBrand(ctx: BeforeSaveContext) {
-  const { data } = ctx;
-  data.code = (str(data.code) || initials(str(data.name))).toUpperCase().slice(0, 8);
-  await assertCodeFree(ctx, 'finance-brands', str(data.code), '品牌码');
+  const { data,em,user,existing } = ctx;
+  await em.findOneOrFail(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}});
+  const name=str(data.name).trim(),nameChanged=!existing||name!==str(existing.data.name);
+  if(nameChanged&&name.length>160)throw new BadRequestException('品牌名称不能超过160个字符');
+  const requested=str(data.code).trim(),sameCode=!!existing&&requested===str(existing.data.code).trim();
+  if(existing&&!requested){if(Object.prototype.hasOwnProperty.call(ctx.input??{},'code'))throw new BadRequestException('已有品牌编码不能为空');await assertBrandReferenceChanges(em,user.companyId,existing,data);return;}
+  const rows=!requested&&!existing?await em.createQueryBuilder(ResourceRecord,'r').where('r.companyId=:companyId AND r.type=:type',{companyId:user.companyId,type:'finance-brands'}).orderBy('r.id','ASC').setLock('pessimistic_read').getMany():[];
+  let code=sameCode?requested:requested.toUpperCase()||sourceBrandCode(name,rows.map(row=>str(row.data.code)));
+  if(code.length>48)throw new BadRequestException('品牌码不能超过48位，请手工填写可用编码');
+  if(!sameCode&&!/^[A-Z0-9+*]+(?:-[A-Z0-9+*]+)*$/.test(code))throw new BadRequestException('品牌编码格式不正确');
+  data.code=code;
+  if(existing)await assertBrandReferenceChanges(em,user.companyId,existing,data);
+  await assertCodeFree(ctx, 'finance-brands', code, '品牌码');
 }
 
 /** 商品编码：类型段 – (采购:YZ|OEM) – 分类链 – 品牌码 – 名称首字母 – 规格 – 形态 */
-async function productCode(ctx: BeforeSaveContext, chain: ResourceRecord[]): Promise<string> {
+async function productCode(ctx: BeforeSaveContext, chain: ResourceRecord[], units?: UnitLists): Promise<string> {
   const { em, user, data } = ctx;
   const type = str(data.archiveType);
   const parts: string[] = [await archiveCodePrefix(em,user.companyId,type)]; // 自定义档案类型用自己的编码
   if (type === 'purchased') parts.push(data.supplyMode === 'supplier_oem' ? 'OEM' : 'YZ');
-  const chainCode = chain.map((c) => str(c.data.code)).join('');
-  if (chainCode) parts.push(chainCode);
-  if (type !== 'raw') {
+  parts.push(...chain.map(c => str(c.data.code)).filter(Boolean));
+  if (!['raw', 'shipping_material'].includes(type)) {
     const b = await brandCode(em, user.companyId, data.brandId);
     if (b) parts.push(b);
   }
   const ini = initials(str(data.name));
-  if (ini) parts.push(ini);
-  const qty = num(data.specQty);
-  if (qty !== null) parts.push(`${dstr(qty)}${str(data.specUnit)}`);
-  if (!['raw', 'self_made', 'purchased', 'package'].includes(type) && data.shape) {
+  parts.push(ini || 'X');
+  const textSpecification = ['shipping_material', 'purchased', 'self_made'].includes(type);
+  const spec = textSpecification ? initials(str(data.specQty)) : specificationCode(data.specQty);
+  const specificationSegment = `${spec}${str(data.specUnit)}`;
+  if (type === 'package' || type === 'oem_package') {
+    const capacityUnits = units ?? await loadUnitLists(em, user.companyId);
+    for (const capacity of packagingCapacities(data.capacities, capacityUnits)) {
+      if (capacity.quantity !== null && capacity.quantity > 0 && capacity.unit) parts.push(`${capacityQuantityCode(capacity.quantityText)}${capacity.code || initials(capacity.unit)}`);
+    }
+  } else if (specificationSegment) parts.push(specificationSegment);
+  if (type === 'self_made') {
+    const packaging = `${initials(str(data.productPackagingSpec))}${str(data.productPackagingUnit)}`;
+    if (packaging) parts.push(packaging);
+  }
+  if (type === 'purchased' || type === 'self_made') {
+    const systemSpec = initials(str(data.purchaseSpec));
+    if (systemSpec) parts.push(systemSpec);
+  }
+  if (!['raw', 'shipping_material', 'self_made', 'purchased', 'package', 'oem_package'].includes(type) && data.shape) {
     const sh = initials(str(data.shape));
     if (sh) parts.push(sh);
   }
-  return parts.join('-');
+  return parts.join('-').slice(0, 160);
 }
 
 
@@ -185,7 +250,14 @@ const UNIT_G: Record<string, number> = { G: 1, KG: 1000, J: 500, T: 1_000_000 };
 const FREIGHT_ZERO = [['purchasePrice', '采购价'], ['freight', '运费'], ['handlingFee', '装卸费']] as const;
 
 async function beforeProduct(ctx: BeforeSaveContext) {
+  assertSourceFinishedProductInput(ctx);
   const { em, host, user, data, existing } = ctx;
+  rememberPurchaseBaseline(em, existing);
+  const workbookImport=trustedResourceImport(em,user,'product_archives');
+  const formKind=sourceProductFormKind(em,user,existing,ctx.copySource,str(data.archiveType));
+  if(formKind.apply){if(formKind.value===undefined)delete data.unitDictionaryKind;else data.unitDictionaryKind=formKind.value;}
+  if(workbookImport)data.unitDictionaryKind=trustedSourceProductImport(em,user)&&data.archiveType==='shipping_material'?'shipping_unit':'archive_unit';
+  else if(data.unitDictionaryKind!==existing?.data.unitDictionaryKind&&!formKind.apply)throw new BadRequestException('不能更换商品单位字典来源');
   const type = str(data.archiveType);
   if (type === 'purchased' && !data.supplyMode) throw new BadRequestException('采购成品请选择采购方式（原装采购 / 供应商 OEM）');
   if (type !== 'purchased') delete data.supplyMode;
@@ -196,16 +268,34 @@ async function beforeProduct(ctx: BeforeSaveContext) {
   if (cat.status !== 'active') throw new BadRequestException('这个分类已停用');
   if ((await host.findWhere(em, user.companyId, 'finance-categories', 'parentId', cat.id)).length > 0) throw new BadRequestException('必须选最末级分类');
   const need = type in FAMILY ? FAMILY[type](data) : (type || null); // 自定义档案类型：分类树的类型就是它自己
-  if (!need || cat.data.archiveType !== need) throw new BadRequestException('分类和档案类型不匹配');
-  // 包装类：规格数量/单位由“容量”第一行决定（如 500ML）；自产成品的规格数量可不填
+  if (!need || cat.data.archiveType !== need && !(type==='purchased' && cat.data.importArchiveType==='purchased')) throw new BadRequestException('分类和档案类型不匹配');
+  let capacityUnits: UnitLists | undefined;
   if (type === 'package' || type === 'oem_package') {
-    const first = str(data.capacities).split(/\r?\n/).map((x) => x.trim()).find(Boolean) ?? '';
-    const m = first.match(/^(\d+(?:\.\d+)?)\s*([A-Za-z]+)$/);
-    if (m && UNIT_OPTIONS.some((u) => u.value === m[2].toUpperCase())) { data.specQty = Number(m[1]); data.specUnit = m[2].toUpperCase(); }
+    capacityUnits = await loadUnitLists(em, user.companyId);
+    if(data.unitDictionaryKind==='archive_unit')capacityUnits=new Map(capacityUnits).set('spec_unit',capacityUnits.get('archive_unit') ?? []);
+    if(workbookImport && !data.capacities && data.specQty && data.specUnit)data.capacities=`${data.specQty}${data.specUnit}`;
+    const capacities = packagingCapacities(data.capacities, capacityUnits);
+    const unitField = FINANCE_RESOURCE_DEFS.find(def => def.key === 'finance-products')!.fields.find(field => field.key === 'specUnit')!;
+    const allowed = new Set(allowedValues(capacityUnits, unitField, data) ?? UNIT_OPTIONS.map(option => option.value));
+    const historical = new Set(packagingCapacities(existing?.data.capacities, capacityUnits).map(capacity => capacity.code || capacity.unit));
+    const changingStatus = !!existing && ctx.status !== existing.status;
+    if (!changingStatus && !capacities.length) throw new BadRequestException('容量第一行请写成“数量+单位”，如 500ML、1KG');
+    for (const [index, capacity] of capacities.entries()) {
+      if (capacity.quantity === null || capacity.quantity <= 0 || !capacity.unit) {
+        if (changingStatus) continue;
+        throw new BadRequestException(index === 0 ? '容量第一行请写成“数量+单位”，如 500ML、1KG' : `第 ${index + 1} 条容量请填写大于0的数量和单位`);
+      }
+      if ((!capacity.code || !allowed.has(capacity.code)) && !historical.has(capacity.code || capacity.unit) && !changingStatus) throw new BadRequestException(`第 ${index + 1} 条容量请选择公司维护的名称单位`);
+    }
+    const first = capacities[0];
+    if (first?.quantity !== null && first?.quantity !== undefined && first.quantity > 0 && first.unit) { data.specQty = first.quantity; data.specUnit = first.code || first.unit; }
   }
-  if ((type === 'package' || type === 'oem_package') && !((num(data.specQty) ?? 0) > 0) && !(ctx.existing && ctx.status !== ctx.existing.status)) throw new BadRequestException('容量第一行请写成“数量+单位”，如 500ML、1KG');
-  if (type === 'self_made' && num(data.specQty) === null) { delete data.specQty; delete data.specUnit; }
-  else if (!((num(data.specQty) ?? 0) > 0)) throw new BadRequestException('规格数量必须大于 0');
+  if (['self_made', 'purchased', 'shipping_material'].includes(type)) {
+    if (!str(data.specQty).trim()) {
+      if (type !== 'self_made') throw new BadRequestException('请填写规格');
+      delete data.specQty;
+    }
+  } else if (!((numericSpecification(data.specQty) ?? 0) > 0)) throw new BadRequestException('规格数量必须大于 0');
 
   const statusChanging = !!existing && existing.status !== ctx.status;
   const canEditCost = createChecker(user.permissions)('product.cost.edit');
@@ -219,7 +309,7 @@ async function beforeProduct(ctx: BeforeSaveContext) {
   // 容量是装多少商品，不能当作包装自重；发货物料也直接称重。
   const directWeight = ['package', 'oem_package', 'shipping_material'].includes(type);
   const manual = directWeight || data.weightManual === true;
-  if (!['raw', 'self_made', 'purchased', 'package', 'oem_package'].includes(type)) delete data.purchaseSpec;
+  if (!['raw', 'self_made', 'purchased', 'package', 'oem_package', 'shipping_material'].includes(type)) delete data.purchaseSpec;
   if (!['package', 'oem_package', 'shipping_material'].includes(type)) delete data.weightUnit;
   if (type !== 'self_made') delete data.productPackagingSpec;
   if (type === 'raw') {
@@ -228,15 +318,21 @@ async function beforeProduct(ctx: BeforeSaveContext) {
     const auto = spec ? systemWeightG(spec) : null;
     if (!manual) {
       if (auto !== null) data.weightG = auto;
-      else if (spec && !statusChanging) throw new BadRequestException('系统规格换算不出重量；请勾选“人工修正重量”并填写重量（克）');
+      else if (spec && !statusChanging && !workbookImport) throw new BadRequestException('系统规格换算不出重量；请勾选“人工修正重量”并填写重量（克）');
     }
+  } else if (type === 'purchased' && !manual) {
+    const weight = specificationWeightG(data.specQty, data.specUnit);
+    if (data.supplyMode === 'supplier_oem') data.weightG = Math.round(((weight ?? 0) + (num(data.oemPackageWeightG) ?? 0)) * 1e6) / 1e6;
+    else if (weight === null) delete data.weightG;
+    else data.weightG = weight;
   } else if (type !== 'self_made' && !manual) {
     const f = UNIT_G[str(data.specUnit)];
-    if (f !== undefined) data.weightG = Math.round((num(data.specQty) ?? 0) * f * 100) / 100;
+    const qty = numericSpecification(data.specQty);
+    if (f !== undefined && qty !== null) data.weightG = Math.round(qty * f * 100) / 100;
   }
   if (type === 'raw' || manual) {
     const w = num(data.weightG);
-    if (!statusChanging && (w === null || w < 0)) throw new BadRequestException('重量要填一个不小于 0 的数字（克）');
+    if (!statusChanging && ((w === null && !workbookImport) || w!==null && w<0)) throw new BadRequestException('重量要填一个不小于 0 的数字（克）');
   }
   if (!manual) delete data.weightManual;
 
@@ -262,13 +358,13 @@ async function beforeProduct(ctx: BeforeSaveContext) {
   if (canEditCost && !statusChanging && type !== 'self_made') {
     for (const k of ['freight', 'handlingFee'] as const) {
       const v = num(data[k]);
-      if (v === null && !em.queryRunner?.data.legacyImport) throw new BadRequestException(`请填写${k === 'freight' ? '运费' : '装卸费'}（没有就填 0 并说明原因）`);
+      if (v === null && !em.queryRunner?.data.legacyImport && !workbookImport && !(existing?.data.unitDictionaryKind==='archive_unit' && existing.data[k]===undefined)) throw new BadRequestException(`请填写${k === 'freight' ? '运费' : '装卸费'}（没有就填 0 并说明原因）`);
       if (v !== null && v < 0) throw new BadRequestException(`${k === 'freight' ? '运费' : '装卸费'}不能是负数`);
     }
   }
   const reasonLines = str(data.zeroValueReason).split(/\r?\n/).map((x) => x.trim());
-  for (const [k, label] of FREIGHT_ZERO) {
-    if (data[k] === 0 && !reasonLines.some((l) => l.startsWith(label) && l.replace(/^[^：:]*[：:]?/, '').trim())) {
+  for (const [k, label] of sourceProductQualityActive(em,user)?[]:FREIGHT_ZERO) {
+    if (data[k] === 0 && !reasonLines.some((l) => l.startsWith(label) && l.replace(/^[^：:]*[：:]?/, '').trim()) && !await sourceQualityConfirmedLegacyZero(em,user,existing,data,k)) {
       throw new BadRequestException(`${label}填了 0，请在“零值说明”里单独写一行说明原因，如“${label}：……”`);
     }
   }
@@ -278,7 +374,7 @@ async function beforeProduct(ctx: BeforeSaveContext) {
   // 成本：采购价 + 运费 + 装卸费，任何一项缺失则总成本为空；自制品和 OEM 由构成汇总，这里不动
   if (type !== 'self_made' && !(type === 'purchased' && data.supplyMode === 'supplier_oem')) {
     const p = num(data.purchasePrice), f = num(data.freight), h = num(data.handlingFee);
-    if (p !== null && f !== null && h !== null) data.totalCost = sumUnitCents([p,f,h]);
+    if (p !== null && f !== null && h !== null) data.totalCost = productMoneySum([p,f,h]);
     else delete data.totalCost;
   }
 
@@ -286,16 +382,16 @@ async function beforeProduct(ctx: BeforeSaveContext) {
   let code = str(data.code).toUpperCase();
   const chain = await categoryChain(em, user.companyId, cat.id);
   if (code) {
-    checkCode(code, '商品编码');
+    checkCode(code, '商品编码', 160);
   } else {
-    const base = await productCode(ctx, chain);
+    const base = await productCode(ctx, chain, capacityUnits);
     code = base;
     for (let i = 2; i < 50; i++) {
       const clash = await host.findByUnique(em, user.companyId, 'finance-products', code.toLowerCase());
       if (!clash || clash.id === existing?.id) break;
-      code = `${base}-${i}`;
+      code = `${base.slice(0, 159 - String(i).length).replace(/-+$/, '')}-${i}`;
     }
-    checkCode(code, '自动生成的商品编码');
+    checkCode(code, '自动生成的商品编码', 160);
   }
   data.code = code;
 
@@ -305,17 +401,28 @@ async function beforeProduct(ctx: BeforeSaveContext) {
     data.materialCode = mc || undefined;
   } else delete data.materialCode;
   await applyGiftAliases(em, user.companyId, data, existing?.id ?? null);
-  data.basicInfoFullName = basicInfoFullName(data, (await rec(em, user.companyId, 'finance-brands', data.brandId))?.title ?? '', await loadUnitLists(em, user.companyId));
+  data.basicInfoFullName = basicInfoFullName(data, (await rec(em, user.companyId, 'finance-brands', data.brandId))?.title ?? '', capacityUnits ?? await loadUnitLists(em, user.companyId));
 }
 
 /**
  * 商品编码实时预览（旧系统填写时实时显示“将生成的编码”）：和保存时用同一套规则，
  * 手填编码只校验格式和是否被占用；不写任何数据。
  */
+/** Import identity reuses the current archive naming rule without allocating duplicate suffixes. */
+export async function importedProductIdentity(em:EntityManager,user:AuthUser,input:Data){
+  const category=await rec(em,user.companyId,'finance-categories',input.categoryId);
+  if(!category)throw new BadRequestException('请选择分类');
+  let units=await loadUnitLists(em,user.companyId);
+  if(['package','oem_package'].includes(String(input.archiveType)) && !input.capacities && input.specQty && input.specUnit)input.capacities=`${input.specQty}${input.specUnit}`;
+  if(input.unitDictionaryKind==='archive_unit')units=new Map(units).set('spec_unit',units.get('archive_unit') ?? []);
+  return productCode({em,user,data:input} as BeforeSaveContext,await categoryChain(em,user.companyId,category.id),units);
+}
+
 export async function previewProductCode(em: EntityManager, host: Pick<RuleHost, 'findByUnique'>, user: AuthUser, input: Data, excludeId: number | null) {
   const data: Data = { ...input };
   const type = str(data.archiveType);
   if (!type) throw new BadRequestException('请先选择档案类型');
+  const units = await loadUnitLists(em, user.companyId);
   const cat = await rec(em, user.companyId, 'finance-categories', data.categoryId);
   const chain = cat ? await categoryChain(em, user.companyId, cat.id) : [];
   const notes: string[] = [];
@@ -323,26 +430,27 @@ export async function previewProductCode(em: EntityManager, host: Pick<RuleHost,
   if (['self_made', 'purchased', 'oem_package'].includes(type) && typeof data.brandId !== 'number') notes.push('请选择品牌，品牌码会参与编码');
   let code = str(data.code).toUpperCase();
   if (code) {
-    checkCode(code, '商品编码');
+    checkCode(code, '商品编码', 160);
     const clash = await host.findByUnique(em, user.companyId, 'finance-products', code.toLowerCase());
     if (clash && clash.id !== excludeId) throw new ConflictException(`商品编码 ${code} 已被“${clash.title}”使用`);
     const brandTitle = (await rec(em, user.companyId, 'finance-brands', data.brandId))?.title ?? '';
-    return { code, manual: true, notes, basicInfoFullName: basicInfoFullName(data, brandTitle, await loadUnitLists(em, user.companyId)) };
+    return { code, manual: true, notes, basicInfoFullName: basicInfoFullName(data, brandTitle, units) };
   }
-  const base = await productCode({ em, user, data } as BeforeSaveContext, chain);
+  const base = await productCode({ em, user, data } as BeforeSaveContext, chain, units);
   code = base;
   for (let i = 2; i < 50; i++) {
     const clash = await host.findByUnique(em, user.companyId, 'finance-products', code.toLowerCase());
     if (!clash || clash.id === excludeId) break;
-    code = `${base}-${i}`;
+    code = `${base.slice(0, 159 - String(i).length).replace(/-+$/, '')}-${i}`;
   }
-  checkCode(code, '自动生成的商品编码');
+  checkCode(code, '自动生成的商品编码', 160);
   const brandTitle = (await rec(em, user.companyId, 'finance-brands', data.brandId))?.title ?? '';
-  const full = basicInfoFullName({ ...data, code }, brandTitle, await loadUnitLists(em, user.companyId));
+  const full = basicInfoFullName({ ...data, code }, brandTitle, units);
   return { code, manual: false, notes, basicInfoFullName: full };
 }
 
 async function beforeBom(ctx: BeforeSaveContext) {
+  const sourceLaborCopy=applySourceBomCopy(ctx);
   const { em, host, user, data } = ctx;
   const parent = await rec(em, user.companyId, 'finance-products', data.productId);
   if (!parent) throw new BadRequestException('成品不存在');
@@ -351,12 +459,19 @@ async function beforeBom(ctx: BeforeSaveContext) {
   }
   if (!((num(data.qty) ?? 0) > 0)) throw new BadRequestException('数量必须大于 0');
   if ((num(data.lossPercent) ?? 0) >= 100) throw new BadRequestException('损耗率必须小于 100%');
+  if(data.importLineKind==='labor'){
+    if(!ctx.existing && !trustedResourceImport(em,user,'product_archives')&&!sourceLaborCopy)throw new BadRequestException('原文件人工明细只能由工作簿导入建立');
+    if(data.componentId!=null || data.laborId!=null || !str(data.importLaborName).trim() || num(data.importLaborCost)===null || Number(data.importLaborCost)<0)throw new BadRequestException('原文件人工名称、非负金额和独立来源必须完整');
+    if(!em.queryRunner?.data.legacyImport)data.archiveBomCostSnapshot=await captureArchiveBomCostSnapshot(host,em,user,data);data.lossPercent=undefined;data.label=`${parent.title} ← 人工：${data.importLaborName}`.slice(0,200);return;
+  }
+  if(data.importLaborCost!==undefined || data.importLaborName!==undefined)throw new BadRequestException('原文件人工明细类型无效');
   const hasLabor = typeof data.laborId === 'number';
   if (hasLabor === (typeof data.componentId === 'number')) throw new BadRequestException('每一行要么选档案组件，要么选人工项目，二选一');
   if (hasLabor) {
     const labor = await rec(em, user.companyId, 'finance-labor-costs', data.laborId);
     if (!labor) throw new BadRequestException('人工项目不存在');
     await assertLaborUsable(em, user.companyId, labor);
+    if(!em.queryRunner?.data.legacyImport)data.archiveBomCostSnapshot=await captureArchiveBomCostSnapshot(host,em,user,data);
     data.lossPercent = undefined;
     data.label = `${parent.title} ← 人工：${labor.title}`.slice(0, 200);
     return;
@@ -376,6 +491,7 @@ async function beforeBom(ctx: BeforeSaveContext) {
       if (typeof b.data.componentId === 'number') stack.push(b.data.componentId);
     }
   }
+  if(!em.queryRunner?.data.legacyImport)data.archiveBomCostSnapshot=await captureArchiveBomCostSnapshot(host,em,user,data);
   data.label = `${parent.title} ← ${comp.title}`.slice(0, 200);
 }
 
@@ -387,9 +503,18 @@ async function beforeSource(ctx: BeforeSaveContext) {
   if (!['raw', 'shipping_material'].includes(str(p.data.archiveType))) throw new BadRequestException('只有原料和发货物料才有供货来源');
   const sup = await rec(em, user.companyId, 'finance-suppliers', data.supplierId);
   if (!sup) throw new BadRequestException('请选择供应商');
-  if (p.data.archiveType === 'raw' && !str(data.originArea).trim()) throw new BadRequestException('原料的供货来源要填产区');
+  if ((p.data.archiveType === 'raw' || p.data.archiveType === 'shipping_material' && !em.queryRunner?.data.legacyImport) && !str(data.originArea).trim()) throw new BadRequestException('供货来源要填产区');
+  if (p.data.archiveType === 'shipping_material' && !ctx.existing && !str(data.systemSpec).trim() && !em.queryRunner?.data.legacyImport) throw new BadRequestException('发货物料的供货来源要选择系统规格');
   if (!str(data.systemSpec).trim() && p.data.purchaseSpec) data.systemSpec = p.data.purchaseSpec;
   if (data.purchasePrice !== undefined && (num(data.purchasePrice) ?? -1) < 0) throw new BadRequestException('采购价不能是负数');
+  if (!ctx.existing || data.purchasePrice !== ctx.existing.data.purchasePrice) {
+    // 整组保存同一毫秒内也保持提交先后；非价格编辑不推进采购价时间。
+    const clock = em.queryRunner?.data;
+    const time = Math.max(Date.now(), Number(clock?.sourcePriceClock ?? 0) + 1);
+    if (clock) clock.sourcePriceClock = time;
+    data.priceUpdatedAt = new Date(time).toISOString();
+  } else data.priceUpdatedAt = ctx.existing.data.priceUpdatedAt || ctx.existing.updatedAt.toISOString();
+  if (p.data.archiveType === 'shipping_material' && !str(data.systemSpec).trim() && !em.queryRunner?.data.legacyImport) throw new BadRequestException('发货物料的供货来源要选择系统规格');
   data.label = `${p.title} ← ${sup.title}${str(data.originArea) ? `（${str(data.originArea)}）` : ''}`.slice(0, 200);
 }
 
@@ -397,12 +522,16 @@ const sig = (...parts: unknown[]) => crypto.createHash('sha256').update(parts.ma
 const today = () => new Date().toISOString().slice(0, 10);
 
 async function beforeBaseCode(ctx: BeforeSaveContext) {
+  if(ctx.input&&Object.prototype.hasOwnProperty.call(ctx.input,'sourceFinishedRowToken'))throw new BadRequestException('不能手工写入成品名稳定标识');
   const { em, host, user, data, existing, status } = ctx;
   if (em.queryRunner?.data.confirmBaseProfile) {
     data.profileManual = true;
     if (num(data.weightG) !== null && Number(data.weightG) >= 0) data.profileWeightOverride = data.weightG;
     if (typeof data.categoryId === 'number') data.profileCategoryOverride = data.categoryId;
   }
+  if(await beforeExternalBaseCode(ctx))return;
+  if(await beforeIndependentBaseCode(ctx))return;
+  await validateCodingReferences(ctx);
   const product = await rec(em, user.companyId, 'finance-products', data.productId);
   if (!product) throw new BadRequestException('请选择来源商品档案');
   if (existing && !em.queryRunner?.data.legacyImport && !em.queryRunner?.data.baseCodeSync) {
@@ -446,15 +575,19 @@ async function beforeBaseCode(ctx: BeforeSaveContext) {
     if (product.data.archiveType !== 'raw') throw new BadRequestException('只有原料档案才有成品名（马甲）');
     if (!existing) {
       const migrating = em.queryRunner?.data.legacyImport === true;
-      const ok = migrating || rawNames(product.data.rawFinishedNames).some((n) => aliasCode(user.companyId, product.id, n) === str(data.code));
+      const sourceIdentity=trustedSourceFinishedAlias(ctx,product.id,real.id);
+      const ok = !!sourceIdentity || migrating || rawNames(product.data.rawFinishedNames).some((n) => aliasCode(user.companyId, product.id, n) === str(data.code));
       if (!ok) throw new BadRequestException('马甲由原料档案的“成品名（马甲）”自动生成，不能手工新增');
-      data.aliasKey = migrating && str(em.queryRunner?.data.legacyAliasName) ? aliasCode(user.companyId, product.id, str(em.queryRunner?.data.legacyAliasName)) : data.code;
+      data.aliasKey = sourceIdentity?.aliasKey ?? (migrating && str(em.queryRunner?.data.legacyAliasName) ? aliasCode(user.companyId, product.id, str(em.queryRunner?.data.legacyAliasName)) : data.code);
+      if(sourceIdentity)data.sourceFinishedRowToken=sourceIdentity.rowToken;
       if(migrating){data.migratedAliasName=str(em.queryRunner?.data.legacyAliasName);data.migratedAliasSpec=JSON.stringify([product.data.specQty,product.data.specUnit]);}
       const n = (await host.findWhere(em, user.companyId, 'finance-base-codes', 'canonicalId', real.id)).length;
       if (n >= 100) throw new BadRequestException('一个真实编码最多 100 个马甲');
     } else {
       data.code = existing.data.code;
-      data.aliasKey = existing.data.aliasKey;
+      const sourceIdentity=trustedSourceFinishedAlias(ctx,product.id,real.id);
+      data.aliasKey = sourceIdentity?.aliasKey ?? existing.data.aliasKey;
+      if(sourceIdentity)data.sourceFinishedRowToken=sourceIdentity.rowToken;else if(existing.data.sourceFinishedRowToken)data.sourceFinishedRowToken=existing.data.sourceFinishedRowToken;
     }
   } else {
     delete data.canonicalId;
@@ -472,7 +605,8 @@ async function beforeBaseCode(ctx: BeforeSaveContext) {
     // 多构成编码用自己选的分类、品牌、规格；其余取来源商品档案
     let srcCategoryId = Number(product.data.categoryId);
     let srcBrandId: unknown = product.data.brandId;
-    let srcQty = num(product.data.specQty);
+    let srcQty = numericSpecification(product.data.specQty);
+    let specCode = specificationCode(product.data.specQty);
     let srcUnit = str(product.data.specUnit);
     if (composed) {
       const cat = await rec(em, user.companyId, 'finance-categories', data.codeCategoryId);
@@ -482,37 +616,45 @@ async function beforeBaseCode(ctx: BeforeSaveContext) {
       srcCategoryId = cat.id; srcBrandId = data.codeBrandId; srcQty = num(data.codeSpecQty); srcUnit = str(data.codeSpecUnit);
       if (srcQty === null || !(srcQty > 0)) throw new BadRequestException('编码规格数量必须大于 0');
       if (!srcUnit) throw new BadRequestException('请选择编码规格单位');
+      specCode = dstr(srcQty);
     }
     const chain = await categoryChain(em, user.companyId, srcCategoryId);
     const brand = !composed && product.data.archiveType === 'raw' ? '' : await brandCode(em, user.companyId, srcBrandId);
     const variety = str(data.varietyName).trim() || str(product.data.name);
     const chainCodes = chain.map((c) => str(c.data.code)).filter((c, i, a) => c && c !== a[i - 1]);
-    const generatedStyle = [...chainCodes, brand, initials(variety)].filter(Boolean).join('-');
+    const explicitVariety = await rec(em,user.companyId,'finance-code-dictionaries',data.varietyDictionaryId);
+    const generatedStyle = [...chainCodes, brand, explicitVariety ? str(explicitVariety.data.code) : initials(variety)].filter(Boolean).join('-');
     const qty = srcQty;
-    const suffix = qty !== null ? `-${dstr(qty)}${srcUnit}` : '';
+    const suffix = specCode ? `-${specCode}${srcUnit}` : '';
     // 旧版把分类码、品牌码、首字母连在一起；碰到旧格式的已存编码，当作自动生成的重新生成
     const legacyStyle = `${chain.map((c) => str(c.data.code)).join('')}${brand}${initials(composed ? variety : str(product.data.name))}`;
     const legacyCode = legacyStyle + suffix;
-    const reasoned = !!str(data.codeChangeReason).trim();
-    const manualStyle = str(data.styleCode).toUpperCase();
-    const keepStyle = !!manualStyle && manualStyle !== generatedStyle && manualStyle !== legacyStyle && (reasoned || existing?.data.styleCode === manualStyle);
-    if (manualStyle && manualStyle !== generatedStyle && manualStyle !== legacyStyle && !keepStyle) throw new BadRequestException('手改款式编码必须写明原因');
-    const style = keepStyle ? manualStyle : generatedStyle;
-    if (keepStyle) checkCode(style, '款式编码');
-    data.styleCode = style;
-    const generated = style + suffix;
-    const manual = str(data.code).toUpperCase();
-    if (manual && manual !== generated && manual !== legacyCode) {
-      checkCode(manual, '基础编码');
-      if (!reasoned && !(existing && existing.data.code === manual)) throw new BadRequestException('手改编码必须写明原因');
-      data.code = manual;
+    const archiveIdentity = !composed && data.origin === 'archive_sync' && em.queryRunner?.data.baseCodeSync === true
+      ? archiveBaseCodeIdentity(product.data.code) : null;
+    if (archiveIdentity) {
+      Object.assign(data, archiveIdentity);
     } else {
-      checkCode(generated, '基础编码');
-      data.code = generated;
-      if (!keepStyle) delete data.codeChangeReason;
+      const reasoned = !!str(data.codeChangeReason).trim();
+      const manualStyle = str(data.styleCode).toUpperCase();
+      const keepStyle = !!manualStyle && manualStyle !== generatedStyle && manualStyle !== legacyStyle && (reasoned || existing?.data.styleCode === manualStyle);
+      if (manualStyle && manualStyle !== generatedStyle && manualStyle !== legacyStyle && !keepStyle) throw new BadRequestException('手改款式编码必须写明原因');
+      const style = keepStyle ? manualStyle : generatedStyle;
+      if (keepStyle) checkCode(style, '款式编码');
+      data.styleCode = style;
+      const generated = style + suffix;
+      const manual = str(data.code).toUpperCase();
+      if (manual && manual !== generated && manual !== legacyCode) {
+        checkCode(manual, '基础编码');
+        if (!reasoned && !(existing && existing.data.code === manual)) throw new BadRequestException('手改编码必须写明原因');
+        data.code = manual;
+      } else {
+        checkCode(generated, '基础编码');
+        data.code = generated;
+        if (!keepStyle) delete data.codeChangeReason;
+      }
     }
     data.varietyName = str(data.varietyName).trim() || undefined;
-    if (!str(data.spec).trim() && qty !== null) data.spec = `${dstr(qty).replace('D', '.')}${srcUnit}`;
+    if (!str(data.spec).trim() && specCode) data.spec = `${composed ? str(qty) : str(product.data.specQty)}${srcUnit}`;
   }
 
   // 名称、简称、颜色及规格、编码被人手改过：之后商品档案变化不再覆盖它们，也不再算可被取代的占位（旧系统 profile_manual_override）
@@ -521,13 +663,18 @@ async function beforeBaseCode(ctx: BeforeSaveContext) {
   // 多构成：重量、成本按构成行汇总；其余取来源商品档案
   const facts = composed && existing ? await composedFacts(em, user.companyId, existing.id) : null;
   const srcWeight = data.profileWeightOverride !== undefined ? data.profileWeightOverride : composed ? (facts && facts.count ? facts.weightG : undefined) : product.data.weightG;
-  const srcCost = composed ? facts?.cost ?? undefined : product.data.totalCost;
+  const rawSrcCost = composed ? facts?.cost ?? undefined : product.data.totalCost;
+  // 真24 linkage 将档案八位总额写入 base.cost_price DECIMAL(18,4)。
+  // JSON 镜像显式执行同一报价终点；产品费用和产品总额自身仍保留八位。
+  const srcCost = typeof rawSrcCost==='number' ? productMoneyProducts([{value:rawSrcCost,quantity:1}],2) : rawSrcCost;
+  const rawSrcPurchase = composed ? facts?.purchasePrice : purchasePriceSnapshot(product)?.purchasePrice;
+  const srcPurchase = typeof rawSrcPurchase==='number' ? productMoneyProducts([{value:rawSrcPurchase,quantity:1}],2) : undefined;
   if (status !== 'verified' || existing?.status !== 'verified') {
     data.categoryId = data.profileCategoryOverride ?? (composed ? data.codeCategoryId : product.data.categoryId);
     data.weightG = srcWeight;
     if (srcCost !== undefined) data.cost = srcCost;
     else delete data.cost;
-    if (composed && facts?.purchasePrice != null) data.purchasePrice = facts.purchasePrice;
+    if (srcPurchase !== undefined) data.purchasePrice = srcPurchase;
     else delete data.purchasePrice;
   }
   if (status === 'verified' && existing?.status !== 'verified') {
@@ -545,6 +692,7 @@ async function beforeBaseCode(ctx: BeforeSaveContext) {
     data.categoryId = data.profileCategoryOverride ?? (composed ? data.codeCategoryId : product.data.categoryId);
     data.weightG = srcWeight;
     data.cost = srcCost;
+    if(srcPurchase !== undefined)data.purchasePrice=srcPurchase;else delete data.purchasePrice;
   }
   if (status !== 'verified') {
     delete data.signature;
@@ -556,6 +704,8 @@ async function beforeBaseCode(ctx: BeforeSaveContext) {
 
 async function beforeBundle(ctx: BeforeSaveContext) {
   const { em, host, user, data, existing, status } = ctx;
+  await validateCodingReferences(ctx);
+  if(status==='verified'&&existing&&existing.status!=='verified'&&typeof existing.data.pendingRevisionId==='number'){const revision=await rec(em,user.companyId,'finance-bundle-revisions',existing.data.pendingRevisionId);if(revision?.status==='pending')Object.assign(data,revisionWeightPatch(readRevisionPayload(revision.data.payload),revision.data.reason));}
   const platform = await rec(em, user.companyId, 'finance-platforms', data.platformId);
   const scenario = await rec(em, user.companyId, 'finance-scenarios', data.scenarioId);
   if (!platform || !scenario) throw new BadRequestException('请选择销售平台和销售场景');
@@ -583,16 +733,17 @@ async function beforeBundle(ctx: BeforeSaveContext) {
   if (platform.status !== 'active' && !(existing && existing.data.platformId === platform.id)) throw new BadRequestException('销售平台已停用');
   const manuals = ['manualCode', 'manualStyleCode', 'manualName', 'manualShortName', 'manualPropertiesValue'].filter((k) => str(data[k]).trim());
   for (const k of ['manualCode', 'manualStyleCode', 'manualName', 'manualShortName', 'manualPropertiesValue']) if (!str(data[k]).trim()) delete data[k];
-  if (!existing) data.recordOrigin = str(data.recordOrigin) || (em.queryRunner?.data.legacyImport ? '历史导入' : '手工新增');
+  if (!existing) data.recordOrigin = trustedResourceImport(em,user,'bundle_codes') ? 'external_import' : str(data.recordOrigin) || (em.queryRunner?.data.legacyImport ? '历史导入' : '手工新增');
   if (manuals.length && !str(data.manualReason).trim()) throw new BadRequestException('手改编码、款式编码、名称、简称或规格值必须写明原因');
   if (!manuals.length) delete data.manualReason;
   if (str(data.manualCode)) {
-    data.manualCode = str(data.manualCode).trim().toUpperCase();
-    checkCode(str(data.manualCode), '手改组合编码');
+    data.manualCode = data.recordOrigin==='external_import' ? str(data.manualCode).trim() : str(data.manualCode).trim().toUpperCase();
+    if(trustedResourceImport(em,user,'bundle_codes') || existing?.data.recordOrigin==='external_import'){if(!/^[A-Za-z0-9+*_]+(-[A-Za-z0-9+*_]+)*$/.test(str(data.manualCode)) || str(data.manualCode).length>48)throw new BadRequestException('外部组合编码格式无效或超过48字符');}
+    else checkCode(str(data.manualCode), '手改组合编码');
     if (str(data.manualCode).length > 120) throw new BadRequestException('组合编码不能超过 120 位');
   }
 
-  if (em.queryRunner?.data.legacyImport) {
+  if (em.queryRunner?.data.legacyImport || trustedResourceImport(em,user,'bundle_codes')) {
     for (const [manual, computed] of [['manualCode','code'],['manualName','name'],['manualStyleCode','styleCode'],['manualShortName','shortName'],['manualPropertiesValue','propertiesValue']]) {
       if (str(data[manual])) data[computed] = data[manual];
     }
@@ -602,17 +753,21 @@ async function beforeBundle(ctx: BeforeSaveContext) {
     // 有待发布的构成修订：按修订后的构成验证，验证通过后随之发布
     const revId = num(existing.data.pendingRevisionId);
     const revision = revId ? await rec(em, user.companyId, 'finance-bundle-revisions', revId) : null;
-    const currentLines = (await host.findWhere(em, user.companyId, 'finance-bundle-lines', 'bundleId', existing.id)).map((l) => l.data);
-    if (revision && revision.status === 'pending' && revision.data.sourceToken !== sig(...currentLines.map(lineKey).sort())) {
+    const currentRows=await host.findWhere(em,user.companyId,'finance-bundle-lines','bundleId',existing.id);
+    const currentLines=currentRows.map(row=>row.data);
+    const parsed=revision?.status==='pending'?readRevisionPayload(revision.data.payload):null;
+    if (revision && revision.status === 'pending' && revision.data.sourceToken !== (parsed?.legacy?sig(...currentLines.map(lineKey).sort()):bundleCompositionToken(existing,currentRows))) {
       throw new BadRequestException('提交修订之后，组合的构成又被改过了，请取消这份修订后重新提交');
     }
-    const lines: Data[] = revision && revision.status === 'pending' ? (JSON.parse(str(revision.data.payload)) as Data[]) : currentLines;
+    const lines:Data[]=parsed?parsed.lines:currentLines;
+    if(parsed){const [{n}]=await em.query("SELECT COUNT(*) n FROM outbox_jobs WHERE company_id=? AND resource_type='finance-bundles' AND resource_id=? AND status IN ('pending','sending')",[user.companyId,existing.id]);if(Number(n))throw new ConflictException('这个组合还有没发送完的聚水潭同步任务，请等它发完再发布构成');const app=await unfinishedApplications(em,user.companyId,existing,currentRows);if(app)throw new ConflictException('有还没办完的 SKU 批量申请用到了这个组合，请先完成或撤销');for(const line of lines)await normalizeBundleComponent(em,host,user,line);}
     const merged = { ...existing.data, ...data };
     const issues = await bundleIssues(em, user.companyId, merged, lines, platform.status);
     if (issues.length && !em.queryRunner?.data.legacyImport) throw new BadRequestException(`验证前请先处理 ${issues.length} 个问题：${issues.slice(0, 4).join('；')}${issues.length > 4 ? ' 等' : ''}`);
     const parts: string[] = [];
     for (const l of lines) {
       if (l.role === 'labor') { parts.push(`L${l.laborId}:${l.qty}`); continue; }
+      if(l.productId!=null){const product=await rec(em,user.companyId,'finance-products',l.productId);if(!product || product.status!=='active')throw new BadRequestException('档案组件已删除或停用');parts.push(`P${product.id}:${l.qty}:${product.data.totalCost}:${product.data.weightG}:${str(l.unit)}:${l.lossRate ?? 0}`);continue;}
       const bc = await rec(em, user.companyId, 'finance-base-codes', l.baseCodeId);
       if (!bc || bc.status !== 'verified') throw new BadRequestException(`构成里的基础编码「${bc?.title ?? '已删除'}」还没验证`);
       parts.push(`${l.role}:${bc.id}:${bc.data.signature}:${l.qty}:${str(l.unit)}:${l.includeInJst === true ? 1 : 0}:${l.lossRate ?? 0}:${str(l.costTreatment)}`);
@@ -630,27 +785,31 @@ async function beforeBundle(ctx: BeforeSaveContext) {
 
 /** 组合验证时的资料快照：编码资料 + 每一行构成（基础编码、数量、重量、成本）。二次验证按它对比。 */
 export async function bundleSnapshotJson(em: EntityManager, companyId: number, bundle: Data, lines: Data[]): Promise<string> {
+  const breakdown = await costCompositionFacts(em, companyId, bundle, lines);
   const out: Data[] = [];
-  for (const l of lines) {
+  for (const [index, l] of lines.entries()) {
     const extras = Object.fromEntries(LINE_EXTRA_KEYS.filter(k => l[k] !== undefined).map(k => [k, l[k]]));
     if (l.role === 'labor') {
       const labor = await rec(em, companyId, 'finance-labor-costs', l.laborId);
       out.push({ role: 'labor', ref: `L${l.laborId}`, qty: l.qty, cost: labor?.data.unitPrice ?? null, ...extras }); continue;
     }
-    const bc = await rec(em, companyId, 'finance-base-codes', l.baseCodeId);
-    out.push({ role: l.role, ref: str(bc?.data.code), qty: l.qty, weightG: bc?.data.weightG ?? null, cost: bc?.data.cost ?? null, signature: str(bc?.data.signature), ...extras });
+    const bc = await rec(em, companyId, l.productId!=null?'finance-products':'finance-base-codes', l.productId ?? l.baseCodeId);
+    const facts = breakdown.lines[index];
+    out.push({ role: l.role, ref: str(bc?.data.code), qty: l.qty, weightG: facts?.unitWeightG ?? null, cost: facts?.unitCostCents ?? null, signature: str(bc?.data.signature), ...extras });
   }
   out.sort((a, b) => `${a.role}${a.ref}`.localeCompare(`${b.role}${b.ref}`));
-  return JSON.stringify({ profile: { code: str(bundle.code), name: str(bundle.name), styleCode: str(bundle.styleCode), shortName: str(bundle.shortName), ...Object.fromEntries(['weightMode', 'manualWeightG', 'propertiesValue', 'baseUnit', 'bundleCategoryId', 'brandId', 'varietyName', 'configNo', 'bomVersion', 'bomEffectiveFrom', 'bomEffectiveTo'].filter(k => bundle[k] !== undefined).map(k => [k, bundle[k]])) }, lines: out });
+  return JSON.stringify({ breakdown, profile: { code: str(bundle.code), name: str(bundle.name), styleCode: str(bundle.styleCode), shortName: str(bundle.shortName), ...Object.fromEntries(['weightMode', 'manualWeightG', 'propertiesValue', 'baseUnit', 'bundleCategoryId','codeDictionaryCategoryId', 'brandId', 'varietyName', 'configNo', 'bomVersion', 'bomEffectiveFrom', 'bomEffectiveTo'].filter(k => bundle[k] !== undefined).map(k => [k, bundle[k]])) }, lines: out });
 }
 
-const lineKey = (l: Data) => `${l.role}:${l.role === 'labor' ? `L${l.laborId}` : l.baseCodeId}:${l.qty}`;
+const lineKey = (l: Data) => `${l.role}:${l.role === 'labor' ? `L${l.laborId}` : typeof l.productId==='number' ? `P${l.productId}` : l.baseCodeId}:${l.qty}`;
 
 async function beforeNamingRule({ em, user, data }: BeforeSaveContext) {
   if (!user.permissions.isCompanyAdmin) throw new BadRequestException('只有公司管理员能改命名规则');
-  const cat = await rec(em, user.companyId, 'finance-categories', data.categoryId);
-  if (!cat) throw new BadRequestException('请选择适用分类');
-  data.scopeKey = `cat:${cat.id}`;
+  if(data.categoryId!=null&&data.codeDictionaryCategoryId!=null)throw new BadRequestException('命名规则只能指定一种来源分类');
+  const independent=data.codeDictionaryCategoryId!=null;
+  const cat=await rec(em,user.companyId,independent?'finance-code-dictionaries':'finance-categories',independent?data.codeDictionaryCategoryId:data.categoryId);
+  if(!cat||independent&&(cat.data.kind!=='product_category'||cat.status!=='active'||cat.archivedAt))throw new BadRequestException('请选择同公司有效的来源分类');
+  data.scopeKey=(independent?'code-cat:':'cat:')+cat.id;
   data.label = `${cat.title} 命名规则`.slice(0, 200);
   data.prefix = str(data.prefix).trim().toUpperCase();
   if (data.stylePrefix) data.stylePrefix = str(data.stylePrefix).trim().toUpperCase();
@@ -661,65 +820,52 @@ async function beforeNamingRule({ em, user, data }: BeforeSaveContext) {
     codeOverrides: str(data.codeOverrides), nameOverrides: str(data.nameOverrides),
   });
   if (err) throw new BadRequestException(err);
-  if (parseFieldList(str(data.codeFields)).includes('custom') && !/^[A-Z0-9]{1,12}$/.test(str(data.customCode).toUpperCase())) throw new BadRequestException('编码选了“自定义”，请填 1～12 位大写字母或数字的自定义编码段');
+  if (parseFieldList(str(data.codeFields)).includes('custom') && !/^[A-Z0-9-]{1,20}$/.test(str(data.customCode).toUpperCase())) throw new BadRequestException('编码选了“自定义”，请填 1～20 位大写字母、数字或连字符的自定义编码段');
   if (str(data.customCode)) data.customCode = str(data.customCode).toUpperCase();
 }
 
 /** 组合构成修订：只能改主品等，赠品必须原样不变；一个组合同时只有一份待发布的修订，随组合验证发布。 */
 async function beforeBundleRevision({ em, host, user, data, existing, status }: BeforeSaveContext) {
-  const bundle = await rec(em, user.companyId, 'finance-bundles', data.bundleId);
-  if (!bundle) throw new BadRequestException('组合不存在');
-  if (status === 'published' && existing?.status !== 'published') throw new BadRequestException('构成修订只能随组合验证发布，不能手工改成已发布');
-  if (existing && existing.status !== 'pending') throw new BadRequestException('只有待发布的修订能修改或取消');
-  if (status === 'cancelled') return;
-  if (bundle.status === 'archived') throw new BadRequestException('组合已失效归档，不能再改构成');
-  const reason = str(data.reason).trim();
-  if (reason.length < 2 || reason.length > 500) throw new BadRequestException('请写明修订原因（2～500 字）');
-  data.reason = reason;
-  let lines: Data[];
-  try { lines = JSON.parse(str(data.payload)) as Data[]; } catch { throw new BadRequestException('新构成的格式不对'); }
-  if (!Array.isArray(lines) || lines.length === 0 || lines.length > 50) throw new BadRequestException('新构成要有 1～50 行');
-  const norm: Data[] = [];
-  for (const l of lines) {
-    const role = str(l.role);
-    if (!(num(l.qty) !== null && (num(l.qty) as number) > 0)) throw new BadRequestException('数量必须大于 0');
-    if ((role === 'main' || role === 'gift') && !Number.isInteger(l.qty)) throw new BadRequestException('主品和赠品的数量必须是整数');
-    if (role === 'labor') {
-      if (!(await rec(em, user.companyId, 'finance-labor-costs', l.laborId))) throw new BadRequestException('请选择人工项目');
-      const row: Data = { role, laborId: l.laborId, qty: l.qty };
-      normalizeLineExtras(row, null, null);
-      norm.push(pickLine({ ...l, ...row }));
-    } else {
-      const bc = await rec(em, user.companyId, 'finance-base-codes', l.baseCodeId);
-      if (!bc) throw new BadRequestException('请选择基础编码');
-      if (bc.status !== 'verified') throw new BadRequestException(`基础编码「${bc.title}」还没验证，验证通过后才能加入组合`);
-      const row: Data = { ...l, role, baseCodeId: bc.id, qty: l.qty };
-      const real = typeof bc.data.canonicalId === 'number' ? (await rec(em, user.companyId, 'finance-base-codes', bc.data.canonicalId)) ?? bc : bc;
-      normalizeLineExtras(row, bc, await rec(em, user.companyId, 'finance-products', real.data.productId));
-      norm.push(pickLine(row));
-    }
-  }
-  if (!norm.some((l) => l.role === 'main')) throw new BadRequestException('至少要有一个主品');
-  const current = (await host.findWhere(em, user.companyId, 'finance-bundle-lines', 'bundleId', bundle.id)).map((l) => l.data);
-  const gifts = (xs: Data[]) => xs.filter((l) => l.role === 'gift').map((l) => `${lineKey(l)}:${str(l.unit)}:${l.includeInJst === false ? 0 : 1}`).sort().join('|');
-  if (gifts(current) !== gifts(norm)) throw new BadRequestException('修订不能改赠品（商品、数量、单位及上传设置必须和现在完全一样）；要换赠品，请新建一个组合');
-  const fp = (xs: Data[]) => JSON.stringify(xs.map((l) => { const { sortOrder: _s, ...r } = pickLine(l) as Data; return JSON.stringify(Object.entries(r).sort()); }).sort());
-  if (fp(current) === fp(norm)) throw new BadRequestException('组成没有变化，无需创建新版本');
-  const other = (await host.findWhere(em, user.companyId, 'finance-bundle-revisions', 'bundleId', bundle.id)).find((r) => r.status === 'pending' && r.id !== existing?.id);
-  if (other) throw new BadRequestException('这个组合已经有一份待发布的修订，请先取消它');
-  data.payload = JSON.stringify(norm);
-  data.sourceToken = sig(...current.map(lineKey).sort());
-  if (!existing) data.createdAtKey = new Date().toISOString();
-  data.label = `${bundle.title} 构成修订`.slice(0, 200);
+  await em.findOneOrFail(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}});
+  const bundle=typeof data.bundleId==='number'?await em.findOne(ResourceRecord,{where:{id:data.bundleId,companyId:user.companyId,type:'finance-bundles'},lock:{mode:'pessimistic_write'}}):null;
+  if(!bundle)throw new BadRequestException('组合不存在');
+  if(status==='published'&&existing?.status!=='published')throw new BadRequestException('构成修订只能随组合验证发布，不能手工改成已发布');
+  if(existing&&existing.status!=='pending')throw new BadRequestException('只有待发布的修订能修改或取消');
+  if(status==='cancelled')return;
+  if(bundle.status==='archived'||bundle.archivedAt)throw new BadRequestException('组合已失效归档，不能再改构成');
+  const reason=str(data.reason).trim();if(reason.length<2||reason.length>500)throw new BadRequestException('请写明修订原因（2～500 字）');data.reason=reason;
+  const payload=readRevisionPayload(data.payload);
+  if(payload.legacy)throw new BadRequestException('请重新打开组成编辑器，取得完整来源令牌后提交');
+  const currentRows=await host.findWhere(em,user.companyId,'finance-bundle-lines','bundleId',bundle.id);
+  assertCompositionToken(payload.sourceToken,bundle,currentRows);
+  const lines=payload.lines;
+  if(!lines.length||lines.filter(line=>line.role!=='labor').length>200||lines.filter(line=>line.role==='labor').length>100)throw new BadRequestException('材料组成应为1至200项，人工不能超过100项');
+  const other=(await host.findWhere(em,user.companyId,'finance-bundle-revisions','bundleId',bundle.id)).find(row=>row.status==='pending'&&row.id!==existing?.id);
+  if(other)throw new BadRequestException('这个组合已经有一份待发布的修订，请先取消它');
+  const [{n}]=await em.query("SELECT COUNT(*) n FROM outbox_jobs WHERE company_id=? AND resource_type='finance-bundles' AND resource_id=? AND status IN ('pending','sending')",[user.companyId,bundle.id]);
+  if(Number(n))throw new ConflictException('这个组合还有没发送完的聚水潭同步任务，请等它发完再改构成');
+  const app=await unfinishedApplications(em,user.companyId,bundle,currentRows);if(app)throw new ConflictException(`有还没办完的 SKU 批量申请（#${app.runId}）用到了这个组合，请等申请办完或撤销后再改构成`);
+  const norm:Data[]=[],seen=new Set<string>();
+  for(const input of lines){const row=await normalizeBundleComponent(em,host,user,input);const key=`${row.role}:${row.productId?`P${row.productId}`:row.laborId?`L${row.laborId}`:`B${row.baseCodeId}`}:${row.unit||''}`;if(seen.has(key))throw new BadRequestException('组件、角色和单位重复，请合并');seen.add(key);norm.push(row);}
+  if(!norm.some(line=>line.role==='main'))throw new BadRequestException('至少要有一个主品');
+  const current=currentRows.map(row=>row.data),gifts=(rows:Data[])=>rows.filter(line=>line.role==='gift').map(line=>`${lineKey(line)}:${str(line.unit)}:${line.includeInJst===false?0:1}`).sort().join('|');
+  if(gifts(current)!==gifts(norm))throw new BadRequestException('修订不能改赠品（商品、数量、单位及上传设置必须和现在完全一样）；要换赠品，请新建一个组合');
+  const weight=payload.weight?await normalizedRevisionWeight(em,user,bundle,norm,payload.weight):undefined;
+  const fp=(rows:Data[])=>JSON.stringify(rows.map(line=>{const {sortOrder:_s,...rest}=pickLine(line);return JSON.stringify(Object.entries(rest).sort());}).sort());
+  const oldWeight=await costCompositionFacts(em,user.companyId,bundle.data,current);
+  if(fp(current)===fp(norm)&&(!weight||weight.mode===str(bundle.data.weightMode||'auto')&&weight.grams===oldWeight.weightG))throw new BadRequestException('组成、人工和重量没有变化，无需创建新版本');
+  data.payload=writeRevisionPayload(payload,norm,weight);data.sourceToken=payload.sourceToken;
+  if(!existing)data.createdAtKey=new Date().toISOString();data.label=`${bundle.title} 构成修订`.slice(0,200);
 }
 
 async function beforeBundleLine(ctx: BeforeSaveContext) {
   const { em, user, data } = ctx;
-  const bundle = await rec(em, user.companyId, 'finance-bundles', data.bundleId);
+  const bundle = typeof data.bundleId === 'number' ? await em.findOne(ResourceRecord, { where: { id: data.bundleId, companyId: user.companyId, type: 'finance-bundles' }, lock: { mode: 'pessimistic_write' } }) : null;
   if (!bundle) throw new BadRequestException('组合不存在');
   if (bundle.status === 'archived') throw new BadRequestException('组合已失效归档，不能再改构成');
   if (!((num(data.qty) ?? 0) > 0)) throw new BadRequestException('数量必须大于 0');
   const role = str(data.role);
+  if(['baseCodeId','productId','laborId'].filter(key=>data[key]!=null).length!==1 || role==='labor'&&data.laborId==null || role!=='labor'&&data.laborId!=null)throw new BadRequestException('每行只能选择一种组件来源');
   let name = '';
   if (role === 'labor') {
     const labor = await rec(em, user.companyId, 'finance-labor-costs', data.laborId);
@@ -727,22 +873,31 @@ async function beforeBundleLine(ctx: BeforeSaveContext) {
     if (!ctx.existing || ctx.existing.data.laborId !== labor.id) await assertLaborUsable(em, user.companyId, labor);
     delete data.baseCodeId;
     name = labor.title;
+  } else if(data.productId!=null){
+    const normalized=await normalizeBundleComponent(em,ctx.host,user,data,trustedResourceImport(em,user,'bundle_codes'));Object.assign(data,normalized);
+    if(data.baseCodeId!=null || data.laborId!=null)throw new BadRequestException('每行只能选择一种组件来源');
+    const product=await rec(em,user.companyId,'finance-products',data.productId);
+    if(!product || product.status!=='active')throw new BadRequestException('档案组件不存在或已停用');
+    name=product.title;
   } else {
     const bc = await rec(em, user.companyId, 'finance-base-codes', data.baseCodeId);
     if (!bc) throw new BadRequestException('请选择基础编码');
-    if (bc.status !== 'verified' && !em.queryRunner?.data.legacyImport) throw new BadRequestException(`基础编码「${bc.title}」还没验证，验证通过后才能加入组合`);
+    if (bc.status !== 'verified' && !em.queryRunner?.data.legacyImport && !trustedResourceImport(em,user,'bundle_codes')) throw new BadRequestException(`基础编码「${bc.title}」还没验证，验证通过后才能加入组合`);
     delete data.laborId;
     name = bc.title;
   }
-  if (role === 'main' || role === 'gift') {
-    if (!Number.isInteger(num(data.qty))) throw new BadRequestException('主品和赠品的数量必须是整数');
+  if ((role === 'main' || role === 'gift') && data.productId==null) {
+    if (!Number.isInteger(num(data.qty)) && !trustedResourceImport(em,user,'bundle_codes') && !publishing.get(em)?.has(bundle.id) && ctx.existing?.data.qty!==data.qty) throw new BadRequestException('主品和赠品的数量必须是整数');
   }
   let product: ResourceRecord | null = null;
-  if (role !== 'labor') {
+  if(data.productId!=null)product=await rec(em,user.companyId,'finance-products',data.productId);
+  if (role !== 'labor' && data.productId==null) {
     const bc0 = await rec(em, user.companyId, 'finance-base-codes', data.baseCodeId);
     const real0 = bc0 && typeof bc0.data.canonicalId === 'number' ? (await rec(em, user.companyId, 'finance-base-codes', bc0.data.canonicalId)) ?? bc0 : bc0;
     product = real0 ? await rec(em, user.companyId, 'finance-products', real0.data.productId) : null;
-    if (role === 'gift' && !em.queryRunner?.data.legacyImport) {
+    if(role==='gift'&&bc0?.data.codeDictionaryCategoryId!=null&&!em.queryRunner?.data.legacyImport&&!trustedResourceImport(em,user,'bundle_codes')){
+      if(!await codeCategoryNamingRule(ctx.host,em,user.companyId,bc0.data.codeDictionaryCategoryId))throw new BadRequestException('赠品来源类目及上级未配置组合品编码规则');
+    }else if (role === 'gift' && !em.queryRunner?.data.legacyImport && !trustedResourceImport(em,user,'bundle_codes')) {
       const gp = bc0 ? await rec(em, user.companyId, 'finance-products', bc0.data.productId) : null;
       if (!str(gp?.data.giftShortName) || !str(gp?.data.giftCodeShortName)) throw new BadRequestException(`${name}：请先在商品档案里填写赠品简称和赠品编码简称`);
     }
@@ -753,7 +908,10 @@ async function beforeBundleLine(ctx: BeforeSaveContext) {
 }
 
 /** 平台/场景：被组合引用后，编码和段不能改；内置场景不能改编码 */
-const protectCode = (field: string, refField: string, builtin: string[]) => async ({ em, host, user, data, existing }: BeforeSaveContext) => {
+const protectCode = (field: string, refField: string, builtin: string[]) => async (ctx: BeforeSaveContext) => {
+  const {em,host,user,data,existing}=ctx;
+  if(field==='scenario')await beforeSalesScenario(ctx);
+  if(field==='platform')await beforeSalesPlatform(ctx);
   data.code = str(data.code).trim();
   if (!existing) return;
   const was = str(existing.data.code);
@@ -768,7 +926,9 @@ async function beforeMargin(ctx: BeforeSaveContext) {
   const { em, user, data } = ctx;
   const pct = num(data.profitPercent);
   if (pct !== null && (pct < 0 || pct >= 100)) throw new BadRequestException('利润率必须在 0 到 100% 之间（不含 100）');
-  const cat = await rec(em, user.companyId, 'finance-categories', data.categoryId);
+  await validateCodingReferences(ctx,true);
+  if(data.categoryId && data.codeDictionaryCategoryId)throw new BadRequestException('分类利润率只能指定一种分类来源');
+  const cat = data.codeDictionaryCategoryId ? await rec(em,user.companyId,'finance-code-dictionaries',data.codeDictionaryCategoryId) : await rec(em, user.companyId, 'finance-categories', data.categoryId);
   data.scopeKey = cat ? `cat:${cat.id}` : 'all';
   data.label = cat ? `${cat.title} 利润率` : '全部默认利润率';
 }
@@ -825,6 +985,38 @@ async function nextSeqCode(em: EntityManager, companyId: number, type: string, p
   return `${prefix}-${String(max + 1).padStart(3, '0')}`;
 }
 
+/** 只读编号预览与实际保存共用；不创建资料、不写审计、不占用编号。 */
+export async function previewArchiveCode(host: RuleHost, em: EntityManager, user: AuthUser, type: string, values: Data, existing?: ResourceRecord | null): Promise<Data> {
+  const data = { ...values };
+  if (type === 'finance-fee-items') return { code: str(data.code).trim() || await nextSeqCode(em, user.companyId, type, 'FY') };
+  if (!['finance-suppliers', 'finance-customers'].includes(type)) throw new BadRequestException('这类资料没有自动编号预览');
+  const prefix = type === 'finance-suppliers' ? 'GYS' : 'KH';
+  const catType = type === 'finance-suppliers' ? 'finance-supplier-categories' : 'finance-customer-categories';
+  const catIds = Array.isArray(data.categoryIds) ? data.categoryIds.filter((id): id is number => typeof id === 'number' && Number.isInteger(id) && id > 0) : [];
+  for (const id of catIds) if (!await rec(em, user.companyId, catType, id)) throw new BadRequestException('分类不存在');
+  if (type === 'finance-suppliers' && !str(data.shortName).trim()) data.shortName = str(data.name).trim();
+  if (!str(data.shortCode).trim()) data.shortCode = initials(str(data.shortName) || str(data.name)).slice(0, 16) || undefined;
+  else data.shortCode = str(data.shortCode).trim().toUpperCase();
+  if (!str(data.code).trim()) {
+    if (existing && str(existing.data.code)) data.code = str(existing.data.code);
+    else if (catIds.length) {
+      let leaf: ResourceRecord | null = null; // 取选中的第一个最末级分类来生成
+      for (const id of catIds) {
+        if ((await host.countWhere(em, user.companyId, catType, 'parentId', id)) === 0) { leaf = await rec(em, user.companyId, catType, id); break; }
+      }
+      leaf = leaf ?? (await rec(em, user.companyId, catType, catIds[0]));
+      const chain: ResourceRecord[] = [];
+      for (let cur = leaf, i = 0; cur && i < 6; i++) { chain.unshift(cur); cur = await rec(em, user.companyId, catType, cur.data.parentId); }
+      const base = [prefix, chain.length ? catToken(chain[0]) : 'X', leaf ? catToken(leaf) : 'X', initials(str(data.name)).slice(0, 16) || 'X'].join('-');
+      let code = base;
+      for (let n = 2; await host.findByUnique(em, user.companyId, type, code); n++) code = `${base}${n}`;
+      data.code = code;
+    } else data.code = await nextSeqCode(em, user.companyId, type, prefix);
+  }
+  data.code = str(data.code).trim();
+  return { code: data.code, shortCode: data.shortCode, ...(type === 'finance-suppliers' ? { shortName: data.shortName } : {}) };
+}
+
 /** 供应商/客户分类树上，一个分类的“分类码”：没填取名称拼音首字母（旧系统的 categoryCode） */
 const catToken = (c: ResourceRecord) => (str(c.data.categoryCode) || initials(c.title) || 'X').toUpperCase().replace(/[^A-Z0-9]/g, '') || 'X';
 
@@ -837,11 +1029,11 @@ const catToken = (c: ResourceRecord) => (str(c.data.categoryCode) || initials(c.
  */
 const beforeParty = (prefix: string, type: string) => async (ctx: BeforeSaveContext) => {
   const { data, em, user, existing } = ctx;
-  const typed = { code: str(data.code), shortCode: str(data.shortCode) }; // 用户自己填的；自动生成的编号不参与查重
   const catType = type === 'finance-suppliers' ? 'finance-supplier-categories' : 'finance-customer-categories';
   const catIds = Array.isArray(data.categoryIds) ? (data.categoryIds as unknown[]).filter((x): x is number => typeof x === 'number') : [];
   const catsChanged = !existing || JSON.stringify(catIds) !== JSON.stringify(existing.data.categoryIds ?? []);
-  if (catsChanged) {
+  const inheritedCategory=getResourceDef(type)?.copyReferenceFields?.includes('categoryIds') && ctx.copySource?.companyId===user.companyId && ctx.copySource.type===type && JSON.stringify(catIds)===JSON.stringify(ctx.copySource.data.categoryIds??[]);
+  if (catsChanged && !existing && !inheritedCategory) {
     const total = await em.count(ResourceRecord, { where: { companyId: user.companyId, type: catType } });
     if (total > 0 && !existing && !catIds.length) throw new BadRequestException('请选择至少一个分类');
     if (total > 0 && catIds.length) {
@@ -850,28 +1042,10 @@ const beforeParty = (prefix: string, type: string) => async (ctx: BeforeSaveCont
       if (!anyLeaf) throw new BadRequestException('请至少选一个最末级分类（下面没有子分类的）');
     }
   }
-  if (!str(data.shortCode).trim()) data.shortCode = initials(str(data.shortName) || str(data.name)).slice(0, 16) || undefined;
-  else data.shortCode = str(data.shortCode).trim().toUpperCase();
-  if (!str(data.code).trim()) {
-    if (existing && str(existing.data.code)) data.code = str(existing.data.code);
-    else if (catIds.length) {
-      let leaf: ResourceRecord | null = null; // 取选中的第一个最末级分类来生成
-      for (const id of catIds) {
-        if ((await ctx.host.countWhere(em, user.companyId, catType, 'parentId', id)) === 0) { leaf = await rec(em, user.companyId, catType, id); break; }
-      }
-      leaf = leaf ?? (await rec(em, user.companyId, catType, catIds[0]));
-      const chain: ResourceRecord[] = [];
-      for (let cur = leaf, i = 0; cur && i < 6; i++) { chain.unshift(cur); cur = await rec(em, user.companyId, catType, cur.data.parentId); }
-      const base = [prefix, chain.length ? catToken(chain[0]) : 'X', leaf ? catToken(leaf) : 'X', initials(str(data.name)).slice(0, 16) || 'X'].join('-');
-      let code = base;
-      for (let n = 2; await ctx.host.findByUnique(em, user.companyId, type, code); n++) code = `${base}${n}`;
-      data.code = code;
-    } else data.code = await nextSeqCode(em, user.companyId, type, prefix);
-  }
-  data.code = str(data.code).trim();
+  Object.assign(data, await previewArchiveCode(ctx.host, em, user, type, data, existing));
   if (existing && Object.keys(SIMILARITY_FIELDS).every((k) => str(data[k]) === str(existing.data[k]))) return; // 没改这些字段（如只是停用）不查重
-  const others = await em.find(ResourceRecord, { where: { companyId: user.companyId, type }, select: ['id', 'data'] });
-  const { blocked } = inspectArchiveSimilarity({ ...data, ...typed }, others.map((o) => ({ id: o.id, data: o.data })), existing?.id);
+  const others = await em.find(ResourceRecord, { where: { companyId: user.companyId, type,archivedAt:IsNull(),status:Not('deleted') }, select: ['id', 'data'] });
+  const { blocked } = inspectArchiveSimilarity(data, others.map((o) => ({ id: o.id, data: o.data })), existing?.id);
   if (blocked.length) throw new BadRequestException(`与已有资料重复：${formatSimilarityMatch(blocked[0])}`);
 };
 
@@ -938,7 +1112,16 @@ async function beforeFeeItem(ctx: BeforeSaveContext) {
   const bad = nodes.find((x) => !FEE_BOOKING_NODE_MAP.has(x));
   if (bad) throw new BadRequestException(`挂账节点“${bad}”不存在`);
   data.defaultObject = nodes.length ? nodes.join('、') : '不固定';
-  data.requiredObject = nodes.some((n) => n !== '公司') ? 'yes' : 'no';
+  // 原创建/详情可明确编辑必挂对象；没有明确输入才取默认，修改节点仍重新推导。
+  const explicitRequirement=Object.prototype.hasOwnProperty.call(ctx.input??{},'requiredObject');
+  if (!existing&&!explicitRequirement || !!existing&&data.defaultObject!==existing.data.defaultObject) data.requiredObject = nodes.some(n=>n!=='公司')?'yes':'no';
+  else if(explicitRequirement&&!str(ctx.input?.requiredObject))delete data.requiredObject;
+  if(!existing || !Object.keys(FEE_SIMILARITY_FIELDS).every(key=>str(data[key])===str(existing.data[key]))){
+    const others=await em.find(ResourceRecord,{where:{companyId:user.companyId,type:'finance-fee-items',archivedAt:IsNull(),status:Not('deleted')},select:['id','data']});
+    const {blocked}=inspectArchiveSimilarity(data,others.map(row=>({id:row.id,data:row.data})),existing?.id,FEE_SIMILARITY_FIELDS);
+    if(blocked.length)throw new BadRequestException(`与已有资料重复：${formatSimilarityMatch(blocked[0])}`);
+  }
+
 }
 
 export const FINANCE_BEFORE_SAVE: Record<string, (ctx: BeforeSaveContext) => Promise<void>> = {
@@ -962,6 +1145,7 @@ export const FINANCE_BEFORE_SAVE: Record<string, (ctx: BeforeSaveContext) => Pro
   'finance-products': beforeProduct,
   'finance-product-boms': beforeBom,
   'finance-product-sources': beforeSource,
+  'finance-code-dictionaries': beforeCodeDictionary,
   'finance-base-codes': beforeBaseCode,
   'finance-base-code-lines': beforeBaseCodeLine,
   'finance-product-costs': beforeProductCost,
@@ -971,6 +1155,7 @@ export const FINANCE_BEFORE_SAVE: Record<string, (ctx: BeforeSaveContext) => Pro
   'finance-bundle-lines': beforeBundleLine,
   'finance-bundle-naming-rules': beforeNamingRule,
   'finance-bundle-revisions': beforeBundleRevision,
+  'finance-bundle-bom-versions':beforeBomVersionSave,
   'finance-platforms': protectCode('platform', 'platformId', []),
   'finance-scenarios': protectCode('scenario', 'scenarioId', ['STANDARD', 'SUPPLY_CHAIN', 'standard', 'supply_chain']),
   'finance-margins': beforeMargin,
@@ -988,7 +1173,7 @@ export const FINANCE_BEFORE_SAVE: Record<string, (ctx: BeforeSaveContext) => Pro
 async function markReverify(host: RuleHost, em: EntityManager, user: AuthUser, productId: number) {
   for (const bc of await baseCodesUsingProduct(host, em, user.companyId, productId)) {
     if (isComposed(bc)) await refreshComposedTotals(host, em, user, bc.id);
-    if (bc.status !== 'verified') continue;
+    if (codeVerificationState(bc) !== 'verified') continue;
     await host.setStatusDirect(em, user, 'finance-base-codes', bc.id, 'reverify', '来源商品的重量或成本变了，需要重新验证');
     await markBundlesOfBaseCode(host, em, user, bc.id);
   }
@@ -1006,9 +1191,9 @@ async function recheckBaseCodes(host: RuleHost, em: EntityManager, user: AuthUse
   for (const id of ids) {
     for (const bc of await baseCodesUsingProduct(host, em, user.companyId, id)) {
       if (isComposed(bc)) await refreshComposedTotals(host, em, user, bc.id);
-      if (bc.status !== 'verified' || !bc.data.snapshot) continue;
+      if (codeVerificationState(bc) !== 'verified' || !bc.data.snapshot) continue;
       const { signature } = await buildSnapshot(em, user.companyId, bc);
-      if (signature === bc.data.signature) continue;
+      if (signature === (bc.status==='verified'?bc.data.signature:codeVerificationSignature(bc))) continue;
       await host.setStatusDirect(em, user, 'finance-base-codes', bc.id, 'reverify', '商品资料有变化，需要重新验证');
       await markBundlesOfBaseCode(host, em, user, bc.id);
     }
@@ -1022,16 +1207,33 @@ async function syncAliases(host: RuleHost, em: EntityManager, user: AuthUser, pr
   const real = (await host.findWhere(em, user.companyId, 'finance-base-codes', 'productId', productId)).find((r) => !r.data.canonicalId && !['disabled', 'deleted'].includes(r.status));
   if (!real) return;
   const names = p.data.archiveType === 'raw' ? rawNames(p.data.rawFinishedNames) : [];
-  const have = new Map((await host.findWhere(em, user.companyId, 'finance-base-codes', 'canonicalId', real.id)).map((a) => [str(a.data.aliasKey), a]));
-  const qty = num(p.data.specQty);
-  const keep = new Set<string>();
+  const aliases=await host.findWhere(em,user.companyId,'finance-base-codes','canonicalId',real.id);
+  const have = new Map(aliases.map((a) => [str(a.data.aliasKey), a]));
+  const sourcePlans=await sourceFinishedAliasPlans(em,user,p,real,aliases);
+  const qty = numericSpecification(p.data.specQty);
+  const keep = new Set<number>();
+  for(const n of names){const plan=sourcePlans.get(n),cur=plan?plan.existing:have.get(aliasCode(user.companyId,productId,n));if(cur)keep.add(cur.id);}
+  for(const a of have.values()){
+    if(keep.has(a.id))continue;
+    if(a.data.jstUploadedCode||a.data.jstStatus==='synced'||a.data.jstStatus==='pending')throw new BadRequestException(`马甲「${a.title}」已经同步过聚水潭，不能直接去掉；请先在基础编码里处理`);
+    if((await host.findWhere(em,user.companyId,'finance-bundle-lines','baseCodeId',a.id)).length)throw new BadRequestException(`马甲「${a.title}」已被组合引用，不能去掉`);
+    await em.delete(ResourceLink,{companyId:user.companyId,sourceId:a.id});
+    await em.delete(ResourceRecord,{id:a.id,companyId:user.companyId});
+  }
   for (const n of names) {
     const code = aliasCode(user.companyId, productId, n);
-    keep.add(code);
-    const full = [n, qty !== null ? `${dstr(qty).replace('D', '.')}${str(p.data.specUnit)}` : '', str(p.data.materialCode)].filter(Boolean).join('-').slice(0, 200);
-    const cur = have.get(code);
+    const sourcePlan=sourcePlans.get(n);
+    const full = sourcePlan?.fullName ?? [n, qty !== null ? `${dstr(qty).replace('D', '.')}${str(p.data.specUnit)}` : '', str(p.data.materialCode)].filter(Boolean).join('-').slice(0, 200);
+    const cur = sourcePlan?sourcePlan.existing:have.get(code);
     if (!cur) {
-      await host.createRecord(em, user, 'finance-base-codes', { productId, code, name: full, canonicalId: real.id }, '由成品名（马甲）自动生成');
+      const create=()=>host.createRecord(em, user, 'finance-base-codes', { productId, code:sourcePlan?.code??code, name: full, canonicalId: real.id }, '由成品名（马甲）自动生成');
+      if(sourcePlan)await withSourceFinishedAliasWrite(em,user,productId,real.id,sourcePlan,create);else await create();
+    } else if(sourcePlan){
+      const preserve=cur.data.migratedAliasName===n&&cur.data.migratedAliasSpec===JSON.stringify([p.data.specQty,p.data.specUnit]);
+      const renamed=!preserve&&str(cur.data.name)!==full;
+      const patch:Data={aliasKey:sourcePlan.key,sourceFinishedRowToken:sourcePlan.rowToken,...(renamed?{name:full,migratedAliasName:null,migratedAliasSpec:null}:{})};
+      if(Object.entries(patch).some(([key,value])=>cur.data[key]!==value))await host.patchData(em,user,'finance-base-codes',cur.id,patch,'原料成品名身份与名称维护');
+      if(renamed&&cur.status==='verified')await host.setStatusDirect(em,user,'finance-base-codes',cur.id,'reverify','名称变了，需要重新验证');
     } else if (cur.data.migratedAliasName === n && cur.data.migratedAliasSpec === JSON.stringify([p.data.specQty,p.data.specUnit])) {
       // 旧名称未变、规格未变时保留原展示名；改成本等字段不能重命名马甲。
       continue;
@@ -1039,13 +1241,6 @@ async function syncAliases(host: RuleHost, em: EntityManager, user: AuthUser, pr
       await host.patchData(em, user, 'finance-base-codes', cur.id, { name: full, migratedAliasName: null, migratedAliasSpec: null }, '成品名（马甲）变了');
       if (cur.status === 'verified') await host.setStatusDirect(em, user, 'finance-base-codes', cur.id, 'reverify', '名称变了，需要重新验证');
     }
-  }
-  for (const [code, a] of have) {
-    if (keep.has(code)) continue;
-    if (a.data.jstUploadedCode || a.data.jstStatus === 'synced' || a.data.jstStatus === 'pending') throw new BadRequestException(`马甲「${a.title}」已经同步过聚水潭，不能直接去掉；请先在基础编码里处理`);
-    if ((await host.findWhere(em, user.companyId, 'finance-bundle-lines', 'baseCodeId', a.id)).length) throw new BadRequestException(`马甲「${a.title}」已被组合引用，不能去掉`);
-    await em.delete(ResourceLink, { companyId: user.companyId, sourceId: a.id });
-    await em.delete(ResourceRecord, { id: a.id, companyId: user.companyId });
   }
 }
 
@@ -1077,19 +1272,20 @@ async function syncProductBaseCode(host: RuleHost, em: EntityManager, user: Auth
   const p = await rec(em, user.companyId, 'finance-products', productId);
   if (!p || p.status !== 'active' || !SYNC_ARCHIVE_TYPES.includes(str(p.data.archiveType))) return;
   const full = str(p.data.basicInfoFullName) || p.title;
+  const archiveIdentity = archiveBaseCodeIdentity(p.data.code);
   const reals = (await host.findWhere(em, user.companyId, 'finance-base-codes', 'productId', productId)).filter((r) => !r.data.canonicalId && !isComposed(r));
   if (reals.length === 0) {
     const values = { productId, name: full, shortName: full, varietyName: str(p.data.name) };
     try {
       await createSynced(host, em, user, values);
     } catch (e) {
-      if (!(e instanceof ConflictException)) throw e;
+      if (archiveIdentity || !(e instanceof ConflictException)) throw e;
       // 生成的编码和别的编码撞了：加序号避开，并写明原因
       const chain = await categoryChain(em, user.companyId, Number(p.data.categoryId));
       const brand = p.data.archiveType === 'raw' ? '' : await brandCode(em, user.companyId, p.data.brandId);
       const style = [...chain.map((c) => str(c.data.code)).filter((c, i, a) => c && c !== a[i - 1]), brand, initials(str(p.data.name))].filter(Boolean).join('-');
-      const qty = num(p.data.specQty);
-      const base = style + (qty !== null ? `-${dstr(qty)}${str(p.data.specUnit)}` : '');
+      const spec = specificationCode(p.data.specQty);
+      const base = style + (spec ? `-${spec}${str(p.data.specUnit)}` : '');
       for (let i = 2; i < 50; i++) {
         const code = `${base}-${i}`;
         if (await host.findByUnique(em, user.companyId, 'finance-base-codes', code.toLowerCase())) continue;
@@ -1099,10 +1295,21 @@ async function syncProductBaseCode(host: RuleHost, em: EntityManager, user: Auth
     }
     return;
   }
+  const cost = typeof p.data.totalCost==='number' ? productMoneyProducts([{value:p.data.totalCost,quantity:1}],2) : null;
+  const purchase = purchasePriceSnapshot(p)?.purchasePrice;
+  const purchasePrice = typeof purchase==='number' ? productMoneyProducts([{value:purchase,quantity:1}],2) : null;
   for (const bc of reals) {
-    if (bc.data.origin !== 'archive_sync' || bc.data.profileManual === true || ['disabled', 'deleted'].includes(bc.status)) continue;
-    if (str(bc.data.name) !== full || str(bc.data.shortName) !== full) {
-      await host.patchData(em, user, 'finance-base-codes', bc.id, { name: full, shortName: full }, '商品档案变化，同步基础编码名称');
+    if (bc.data.origin === 'external_import' || bc.status === 'deleted') continue;
+    // 原 linkage 的人工资料覆盖不冻结实时成本；专属重量覆盖仍按现有明确字段保留。
+    const patch:Data = {cost,purchasePrice,weightG:bc.data.profileWeightOverride??p.data.weightG};
+    if(bc.data.origin==='archive_sync'&&bc.data.profileManual!==true&&!['disabled'].includes(bc.status))Object.assign(patch,{name:full,shortName:full,...archiveIdentity});
+    if (Object.entries(patch).some(([key, value]) => bc.data[key] !== value)) {
+      await host.patchData(em, user, 'finance-base-codes', bc.id, patch, '商品档案变化，同步基础编码资料');
+    }
+    for(const alias of await host.findWhere(em,user.companyId,'finance-base-codes','canonicalId',bc.id)){
+      if(alias.status==='deleted')continue;
+      const aliasPatch={cost,purchasePrice,weightG:alias.data.profileWeightOverride??patch.weightG};
+      if(Object.entries(aliasPatch).some(([key,value])=>alias.data[key]!==value))await host.patchData(em,user,'finance-base-codes',alias.id,aliasPatch,'来源商品变化，同步马甲当前成本和重量');
     }
   }
 }
@@ -1114,7 +1321,7 @@ async function markBundlesOfBaseCode(host: RuleHost, em: EntityManager, user: Au
     if (typeof bid !== 'number' || seen.has(bid)) continue;
     seen.add(bid);
     const b = await rec(em, user.companyId, 'finance-bundles', bid);
-    if (b?.status === 'verified') await host.setStatusDirect(em, user, 'finance-bundles', bid, 'reverify', '构成里的基础编码需要重新验证');
+    if (b && codeVerificationState(b) === 'verified') await host.setStatusDirect(em, user, 'finance-bundles', bid, 'reverify', '构成里的基础编码需要重新验证');
   }
   // 成本是实时现算的：来源变了要在成本历史里留一笔“来源值变化”
   await recordSourceChange(em, user.companyId, user.id || null, [...seen], '来源商品（基础编码）的成本或重量变化');
@@ -1133,52 +1340,64 @@ export async function recomputeProduct(host: RuleHost, em: EntityManager, user: 
   const isOem = p.data.archiveType === 'purchased' && p.data.supplyMode === 'supplier_oem';
   if (p.data.archiveType === 'self_made' || isOem) {
     const boms = await host.findWhere(em, user.companyId, 'finance-product-boms', 'productId', productId);
-    let cost: number | null = boms.length || (isOem && num(p.data.purchasePrice) !== null) ? 0 : null;
+    let cost: number | null = isOem ? [p.data.purchasePrice,p.data.freight,p.data.handlingFee].some(value=>num(value)===null)?null:0 : boms.length?0:null;
     let weight = 0;
+    const terms:UnitCentsProduct[]=[];
     for (const b of boms) {
       const qty = num(b.data.qty) ?? 0;
+      if(b.data.importLineKind==='labor'){const price=num(b.data.importLaborCost);if(price===null)cost=null;else terms.push({value:price,quantity:qty});continue;}
       if (typeof b.data.laborId === 'number') {
         const lab = await rec(em, user.companyId, 'finance-labor-costs', b.data.laborId);
         const price = lab ? num(lab.data.unitPrice) : null;
-        if (cost !== null) cost = price === null ? null : sumUnitCents([cost, multiplyUnitCents(price, qty)]);
+        if(price===null)cost=null;else terms.push({value:price,quantity:qty});
         continue;
       }
       const c = await rec(em, user.companyId, 'finance-products', b.data.componentId);
-      const ct = c ? num(c.data.totalCost) : null;
-      if (cost !== null) cost = ct === null ? null : sumUnitCents([cost, multiplyUnitCents(ct, qty, num(b.data.lossPercent) ?? 0)]);
+      const ct = c ? num(c.data[isOem?'purchasePrice':'totalCost']) : null;
+      if(ct===null)cost=null;else terms.push({value:ct,quantity:qty,lossPercent:num(b.data.lossPercent)??0});
       weight += qty * (num(c?.data.weightG) ?? 0);
     }
-    if (cost !== null) cost = sumUnitCents([cost, isOem ? num(p.data.purchasePrice) ?? 0 : 0, num(p.data.freight) ?? 0, num(p.data.handlingFee) ?? 0]);
+    const totalTerms=[...terms,...[isOem ? num(p.data.purchasePrice) ?? 0 : 0,num(p.data.freight)??0,num(p.data.handlingFee)??0].map(value=>({value,quantity:1}))];
+    if (cost !== null) cost = isOem ? productMoneySum([productMoneyProducts([...terms,{value:num(p.data.purchasePrice)!,quantity:1}],4),num(p.data.freight)!,num(p.data.handlingFee)!]) : productMoneyProducts(totalTerms);
     let weightG = p.data.weightG;
     if (p.data.weightManual !== true) {
       if (isOem) {
-        const base = (UNIT_G[str(p.data.specUnit)] ?? 0) * (num(p.data.specQty) ?? 0);
+        const base = specificationWeightG(p.data.specQty, p.data.specUnit) ?? 0;
         weightG = Math.round((base + (num(p.data.oemPackageWeightG) ?? 0) + weight) * 1e6) / 1e6;
       } else if (boms.length) weightG = Math.round(weight * 1e6) / 1e6;
     }
     const patch: Data = { totalCost: cost, weightG };
     const changed = patch.totalCost !== (p.data.totalCost ?? null) || patch.weightG !== p.data.weightG;
     await host.patchData(em, user, 'finance-products', productId, patch, '构成变化，自动汇总成本和重量');
-    if (cost !== null) await syncAutoCost(host, em, user, productId, { sourceType: 'production_bom', unitCost: cost, unitName: specUnitText(p.data) || '件', calculationMethod: '按构成汇总：组成档案成本 + 人工 + 运费 + 装卸费' });
+    const priced = await rec(em, user.companyId, 'finance-products', productId);
+    if (priced) await recordPurchaseHistory(host, em, user, priced, p);
+    if(isOem)await refreshDerivedArchiveCostRecords(host,em,user,{ownerProductIds:[productId]});
+    else if (cost !== null) await syncAutoCost(host, em, user, productId, { sourceType: 'production_bom', unitCost: productMoneyProducts(totalTerms,2), unitName: specUnitText(p.data) || '件', calculationMethod: '按构成汇总：组成档案成本 + 人工 + 运费 + 装卸费' });
     if (changed) await markReverify(host, em, user, productId);
+    await syncProductBaseCode(host,em,user,productId);
   }
   for (const parentBom of await host.findWhere(em, user.companyId, 'finance-product-boms', 'componentId', productId)) {
     if (typeof parentBom.data.productId === 'number') await recomputeProduct(host, em, user, parentBom.data.productId, depth + 1);
   }
 }
 
-/** 原料/发货物料的当前采购价和供应商 = 最近更新的启用供货来源。 */
+/** 原料/发货物料的当前采购价和供应商 = 采购价最近更新的启用供货来源。 */
 export async function refreshFromSources(host: RuleHost, em: EntityManager, user: AuthUser, productId: number) {
   const p = await rec(em, user.companyId, 'finance-products', productId);
   if (!p || !['raw', 'shipping_material'].includes(str(p.data.archiveType))) return;
   const live = (await host.findWhere(em, user.companyId, 'finance-product-sources', 'productId', productId)).filter((x) => x.status === 'active');
-  live.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || (a.data.legacySourceId && b.data.legacySourceId ? Number(BigInt(str(b.data.legacySourceId))-BigInt(str(a.data.legacySourceId))) : b.id - a.id));
+  live.sort((a, b) => sourcePriceTime(b.data.priceUpdatedAt, b.updatedAt) - sourcePriceTime(a.data.priceUpdatedAt, a.updatedAt) || (a.data.legacySourceId && b.data.legacySourceId ? Number(BigInt(str(b.data.legacySourceId))-BigInt(str(a.data.legacySourceId))) : b.id - a.id));
   const cur = live[0];
   const price = cur ? num(cur.data.purchasePrice) : null;
   const f = num(p.data.freight), h = num(p.data.handlingFee);
-  const patch: Data = { purchasePrice: price, supplierId: cur ? cur.data.supplierId : null, totalCost: price !== null && f !== null && h !== null ? sumUnitCents([price,f,h]) : null };
+  const patch: Data = { purchasePrice: price, supplierId: cur ? cur.data.supplierId : null, totalCost: price !== null && f !== null && h !== null ? productMoneySum([price,f,h]) : null };
+  if (p.data.archiveType === 'shipping_material' && cur?.data.systemSpec) patch.purchaseSpec = cur.data.systemSpec;
   await host.patchData(em, user, 'finance-products', productId, patch, '供货来源变化，更新当前采购价');
+  const priced = await rec(em, user.companyId, 'finance-products', productId);
+  if (priced) await recordPurchaseHistory(host, em, user, priced, p);
   if (cur && price !== null) await syncAutoCost(host, em, user, productId, { sourceType: 'raw_supply_source', unitCost: price, unitName: str(cur.data.systemSpec) || str(p.data.purchaseSpec) || specUnitText(p.data), sourceRef: cur.title, calculationMethod: '取最新启用的供货来源采购价' });
+  await syncProductBaseCode(host,em,user,productId);
+  await recheckBaseCodes(host,em,user,productId);
 }
 
 /** 规格单位的中文名（档案成本记录的计价单位默认值） */
@@ -1187,7 +1406,7 @@ function specUnitText(d: Data): string {
 }
 
 /** 正在发布构成修订的组合：这期间构成变化不再把它打回“需重新验证” */
-const publishing = new Set<number>();
+const publishing = new WeakMap<EntityManager,Set<number>>();
 /** 正在批量建构成行的组合：行建完之前不要逐行刷新编码（否则中间状态“只有第一个主品”的编码可能撞上别的组合） */
 const deferred = new Set<number>();
 
@@ -1211,29 +1430,30 @@ export async function realBaseCode(em: EntityManager, companyId: number, bc: Res
 
 async function namingItem(em: EntityManager, companyId: number, bc: ResourceRecord, qty: number): Promise<NamingItem> {
   const p = await rec(em, companyId, 'finance-products', bc.data.productId);
-  const multi = bc.data.origin === 'composed';
+  const multi = bc.data.origin === 'composed' || bc.data.origin==='external_import';
+  const codingCategory=await rec(em,companyId,'finance-code-dictionaries',bc.data.codeDictionaryCategoryId);
   const chain = await categoryChain(em, companyId, Number(bc.data.profileCategoryOverride ?? (multi ? bc.data.codeCategoryId : p?.data.categoryId)));
-  const leaf = chain[chain.length - 1];
+  const leaf = codingCategory ?? chain[chain.length - 1];
   const brand = await rec(em, companyId, 'finance-brands', multi ? bc.data.codeBrandId : p?.data.brandId);
   const aliasName = str(bc.data.migratedAliasName) || (typeof bc.data.canonicalId === 'number' && p ? rawNames(p.data.rawFinishedNames).find((n) => aliasCode(companyId, p.id, n) === bc.data.aliasKey) : '');
   const variety = aliasName || str(bc.data.varietyName) || str(p?.data.name);
   const real = await realBaseCode(em, companyId, bc);
-  const unitCode = str(p?.data.specUnit);
+  const unitCode = str(multi ? bc.data.codeSpecUnit : p?.data.specUnit);
   const archiveType = str(p?.data.archiveType);
   const isAlias = typeof bc.data.canonicalId === 'number';
-  const amount = num(p?.data.specQty) ?? 0;
+  const amount = numericSpecification(multi ? bc.data.codeSpecQty : p?.data.specQty) ?? 0;
   const supplyMode = p?.data.supplyMode === 'supplier_oem' ? '供应商OEM' : p?.data.supplyMode === 'original_purchase' ? '原装采购' : '';
   const packageType = str(p?.data.purchaseSpec);
-  const identityParts = [p?.data.categoryId, archiveType, p?.data.name, p?.data.brandId, str(p?.data.supplyMode) || archiveType, p?.data.purchaseSpec, unitCode].map((x) => str(x).trim());
+  const identityParts = [bc.data.codeDictionaryCategoryId??p?.data.categoryId, archiveType, p?.data.name, p?.data.brandId, str(p?.data.supplyMode) || archiveType, p?.data.purchaseSpec, unitCode].map((x) => str(x).trim());
   const plainSpec = `${amount}${unitNameOf(unitCode)}`;
   const mergeable = !isAlias && identityParts.every(Boolean) && amount > 0 && (!str(bc.data.spec) || str(bc.data.spec) === plainSpec || str(bc.data.spec) === `${amount}${unitCode}`);
   return {
     id: bc.id, code: str(bc.data.code), name: str(bc.data.name) || bc.title, shortName: str(bc.data.shortName), styleCode: str(bc.data.styleCode), spec: str(bc.data.spec), qty,
     categoryCode: str(leaf?.data.code), categoryName: leaf?.title ?? '',
     brandCode: brand ? str(brand.data.code) || initials(brand.title) : '', brandName: brand?.title ?? '',
-    varietyInitials: initials(variety), varietyName: variety, packageType, packageTypeCode: initials(packageType), supplyMode, supplyModeCode: supplyMode === '供应商OEM' ? 'OEM' : supplyMode ? 'YZCG' : '',
+    varietyInitials: bc.data.origin==='composed'&&bc.data.codeDictionaryCategoryId ? definitionCodeInitials(variety) : initials(variety), varietyName: variety, packageType, packageTypeCode: initials(packageType), supplyMode, supplyModeCode: supplyMode === '供应商OEM' ? 'OEM' : supplyMode ? 'YZCG' : '',
     weightG: num(bc.data.weightG) ?? num(p?.data.weightG) ?? 0,
-    realCode: str(real.data.code), amount, unitName: unitNameOf(unitCode), unitCode, isAlias,
+    realCode: str(real.data.code), amount, unitName: bc.data.origin==='composed'&&bc.data.codeDictionaryCategoryId ? str(bc.data.baseUnit)||unitNameOf(unitCode) : unitNameOf(unitCode), unitCode, isAlias,
     identity: mergeable ? JSON.stringify([...identityParts, str(bc.data.varietyName), str(p?.data.shape)]) : undefined,
     giftName: str(p?.data.giftShortName), giftCode: str(p?.data.giftCodeShortName),
     brandOptional: ['raw', 'shipping_material'].includes(archiveType),
@@ -1246,11 +1466,7 @@ export async function findNamingRule(host: RuleHost, em: EntityManager, companyI
   for (const c of [...chain].reverse()) {
     const r = await host.findByUnique(em, companyId, 'finance-bundle-naming-rules', `cat:${c.id}`);
     if (r) {
-      const d = r.data;
-      return {
-        prefix: str(d.prefix), namePrefix: str(d.namePrefix), stylePrefix: str(d.stylePrefix), codeFields: parseFieldList(str(d.codeFields)), nameFields: parseFieldList(str(d.nameFields)),
-        customCode: str(d.customCode), customName: str(d.customName), codeOverrides: parseOverrides(str(d.codeOverrides)), nameOverrides: parseOverrides(str(d.nameOverrides)),
-      };
+      return namingRuleData(r.data);
     }
   }
   return null;
@@ -1290,9 +1506,11 @@ export async function composeBundleFor(host: RuleHost, em: EntityManager, user: 
   const gifts = await merge(['gift']);
   if (mains.length === 0) return null; // 还没有主品：保持占位编码
   const input = await namingInputFor(em, user.companyId, mains, gifts, platform, scenario, str(bundle.data.configNo), bundle.data.brandId);
-  const rule = await findNamingRule(host, em, user.companyId, mains[0].bc.data.origin === 'composed' ? mains[0].bc.data.codeCategoryId : (await rec(em, user.companyId, 'finance-products', mains[0].bc.data.productId))?.data.categoryId);
+  const independent=mains[0].bc.data.codeDictionaryCategoryId;
+  const rule=(independent!=null?await codeCategoryNamingRule(host,em,user.companyId,independent):null)??await findNamingRule(host, em, user.companyId, mains[0].bc.data.origin === 'composed' ? mains[0].bc.data.codeCategoryId : (await rec(em, user.companyId, 'finance-products', mains[0].bc.data.productId))?.data.categoryId);
+  input.itemRules=await codeCategoryRuleSet(host,em,user.companyId,[...mains,...gifts].map(row=>row.bc),false);
   const composed = composeBundle(rule, input);
-  const manualCode = str(bundle.data.manualCode).trim().toUpperCase();
+  const manualCode = bundle.data.recordOrigin==='external_import' ? str(bundle.data.manualCode).trim() : str(bundle.data.manualCode).trim().toUpperCase();
   // 手改了编码，其余自动生成的部分信息不全也不拦（旧系统同样允许人工覆盖）
   if (composed.errors.length && !(manualCode && str(bundle.data.manualName).trim())) throw new BadRequestException(composed.errors.join('；'));
   const code = manualCode || composed.code;
@@ -1304,7 +1522,7 @@ export async function composeBundleFor(host: RuleHost, em: EntityManager, user: 
   const first = input.mains[0];
   return {
     patch: {
-      code, name, styleCode: str(bundle.data.manualStyleCode).trim() || composed.styleCode || undefined, shortName: str(bundle.data.manualShortName).trim() || composed.shortName,
+      mainStyleCode: resolvedMainStyleCode(composed,str(bundle.data.manualStyleCode)), code, name, styleCode: str(bundle.data.manualStyleCode).trim() || composed.styleCode || undefined, shortName: str(bundle.data.manualShortName).trim() || composed.shortName,
       propertiesValue: str(bundle.data.manualPropertiesValue).trim() || composed.propertiesValue,
       // 品牌、品种、计量单位没填时取第一个主品的
       varietyName: str(bundle.data.varietyName).trim() || first.varietyName || undefined,
@@ -1315,40 +1533,45 @@ export async function composeBundleFor(host: RuleHost, em: EntityManager, user: 
 
 /** 按构成重新生成组合编码和名称；已验证的组合构成一变就要重新验证。 */
 export async function refreshBundle(host: RuleHost, em: EntityManager, user: AuthUser, bundleId: number, note = '按构成重新生成编码'): Promise<void> {
-  if (deferred.has(bundleId)) return;
+  if (deferred.has(bundleId) || publishing.get(em)?.has(bundleId)) return;
   const bundle = await rec(em, user.companyId, 'finance-bundles', bundleId);
   if (!bundle) return;
   const out = await composeBundleFor(host, em, user, bundle);
   if (!out) return;
   await host.patchData(em, user, 'finance-bundles', bundleId, { ...out.patch, updatedAtKey: new Date().toISOString() }, note);
-  if (bundle.status === 'verified' && !publishing.has(bundleId)) await host.setStatusDirect(em, user, 'finance-bundles', bundleId, 'reverify', '构成变了，需要重新验证');
+  if (codeVerificationState(bundle) === 'verified' && !publishing.get(em)?.has(bundleId)) await host.setStatusDirect(em, user, 'finance-bundles', bundleId, 'reverify', '构成变了，需要重新验证');
 }
 
 /** 发布待生效的构成修订：用新构成替换旧构成（赠品必须原样不变，发布前已校验）。 */
 async function publishRevision(host: RuleHost, em: EntityManager, user: AuthUser, bundleId: number, revisionId: number) {
   const revision = await rec(em, user.companyId, 'finance-bundle-revisions', revisionId);
   if (!revision || revision.status !== 'pending') return;
-  publishing.add(bundleId);
+  await captureBomVersion(host,em,user,bundleId,{unknown:true});
+  const candidate=await captureRevisionBom(host,em,user,revision);
+  const active=publishing.get(em) ?? new Set<number>();
+  active.add(bundleId);publishing.set(em,active);
   try {
     for (const l of await host.findWhere(em, user.companyId, 'finance-bundle-lines', 'bundleId', bundleId)) {
       await em.delete(ResourceLink, { companyId: user.companyId, sourceId: l.id });
       await em.delete(ResourceRecord, { id: l.id, companyId: user.companyId });
     }
-    for (const l of JSON.parse(str(revision.data.payload)) as Data[]) {
+    for (const l of readRevisionPayload(revision.data.payload).lines) {
       await host.createRecord(em, user, 'finance-bundle-lines', { ...pickLine(l), bundleId }, '发布构成修订');
     }
     await refreshBundle(host, em, user, bundleId);
     const fresh = await rec(em, user.companyId, 'finance-bundles', bundleId);
     const newLines = (await host.findWhere(em, user.companyId, 'finance-bundle-lines', 'bundleId', bundleId)).map((l) => l.data);
-    const curVer = /^V(\d+)$/.exec(str(fresh?.data.bomVersion) || 'V01');
-    await host.patchData(em, user, 'finance-bundles', bundleId, { bomVersion: `V${String((curVer ? Number(curVer[1]) : 1) + 1).padStart(2, '0')}`, pendingRevisionId: null, snapshot: fresh ? await bundleSnapshotJson(em, user.companyId, fresh.data, newLines) : undefined }, '构成修订已发布');
+    const nextVersion=nextBundleBomVersion(fresh?.data.bomVersion);
+    await host.patchData(em, user, 'finance-bundles', bundleId, { bomVersion: nextVersion, pendingRevisionId: null, snapshot: fresh ? await bundleSnapshotJson(em, user.companyId, fresh.data, newLines) : undefined }, '构成修订已发布');
+    await captureBomVersion(host,em,user,bundleId,{definition:str(candidate.data.definitionKey),activated:true,sealed:true});
     await host.setStatusDirect(em, user, 'finance-bundle-revisions', revisionId, 'published', '随组合验证发布');
   } finally {
-    publishing.delete(bundleId);
+    active.delete(bundleId);if(!active.size)publishing.delete(em);
   }
 }
 
 export const FINANCE_AFTER_SAVE: Record<string, (ctx: AfterSaveContext) => Promise<void>> = {
+  'finance-bundle-bom-versions':ctx=>syncBomComponentLinks(ctx.em,ctx.user,ctx.record),
   ...LABOR_AFTER_SAVE,
   ...EXPRESS_AFTER_SAVE,
   'finance-labor-costs': async (ctx) => {
@@ -1379,10 +1602,12 @@ export const FINANCE_AFTER_SAVE: Record<string, (ctx: AfterSaveContext) => Promi
   'finance-product-boms': async ({ em, host, user, record }) => {
     if (typeof record.data.productId === 'number') {
       await recomputeProduct(host, em, user, record.data.productId);
+      await refreshDerivedArchiveCostRecords(host,em,user,{ownerProductIds:[record.data.productId]});
       await recheckBaseCodes(host, em, user, record.data.productId);
     }
   },
   'finance-products': async ({ em, host, user, record, existing }) => {
+    bindSourceBomCopy(em,user,record,existing);
     if (existing && !em.queryRunner?.data.legacyImport) await syncAliases(host, em, user, record.id);
     const changed = existing && (existing.data.weightG !== record.data.weightG || existing.data.totalCost !== record.data.totalCost);
     if (changed) await markReverify(host, em, user, record.id);
@@ -1397,6 +1622,7 @@ export const FINANCE_AFTER_SAVE: Record<string, (ctx: AfterSaveContext) => Promi
     if (!em.queryRunner?.data.legacyImport) {
       const fresh = (await rec(em, user.companyId, 'finance-products', record.id)) ?? record;
       await recordFreightHistory(host, em, user, fresh);
+      await recordPurchaseHistory(host, em, user, fresh, existing);
       // 直接采购的档案：采购价同步成“采购成本”记录（自产、OEM 由构成汇总，原料、物料取供货来源）
       const d = fresh.data;
       if (fresh.status === 'active' && ['package', 'oem_package', 'purchased'].includes(str(d.archiveType)) && d.supplyMode !== 'supplier_oem' && num(d.purchasePrice) !== null) {
@@ -1407,7 +1633,7 @@ export const FINANCE_AFTER_SAVE: Record<string, (ctx: AfterSaveContext) => Promi
     if (!em.queryRunner?.data.legacyImport) await rememberZeroReasons(host, em, user, str(record.data.zeroValueReason));
   },
   'finance-product-costs': async ({ em, host, user, record, existing }) => {
-    if (typeof record.data.productId === 'number') await refreshLatestCost(host, em, user, record.data.productId);
+    if (typeof record.data.productId === 'number') {await refreshLatestCost(host, em, user, record.data.productId);await refreshDerivedArchiveCostRecords(host,em,user,{componentProductIds:[record.data.productId],businessDate:str(record.data.effectiveFrom)||undefined});}
     if (existing && typeof existing.data.productId === 'number' && existing.data.productId !== record.data.productId) await refreshLatestCost(host, em, user, existing.data.productId);
   },
   'finance-base-code-lines': async (ctx) => afterBaseCodeLineSave(ctx, (id) => markBundlesOfBaseCode(ctx.host, ctx.em, ctx.user, id)),
@@ -1433,6 +1659,15 @@ export const FINANCE_AFTER_SAVE: Record<string, (ctx: AfterSaveContext) => Promi
       }
     }
     if (existing.status === 'verified' && record.status !== 'verified') await markBundlesOfBaseCode(host, em, user, record.id);
+    // 马甲的验证事实包含真实编码专属资料；真实编码修改后同时核对马甲及其组合。
+    if (!record.data.canonicalId && ['code', 'styleCode', 'name', 'shortName', 'spec', 'varietyName', 'profileWeightOverride', 'profileCategoryOverride'].some(key => existing.data[key] !== record.data[key])) {
+      for (const alias of await host.findWhere(em, user.companyId, 'finance-base-codes', 'canonicalId', record.id)) {
+        if (alias.status !== 'verified' || !alias.data.snapshot) continue;
+        if ((await buildSnapshot(em, user.companyId, alias)).signature === alias.data.signature) continue;
+        await host.setStatusDirect(em, user, 'finance-base-codes', alias.id, 'reverify', '真实基础编码资料变了，需要重新验证');
+        await markBundlesOfBaseCode(host, em, user, alias.id);
+      }
+    }
     if (existing.data.code !== record.data.code || existing.data.name !== record.data.name) {
       const seen = new Set<number>();
       for (const l of await host.findWhere(em, user.companyId, 'finance-bundle-lines', 'baseCodeId', record.id)) {
@@ -1449,18 +1684,19 @@ export const FINANCE_AFTER_SAVE: Record<string, (ctx: AfterSaveContext) => Promi
   'finance-bundle-revisions': async ({ em, host, user, record, existing }) => {
     const bundleId = record.data.bundleId;
     if (typeof bundleId !== 'number') return;
+    if(record.status==='pending')await captureRevisionBom(host,em,user,record);
     if (record.status === 'cancelled') {
       await host.patchData(em, user, 'finance-bundles', bundleId, { pendingRevisionId: null }, '构成修订已取消');
     } else if (record.status === 'pending' && !existing) {
       await host.patchData(em, user, 'finance-bundles', bundleId, { pendingRevisionId: record.id }, '提交了构成修订');
       const b = await rec(em, user.companyId, 'finance-bundles', bundleId);
-      if (b?.status === 'verified') await host.setStatusDirect(em, user, 'finance-bundles', bundleId, 'reverify', '有构成修订待验证发布');
+      if (b && codeVerificationState(b) === 'verified') await host.setStatusDirect(em, user, 'finance-bundles', bundleId, 'reverify', '有构成修订待验证发布');
     }
   },
   'finance-bundles': async ({ em, host, user, record, existing }) => {
     if (em.queryRunner?.data.bundleProfile) {
       await host.patchData(em, user, 'finance-bundles', record.id, { name: record.data.manualName, shortName: record.data.manualShortName }, '编辑组合名称和简称');
-      if (record.status === 'verified' && existing && (existing.data.name !== record.data.manualName || existing.data.shortName !== record.data.manualShortName)) await host.setStatusDirect(em, user, 'finance-bundles', record.id, 'reverify', '组合基础资料变了，需要重新验证');
+      if (codeVerificationState(record) === 'verified' && existing && (existing.data.name !== record.data.manualName || existing.data.shortName !== record.data.manualShortName)) await host.setStatusDirect(em, user, 'finance-bundles', record.id, 'reverify', '组合基础资料变了，需要重新验证');
       return;
     }
     const revId = num(record.data.pendingRevisionId);
@@ -1468,6 +1704,7 @@ export const FINANCE_AFTER_SAVE: Record<string, (ctx: AfterSaveContext) => Promi
       await publishRevision(host, em, user, record.id, revId);
       return;
     }
+    if(record.status==='verified'&&existing?.status!=='verified')await captureBomVersion(host,em,user,record.id,{activated:true});
     // 手改项变了，也要重新生成
     const manualChanged = existing && ['manualCode', 'manualStyleCode', 'manualName', 'manualShortName'].some((k) => str(existing.data[k]) !== str(record.data[k]));
     if (manualChanged) await refreshBundle(host, em, user, record.id);
@@ -1480,7 +1717,7 @@ export const FINANCE_AFTER_SAVE: Record<string, (ctx: AfterSaveContext) => Promi
 
 export const FINANCE_AFTER_DELETE: Record<string, (ctx: DeleteCtx) => Promise<void>> = {
   'finance-product-costs': async ({ em, host, user, record }) => {
-    if (typeof record.data.productId === 'number') await refreshLatestCost(host, em, user, record.data.productId);
+    if (typeof record.data.productId === 'number') {await refreshLatestCost(host, em, user, record.data.productId);await refreshDerivedArchiveCostRecords(host,em,user,{componentProductIds:[record.data.productId],businessDate:str(record.data.effectiveFrom)||undefined});}
   },
   'finance-product-freight-history': afterFreightHistoryDelete,
   'finance-base-code-lines': async (ctx) => afterBaseCodeLineDelete(ctx, (id) => markBundlesOfBaseCode(ctx.host, ctx.em, ctx.user, id)),
@@ -1490,6 +1727,7 @@ export const FINANCE_AFTER_DELETE: Record<string, (ctx: DeleteCtx) => Promise<vo
   'finance-product-boms': async ({ em, host, user, record }) => {
     if (typeof record.data.productId === 'number') {
       await recomputeProduct(host, em, user, record.data.productId);
+      await refreshDerivedArchiveCostRecords(host,em,user,{ownerProductIds:[record.data.productId]});
       await recheckBaseCodes(host, em, user, record.data.productId);
     }
   },
@@ -1497,7 +1735,18 @@ export const FINANCE_AFTER_DELETE: Record<string, (ctx: DeleteCtx) => Promise<vo
     if (typeof record.data.bundleId === 'number') {
       await refreshBundle(host, em, user, record.data.bundleId);
       const b = await rec(em, user.companyId, 'finance-bundles', record.data.bundleId);
-      if (b?.status === 'verified') await host.setStatusDirect(em, user, 'finance-bundles', b.id, 'reverify', '构成变了，需要重新验证');
+      if (b && codeVerificationState(b) === 'verified') await host.setStatusDirect(em, user, 'finance-bundles', b.id, 'reverify', '构成变了，需要重新验证');
     }
   },
+};
+
+export const FINANCE_BEFORE_FORM_SAVE: Record<string, (ctx: { em: EntityManager; host: RuleHost; user: AuthUser; existing: ResourceRecord | null;input?:ResourceFormInput }) => Promise<void>> = {
+  'finance-products': async ({ em, existing,user,input }) => {await beginSourceFinishedNameForm({em,user,existing,input});await beginSourceBomCopy({em,user,existing,input});beginPurchaseHistoryBatch(em, existing);beginFreightHistoryBatch(em);beginSourceProductForm(em,user,existing);},
+  'finance-product-units': beginSourceUnitForm,
+  'finance-base-codes': async ({em,user}) => beginIndependentBaseForm(em,user),
+};
+export const FINANCE_AFTER_FORM_SAVE: Record<string, (ctx: { em: EntityManager; host: RuleHost; user: AuthUser; record: ResourceRecord }) => Promise<void>> = {
+  'finance-products': async ({ em, host, user,record }) => {try{finishSourceFinishedNameForm(em,user);finishSourceBomCopy(em,user);if(record.data.archiveType==='purchased'&&record.data.supplyMode==='supplier_oem')await recomputeProduct(host,em,user,record.id);await finishSourceProductQuality(em,user,record);if(sourceProductQualityActive(em,user)){const receipts=record.data.sourceQualityConfirmations as Record<string,{reason?:string}|null>|undefined;await rememberZeroReasons(host,em,user,Object.values(receipts??{}).flatMap(row=>typeof row?.reason==='string'&&row.reason.trim()?['确认：'+row.reason]:[]).join('\n'));}await flushFreightHistory(host,em,user);await flushPurchaseHistory(host,em,user);}finally{endSourceFinishedNameForm(em);endSourceProductForm(em);}},
+  'finance-product-units': finishSourceUnitForm,
+  'finance-base-codes': async ({em,host,user,record}) => finishIndependentBaseForm(host,em,user,record,id=>markBundlesOfBaseCode(host,em,user,id)),
 };

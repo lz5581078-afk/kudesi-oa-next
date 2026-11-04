@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
 import { JstMaintenanceService, UploadForm } from './jst-maintenance.service';
 
@@ -8,10 +8,15 @@ class CheckDto {
   @IsOptional() @IsString() @MaxLength(120) skuId?: string;
   @IsOptional() @IsString() @MaxLength(120) styleId?: string;
   @IsOptional() @IsString() @MaxLength(200) name?: string;
+  @IsOptional() @IsString() @MaxLength(200) categoryName?: string;
 }
-class UploadDto { @IsObject() form!: UploadForm }
+class UploadDto {
+  @IsObject() form!: UploadForm;
+  @IsString() @MaxLength(300) signature!: string;
+  @IsOptional() @IsBoolean() confirmed?: boolean;
+}
 class LogsDto {
-  @IsOptional() @IsString() @MaxLength(60) keyword?: string;
+  @IsOptional() @IsString() @MaxLength(10000) keyword?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) pageSize?: number;
 }
@@ -32,9 +37,9 @@ export class JstMaintenanceController {
   @RequirePermission('finance.jst-maintenance.view', 'product.cost.edit')
   @Post('upload')
   @HttpCode(200)
-  upload(@CurrentUser() u: AuthUser, @Body() b: UploadDto) { return this.svc.upload(u, b.form); }
+  upload(@CurrentUser() u: AuthUser, @Body() b: UploadDto) { return this.svc.upload(u, b.form, { signature: b.signature, confirmed: b.confirmed }); }
 
   @RequirePermission('finance.jst-maintenance.view')
   @Get('logs')
-  logs(@CurrentUser() u: AuthUser, @Query() q: LogsDto) { return this.svc.logs(u, { keyword: q.keyword, page: q.page ?? 1, pageSize: q.pageSize ?? 20 }); }
+  logs(@CurrentUser() u: AuthUser, @Query() q: LogsDto) { return this.svc.logs(u, { keyword: q.keyword, page: q.page ?? 1, pageSize: q.pageSize ?? 30 }); }
 }

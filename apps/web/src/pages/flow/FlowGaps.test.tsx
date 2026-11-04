@@ -13,6 +13,7 @@ import { StarterScopeEditor } from './StarterScopeEditor';
 import { flowApi } from './flowApi';
 import { MyTodosPage } from './TodosPage';
 
+vi.mock('../../auth/AuthContext',()=>({useAuth:()=>({user:{id:1,companyId:1,permissions:{isCompanyAdmin:true,allow:[],deny:[]}},can:()=>true})}));
 vi.mock('./flowApi', async (orig) => ({ ...(await orig<typeof import('./flowApi')>()), flowApi: { todos: vi.fn(), reassign: vi.fn(), run: vi.fn() } }));
 vi.mock('./SkuApply', async (orig) => ({ ...(await orig<typeof import('./SkuApply')>()), skuBatchApi: { board: vi.fn(), act: vi.fn(), returnAll: vi.fn(), returnSpecs: vi.fn() } }));
 vi.mock('../../resources/api', async (orig) => ({ ...(await orig<typeof import('../../resources/api')>()), resourceApi: { fileUrl: vi.fn() } }));

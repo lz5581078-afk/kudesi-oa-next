@@ -1,0 +1,17 @@
+.reference-document-source .reference-voucher-payment,.reference-document-source .reference-voucher-note{display:grid;gap:12px;padding:12px;border:1px solid #dbe4ef;border-radius:8px;background:#fff;box-shadow:0 2px 8px #0f172a0a;box-sizing:border-box}
+.reference-voucher-section-head{display:flex;gap:10px;align-items:center;padding-bottom:12px;border-bottom:1px solid #e6ebee;font:16px Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif;color:#172033}
+.reference-voucher-section-head.compact{padding:0;border:0}
+.reference-voucher-section-head>span{display:grid;place-items:center;flex:none;width:30px;height:30px;border-radius:6px;background:#176b4d;color:#fff;font-size:16px;font-weight:900}
+.reference-voucher-section-head h2{margin:0;color:#172033;font:700 16px Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif}
+.reference-voucher-section-head p{margin:3px 0 0;color:#68758a;font-size:12px}
+.reference-voucher-pay-modes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:4px}
+.reference-voucher-pay-modes>button{min-height:38px;padding:0 10px;color:#24362b;background:#fff;border:1px solid #cfe2d0;border-radius:8px;font:900 16px Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif;cursor:pointer;box-sizing:border-box}
+.reference-voucher-pay-modes>button.active{color:#17613f;background:#e8f8ec;border-color:#23925f;box-shadow:inset 0 0 0 1px #23925f}
+.reference-voucher-field{display:grid;gap:6px;margin:0;color:#496656;font:900 12px Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif}
+.reference-voucher-field>input,.reference-voucher-field>textarea{width:100%;height:38px;min-height:0;padding:0 10px;color:#0f172a;background:#fff;border:1px solid #cfe2d0;border-radius:8px;font:inherit;box-sizing:border-box}
+.reference-voucher-field>textarea{height:76px;min-height:76px;padding-top:10px;margin:0 0 12px;resize:vertical}
+.reference-voucher-field .reference-document-picker,.reference-voucher-field .reference-document-picker-trigger,.reference-voucher-field .reference-document-picker-menu,.reference-voucher-field .reference-document-picker-menu .pick-list,.reference-voucher-field .reference-document-picker-menu .pick-list>li,.reference-voucher-field .reference-document-picker-menu .pick-list button,.reference-document.reference-document-source .reference-voucher-field .reference-document-picker-menu>input{font:900 12px Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif}
+.reference-document-source .slip-total-card.reference-voucher-total{display:grid;gap:6px;padding:14px;border:1px solid #dbe4ef;border-radius:8px;background:#fff;box-shadow:0 2px 8px #0f172a0a}
+.reference-document-source .reference-voucher-total>span{color:#496656;font-size:13px;font-weight:900}
+.reference-document-source .reference-voucher-total>b{color:#176b4d;font-size:28px;line-height:1.1;font-weight:700}
+.reference-document-source[data-doc-type="expense"] .reference-voucher-total>b{color:#247347;font-size:32px}

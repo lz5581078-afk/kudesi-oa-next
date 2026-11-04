@@ -1,0 +1,73 @@
+/* 原联系新增与供应商原位编辑抽屉；查看态使用独立只读布局。 */
+form.modal.rf.rf-reference.reference-contact-create{display:flex;flex-direction:column;width:min(760px,calc(100vw - 24px));height:auto;max-height:calc(100dvh - 24px);overflow:hidden;padding:0;color:#172235;background:#fff;border:1px solid #dfe6ee;border-radius:14px;box-shadow:0 24px 72px rgba(15,23,42,.24);font-family:Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif;font-size:16px;font-weight:400;line-height:normal}
+form.modal.rf.rf-reference.reference-contact-create .rf-head{height:auto;min-height:74px;padding:15px 22px 13px!important;align-items:flex-start;border-bottom:1px solid #e5eaf0}
+form.modal.rf.rf-reference.reference-contact-create .reference-title{display:block}
+form.modal.rf.rf-reference.reference-contact-create .reference-party-kicker{display:flex;align-items:center;gap:8px;margin:0;color:#25805a;font-size:11px;font-weight:900;line-height:normal}
+form.modal.rf.rf-reference.reference-contact-create .reference-title h2{font-size:21px;line-height:normal;margin:4px 0 0}
+form.modal.rf.rf-reference.reference-contact-create .reference-title p{display:block;font-size:12px;line-height:normal;color:#788699;margin:4px 0 0}
+form.modal.rf.rf-reference.reference-contact-create .rf-head>.icon-button{display:grid;place-items:center;width:36px;height:36px;flex:0 0 36px;padding:0;border:0;border-radius:8px;background:transparent;color:#56687d;box-shadow:none}
+form.modal.rf.rf-reference.reference-contact-create .rf-main{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
+form.modal.rf.rf-reference.reference-contact-create .rf-scroll{display:grid;grid-auto-rows:max-content;align-content:start;flex:1;min-height:0;height:0;gap:10px;padding:12px 22px!important;background:#fff!important;overflow:auto}
+form.modal.rf.rf-reference.reference-contact-create .reference-party-fields{padding:12px!important;border:1px solid #dce5ed!important;border-radius:10px!important;background:#fff!important}
+form.modal.rf.rf-reference.reference-contact-create .reference-party-fields .rf-sec-title{display:flex;justify-content:flex-start;gap:7px;margin:0 0 12px;padding:0 0 12px!important;font-size:14px!important;border-bottom:1px solid #edf1f5!important}
+form.modal.rf.rf-reference.reference-contact-create .reference-party-fields .form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 12px;padding:0}
+form.modal.rf.rf-reference.reference-contact-create .reference-party-fields .form-grid>.rf-field{display:grid;grid-column:auto;gap:6px;min-width:0;padding:0;border:0;border-radius:0;background:transparent}
+form.modal.rf.rf-reference.reference-contact-create .reference-party-fields .form-grid>[data-field=note],form.modal.rf.rf-reference.reference-contact-create .reference-party-fields .form-grid>[data-field=bankAccountNo]{grid-column:1/-1}
+form.modal.rf.rf-reference.reference-contact-create .reference-party-fields .rf-step{display:grid;width:22px;height:22px;flex:0 0 22px;margin:0;place-items:center;border-radius:6px;background:#16855a!important;color:#fff!important;font-size:11px;font-weight:900}
+form.modal.rf.rf-reference.reference-contact-create .reference-party-code [data-field=code]{grid-column:1/-1}
+form.modal.rf.rf-reference.reference-contact-create .form-grid .rf-field>.rf-label{display:flex;flex-direction:row;align-items:baseline;justify-content:flex-start;flex-wrap:nowrap;gap:4px;min-height:0;margin:0;font-size:11px;font-weight:850;color:#40536b}
+form.modal.rf.rf-reference.reference-contact-create .rf-label>.req{font-size:10px;font-weight:400;color:#dc3e3e}
+form.modal.rf.rf-reference.reference-contact-create .rf-foot{display:flex;flex:none;flex-wrap:wrap;align-items:center;justify-content:flex-end!important;gap:10px;margin:0;padding:12px 22px!important;min-height:0;height:auto;background:#f8fafc;border-top:1px solid #e2e8f0;box-shadow:none}
+form.modal.rf.rf-reference.reference-contact-create .rf-foot>button{order:0!important;min-width:0;height:38px;padding:0 12px;font-size:16px;font-weight:400;flex:none}
+form.modal.rf.rf-reference.reference-contact-create .rf-foot>.primary-button{border:1px solid #07864f;font-weight:700}
+form.modal.rf.rf-reference.reference-contact-create .files-input.replacement-only .file-remove{position:static;width:auto;height:auto;border:0;background:none;color:#c33;padding:4px 0}
+form.modal.rf.rf-reference.reference-supplier-edit .rf-foot>.finance-form-save{order:-1!important}
+form.modal.rf.rf-reference.reference-supplier-edit .reference-archive-code{grid-template-columns:minmax(0,1fr)}
+
+@media(max-width:650px){form.modal.rf.rf-reference.reference-contact-create .reference-party-fields .form-grid{grid-template-columns:1fr}form.modal.rf.rf-reference.reference-contact-create .reference-party-fields .form-grid>.s6{grid-column:1/-1}}
+
+form.modal.rf.rf-reference.reference-contact-create .reference-supplier-categories{display:grid;gap:10px;padding:12px;border:1px solid #dce5ed;border-radius:10px;background:#fff}
+form.modal.rf.rf-reference.reference-contact-create .reference-supplier-categories>h3{display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:7px;margin:0;padding:0 0 8px;border-bottom:1px solid #edf1f5;font-size:13px;color:#23364c}
+form.modal.rf.rf-reference.reference-contact-create .reference-supplier-categories>h3>small{margin-left:auto;font-size:10px;font-weight:400;color:#7a899a}
+form.modal.rf.rf-reference.reference-contact-create .supplier-category-choice-grid>label{display:flex;flex-direction:row;align-items:center;gap:8px;min-width:0;min-height:38px;padding:8px 10px;border:1px solid #d8e2eb;border-radius:7px;background:#fff;color:#43566d}
+form.modal.rf.rf-reference.reference-contact-create .supplier-category-choice-grid>label.is-selected{border-color:#76c69f;background:#eef9f3;color:#17613f}
+form.modal.rf.rf-reference.reference-contact-create .supplier-category-choice-grid input[type=checkbox]{flex:0 0 15px;width:15px!important;height:15px!important;accent-color:#0b965c}
+form.modal.rf.rf-reference.reference-contact-create .supplier-category-choice-grid>label>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:750}
+form.modal.rf.rf-reference.reference-contact-create .reference-party-code{display:grid;gap:8px;margin:0;padding:11px 12px;border:1px solid #dce5ec;border-radius:9px;background:#f8fafc}
+form.modal.rf.rf-reference.reference-contact-create .reference-party-code .rf-sec-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0;padding:0!important;border:0;font-size:13px;color:#17613f}
+form.modal.rf.rf-reference.reference-contact-create .reference-party-code .rf-sec-title>small{margin-left:auto;color:#718096;font-size:10px;font-weight:400}
+form.modal.rf.rf-reference.reference-contact-create .reference-party-code .form-grid{display:block;padding:0}
+form.modal.rf.rf-reference.reference-contact-create .reference-party-code .rf-field{padding:0;border:0;background:none}
+form.modal.rf.rf-reference.reference-contact-create .reference-party-code .form-grid .rf-field>.rf-label{display:none}
+form.modal.rf.rf-reference.reference-contact-create .reference-party-context p{margin:0;font-size:10px;color:#728277;line-height:normal}
+form.modal.rf.rf-reference.reference-contact-create .reference-party-context{display:grid;gap:3px;margin-bottom:10px}
+form.modal.rf.rf-reference.reference-contact-create .reference-party-context:last-child{margin-bottom:0}
+form.modal.rf.rf-reference.reference-contact-create .reference-supplier-categories .reference-party-step{flex:0 0 22px;width:22px;height:22px;display:grid;place-items:center;border-radius:6px;background:#16855a;color:#fff}
+form.modal.rf.rf-reference.reference-contact-create .reference-archive-code{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+form.modal.rf.rf-reference.reference-contact-create .reference-archive-code>button{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:38px;padding:0 12px;border:1px solid #d4dbe1;border-radius:8px;background:#fff;color:#344054;font-size:16px;font-weight:400;text-decoration:none}
+form.modal.rf.rf-reference.reference-contact-create input:not([type=checkbox]),form.modal.rf.rf-reference.reference-contact-create textarea{width:100%;min-width:0;border:1px solid #ccd8e5;border-radius:8px;color:#24364d;background:#fff;outline:none;font-size:16px;font-weight:400}
+form.modal.rf.rf-reference.reference-contact-create input:not([type=checkbox]){height:40px;padding:0 11px}
+form.modal.rf.rf-reference.reference-contact-create input:disabled{color:#5f7085;background:#f2f5f8}
+form.modal.rf.rf-reference.reference-contact-create .reference-party-code input:disabled{color:#315c46;background:#e7f6ed}
+form.modal.rf.rf-reference.reference-contact-create textarea{min-height:66px;padding:10px 11px;resize:vertical}
+form.modal.rf.rf-reference.reference-contact-create .reference-party-fields input:not([type=checkbox]){height:38px;padding:0 10px}
+form.modal.rf.rf-reference.reference-contact-create .reference-party-fields textarea{height:92px;min-height:92px;margin:0 0 12px;padding:10px}
+form.modal.rf.rf-reference.reference-contact-create input:focus,form.modal.rf.rf-reference.reference-contact-create textarea:focus{border-color:#4c91e5;box-shadow:0 0 0 3px rgba(59,130,246,.12)}
+
+form.modal.rf.rf-reference.reference-contact-create .reference-party-fields .rf-sec-title{font-size:13px!important;padding-bottom:8px!important;margin-bottom:10px!important}
+form.modal.rf.rf-reference.reference-contact-create .reference-party-fields .rf-sec-title small{margin-left:auto;font-size:10px;font-weight:400;color:#7a899a}
+form.modal.rf.rf-reference.reference-contact-create .reference-party-fields .form-grid>.rf-field[data-field=paymentQr]{display:grid;grid-template-columns:minmax(0,1fr);grid-column:1/-1;align-items:center;gap:9px;padding:11px;border:1px solid #dbe5ed;border-radius:9px;background:#f8fafc}
+form.modal.rf.rf-reference.reference-contact-create .reference-party-fields .form-grid>[data-field=paymentQr]>.rf-label{font-size:11px;font-weight:850;color:#40536b}
+form.modal.rf.rf-reference.reference-contact-create .reference-payment-hint{font-size:10px;color:#7a899a;margin:-6px 0 0;text-align:left}
+form.modal.rf.rf-reference.reference-contact-create [data-field=paymentQr]>.files-input{grid-column:1/-1}
+form.modal.rf.rf-reference.reference-contact-create .files-input.replacement-only{display:grid;gap:9px}
+form.modal.rf.rf-reference.reference-contact-create .files-input.replacement-only .file-grid{display:grid;grid-template-columns:1fr;margin:0;padding:0}
+form.modal.rf.rf-reference.reference-contact-create .replacement-file-empty{display:grid;min-height:94px;place-content:center;justify-items:center;gap:6px;color:#7c8da0;border:1px dashed #cfdbe6;border-radius:8px;background:#fff;font-size:11px}
+form.modal.rf.rf-reference.reference-contact-create .replacement-file-empty>span{font-size:13px;font-weight:700}
+form.modal.rf.rf-reference.reference-contact-create .files-input.replacement-only>button{display:inline-flex;align-items:center;justify-content:center;gap:6px;width:max-content;height:38px;min-height:38px;padding:0 12px;font-size:16px;font-weight:400}
+form.modal.rf.rf-reference.reference-contact-create .files-input.replacement-only .file-thumb:has(img){display:flex;flex-direction:row;align-items:flex-end;gap:10px;width:max-content;max-width:100%;height:auto;padding:0;border:0;background:none}
+form.modal.rf.rf-reference.reference-contact-create .files-input.replacement-only .file-thumb:has(img)>.file-name{display:none}
+form.modal.rf.rf-reference.reference-contact-create .files-input.replacement-only .file-thumb:has(img)>.file-open{width:132px;height:132px;padding:0;border:0;background:none}
+form.modal.rf.rf-reference.reference-contact-create .files-input.replacement-only .file-thumb img{width:132px;height:132px;padding:5px;object-fit:contain;border:1px solid #d7e2ec;border-radius:8px;background:#fff}
+form.modal.rf.rf-reference.reference-contact-create .files-input.replacement-only .file-thumb:has(img)>.file-remove{height:auto;padding:0;color:#dc2626;font-size:16px;font-weight:800;line-height:normal;text-decoration:none}
+@media(max-width:1100px){form.modal.rf.rf-reference.reference-contact-create .reference-party-fields .form-grid>[data-field=note],form.modal.rf.rf-reference.reference-contact-create .reference-party-fields .form-grid>[data-field=bankAccountNo],form.modal.rf.rf-reference.reference-contact-create .reference-party-fields .form-grid>.rf-field[data-field=paymentQr]{grid-column:auto}}

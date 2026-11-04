@@ -45,7 +45,7 @@ d('财务查询页面（真实数据库）', () => {
     ids.wh = (await svc.create(boss, 'finance-warehouses', { name: '一号仓' })).id;
     ids.feeOut = (await svc.create(boss, 'finance-fee-items', { name: '房租', direction: 'expense' })).id;
     ids.lic = (await svc.create(boss, 'licenses', { category: 'operation', companyName: '主体甲公司', creditCode: `V-${crypto.randomBytes(5).toString('hex')}`, legalPerson: '王' })).id;
-    ids.store = (await svc.create(boss, 'stores', { name: '查询店A', platform: 'pdd', licenseId: ids.lic })).id;
+    ids.store = (await svc.create(boss, 'stores', { name: '查询店A', platform: 'pdd', storeNo: 'SYNTHETIC-S1', platformStoreId: 'PLATFORM-SYNTHETIC-001', licenseId: ids.lic })).id;
     ids.store2 = (await svc.create(boss, 'stores', { name: '查询店B', platform: 'taobao' })).id;
     ids.bankStore = (await svc.create(boss, 'bank-accounts', { kind: 'store_public', accountName: '店铺公户', bank: '测试银行', accountNo: '6222000011110001', balance: 1000, storeId: ids.store, licenseId: ids.lic })).id;
     ids.bankCo = (await svc.create(boss, 'bank-accounts', { kind: 'company_public', accountName: '公司公户', bank: '测试银行', accountNo: '6222000011110002', balance: 100000 })).id;
@@ -109,16 +109,21 @@ d('财务查询页面（真实数据库）', () => {
 
   it('库存查询：缺货筛选只留数量 ≤ 0 的行；库存正常只留 > 0 的行', async () => {
     const all = await docs.inventory(boss, {});
-    expect(all.map((r) => r.productName)).toEqual(['查询苹果']); // 梨数量为 0 且金额为 0，不筛选时不显示
+    expect(all.map((r) => r.productName).sort()).toEqual(['查询梨', '查询苹果'].sort()); // 旧版全部状态保留已售空的零库存
     const out = await docs.inventory(boss, { stockStatus: 'out' });
     expect(out.map((r) => r.productName)).toEqual(['查询梨']);
     expect(out[0].qty).toBe(0);
     const normal = await docs.inventory(boss, { stockStatus: 'normal' });
     expect(normal.map((r) => r.productName)).toEqual(['查询苹果']);
+    expect((await docs.inventory(boss, { warehouse: '号仓' })).map(row => row.productName).sort()).toEqual(all.map(row => row.productName).sort());
+    expect(await docs.inventory(boss, { warehouse: '不存在的仓' })).toEqual([]);
+    expect(await docs.inventory(boss, { warehouse: '%' })).toEqual([]);
+    expect(await docs.inventory(other, { warehouse: '号仓' })).toEqual([]);
+    expect((await docs.inventory(noCost, { warehouse: '号仓' })).every(row => row.amountCents === null && row.avgCostCents === null)).toBe(true);
     await expect(docs.inventory({ ...noCost, permissions: { isCompanyAdmin: false, allow: [], deny: [] } }, { stockStatus: 'out' })).rejects.toThrow(/权限/);
   });
 
-  it('库存流水：按商品+仓库列出每笔变动和滚动结存；成本权限控制金额；别家公司和无权限被拒；关键词支持多个词', async () => {
+  it('库存流水：按商品+仓库列出每笔变动和滚动结存；成本权限控制金额；别家公司和无权限被拒；关键词保留完整短语', async () => {
     const led = await docs.inventoryLedger(boss, { productId: ids.pear, warehouseId: ids.wh });
     expect(led.rows.map((r) => [r.qty, r.balanceQty])).toEqual([[5, 5], [-5, 0]]);
     expect(led.rows.map((r) => r.typeLabel).length).toBe(2);
@@ -130,7 +135,7 @@ d('财务查询页面（真实数据库）', () => {
     expect((await docs.inventoryLedger(boss, { productId: ids.pear, warehouseId: ids.wh, asOf: '2026-03-09' })).rows).toHaveLength(0);
     expect((await docs.inventoryLedger(other, { productId: ids.pear, warehouseId: ids.wh })).rows).toHaveLength(0);
     await expect(docs.inventoryLedger({ ...noCost, permissions: { isCompanyAdmin: false, allow: [], deny: [] } }, { productId: ids.pear, warehouseId: ids.wh })).rejects.toThrow(/权限/);
-    expect((await docs.inventory(boss, { keyword: '苹果 KG' })).map((r) => r.productName)).toEqual(['查询苹果']);
+    expect((await docs.inventory(boss, { keyword: '查询苹果' })).map((r) => r.productName)).toEqual(['查询苹果']);
     expect(await docs.inventory(boss, { keyword: '苹果 梨' })).toHaveLength(0);
   });
 
@@ -146,6 +151,7 @@ d('财务查询页面（真实数据库）', () => {
     await svc.create(boss, 'store-funds', { storeId: ids.store, snapshotDate: day, withdrawable: 7777, deposit: 100, frozen: 0, promotion: 50 });
     const funds = await docs.storeFunds(boss);
     const a = funds.find((f) => f.storeId === ids.store)!, b = funds.find((f) => f.storeId === ids.store2)!;
+    expect(a).toMatchObject({ storeNo: 'SYNTHETIC-S1', platformStoreId: 'PLATFORM-SYNTHETIC-001' });
     expect(a).toMatchObject({ platformLabel: '拼多多', withdrawableCents: 7777, snapshotDate: day });
     expect(b).toMatchObject({ platformLabel: '淘宝', withdrawableCents: 0, depositCents: 0, snapshotDate: '' });
     expect(b.updatedAt).toBeNull();

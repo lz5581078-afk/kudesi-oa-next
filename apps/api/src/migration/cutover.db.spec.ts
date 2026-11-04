@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { randomBytes } from 'node:crypto';
 import { DataSource } from 'typeorm';
 import { buildDataSourceOptions } from '../database/data-source';
-import { Company,User,ResourceRecord,IntegrationSetting,PlatformAdmin } from '../entities';
+import { Company,User,ResourceRecord,IntegrationSetting,PlatformAdmin,UserPreference } from '../entities';
 import { buildServices } from '../test-support';
 import { sourceRowHash } from './source-rows';
 import type { LegacyArchive } from './protocol';
@@ -21,6 +21,7 @@ suite('全部公司统一清理/导入/核对/提交（独立MySQL库）',()=>{
     const targetOnly=await ds.manager.save(User,ds.manager.create(User,{companyId:1,account:'target-only-bootstrap',name:'新站专有初始管理员',passwordHash:'!no-login',status:'active',isCompanyAdmin:true,mustChangePassword:false}));
     await ds.query('INSERT INTO ai_providers (company_id,provider_key,name,base_url,api_key_enc,status,created_by) VALUES (1,?,?,?,?,?,?)',['test','保留服务商','https://example.invalid',svc.crypto.encrypt('private-key'),'active',targetOnly.id]);
     await ds.manager.save(ResourceRecord,ds.manager.create(ResourceRecord,{companyId:1,type:'locations',title:'清理前原资料',status:'active',data:{name:'清理前原资料'}}));
+    await ds.manager.insert(UserPreference,{companyId:1,userId:old.id,preferenceKey:'finance-expense-sort-v1',value:{categoryOrders:{root:['1']},itemOrders:{}}});
     configEnc=svc.crypto.encrypt(JSON.stringify({apiKey:'isolated-never-log-key',allEmployees:true,maxConcurrent:2000}));
     await ds.manager.save(IntegrationSetting,ds.manager.create(IntegrationSetting,{companyId:1,settingKey:'collector-speech',configEnc,updatedBy:old.id}));
     await ds.manager.save(PlatformAdmin,ds.manager.create(PlatformAdmin,{account:'platform-admin-cutover',name:'平台',passwordHash:'!no-login',status:'active'}));
@@ -36,7 +37,7 @@ suite('全部公司统一清理/导入/核对/提交（独立MySQL库）',()=>{
     await prepareCutoverSequences(ds,1000000);sources[1].employees[1].name='x'.repeat(60);
     await expect(run()).rejects.toThrow('员工姓名');sources[1].employees[1].name='原员工';
     expect(await ds.manager.count(User)).toBe(2);expect((await ds.manager.findOneByOrFail(User,{id:oldUserId})).name).toBe('旧人工资料');
-    expect(await ds.manager.count(ResourceRecord)).toBe(1);expect(await ds.manager.count(Company)).toBe(1);
+    expect(await ds.manager.count(ResourceRecord)).toBe(1);expect(await ds.manager.count(Company)).toBe(1);expect(await ds.manager.count(UserPreference)).toBe(1);
     expect(await ds.query('SELECT source_key,target_id FROM legacy_import_links')).toEqual([{source_key:'user:10',target_id:oldUserId}]);
   });
   it('统一回滚报告不能放行变化的来源；核对后同一事务提交两家，配置密文保持且人员引用重映射',async()=>{
@@ -45,7 +46,7 @@ suite('全部公司统一清理/导入/核对/提交（独立MySQL库）',()=>{
     const altered=structuredClone(dry);altered.counts.users++;await prepareCutoverSequences(ds,1000000);await expect(run({apply:true,expected:altered})).rejects.toThrow('全部表计数');expect(await ds.manager.count(User)).toBe(2);
     sources[1].exclusions[0].reason='不同处置范围';await prepareCutoverSequences(ds,1000000);await expect(run({apply:true,expected:dry})).rejects.toThrow('核对试迁不一致');sources[1].exclusions[0].reason='用户选择保留旧站后补的历史';
     await prepareCutoverSequences(ds,1000000);const actual=await run({apply:true,expected:dry});expect(actual.phase).toMatch(/^committed/);
-    expect(await ds.manager.count(User)).toBe(4);expect(await ds.manager.count(Company)).toBe(2);expect(await ds.manager.count(ResourceRecord)).toBe(0);
+    expect(await ds.manager.count(User)).toBe(4);expect(await ds.manager.count(Company)).toBe(2);expect(await ds.manager.count(ResourceRecord)).toBe(0);expect(await ds.manager.count(UserPreference)).toBe(0);
     const boss=await ds.manager.findOneByOrFail(User,{id:plans[0].actorId});expect(boss.account).toBe('source-boss-1');expect(boss.departmentId).toBeGreaterThanOrEqual(1000000);expect(boss.positionId).toBeGreaterThanOrEqual(1000000);
     const config=await ds.manager.findOneByOrFail(IntegrationSetting,{companyId:1});expect(config.configEnc).toBe(configEnc);expect(config.updatedBy).toBe(boss.id);
     const [provider]=await ds.query('SELECT created_by FROM ai_providers');expect(provider.created_by).toBeNull();expect(actual.detachedTechnicalOwners).toHaveLength(1);expect(Number((await ds.query("SELECT COUNT(*) n FROM audit_logs WHERE action='legacy.technical-owner-detach'"))[0].n)).toBe(1);

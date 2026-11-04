@@ -1,3 +1,4 @@
+import { isCodeResource, inactiveCodeStatus, codeVerificationSql } from './finance-code-lifecycle';
 import { categoryLabelMap } from './category-options';
 import { EntityManager, SelectQueryBuilder } from 'typeorm';
 import { addDaysText, getResourceDef, phoneStoreImportColumns, viewFiltersOf, PHONE_RECHARGE_DAYS, MEMO_DUE_DAYS } from '@kudesi/shared';
@@ -16,6 +17,7 @@ export const HAS_ALIAS = `EXISTS (SELECT 1 FROM resource_records a WHERE a.compa
 const J = (k: string) => `JSON_UNQUOTE(JSON_EXTRACT(r.data, '$.${k}'))`;
 
 export function isViewFilter(type: string, key: string): boolean {
+  if(isCodeResource(type)&&['verificationState','enabledState'].includes(key))return true;
   return viewFiltersOf(type).some((f) => f.key === key) || (type === 'finance-base-codes' && key === 'brandId');
 }
 
@@ -30,6 +32,18 @@ export async function applyViewFilter(
   today: string,
   idx: number,
 ): Promise<boolean> {
+  if(isCodeResource(type)&&key==='verificationState'){
+    const expr=codeVerificationSql(type),parameter=`codePhase${idx}`;
+    if(value==='unknown'){qb.andWhere(`r.status = :${parameter} AND (${expr}) IS NULL`,{[parameter]:inactiveCodeStatus(type)});return true;}
+    if(!['pending','verified','reverify'].includes(value))return false;
+    qb.andWhere(`(${expr}) = :${parameter}`,{[parameter]:value});return true;
+  }
+  if(isCodeResource(type)&&key==='enabledState'){
+    if(value==='active')qb.andWhere("r.status IN ('pending','verified','reverify')");
+    else if(value==='inactive')qb.andWhere(`r.status = :codeInactive${idx}`,{[`codeInactive${idx}`]:inactiveCodeStatus(type)});
+    else return false;
+    return true;
+  }
   // 基础编码按品牌筛选：品牌取自来源商品档案（多构成编码取自己的编码品牌）；选项是公司的品牌清单，不是固定值
   if (type === 'finance-base-codes' && key === 'brandId') {
     if (!/^\d{1,12}$/.test(value)) return false;
@@ -61,7 +75,7 @@ export async function applyViewFilter(
     return true;
   }
   if (type === 'finance-base-codes' && key === 'realView') {
-    qb.andWhere(`NOT (r.status = 'verified' AND ${HAS_ALIAS})`);
+    qb.andWhere(`NOT (COALESCE((${codeVerificationSql(type)}),'') = 'verified' AND ${HAS_ALIAS})`);
     return true;
   }
   if (type === 'stores' && key === 'legacyOwner') {

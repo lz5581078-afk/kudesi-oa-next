@@ -1,3 +1,4 @@
+import {formatOaDateTime} from '../lib/oaDateTime';
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 
@@ -19,7 +20,7 @@ export function VerificationHistoryPanel({ id }: { id: number }) {
     <ul className="plain-list">
       {rows.map((r) => (
         <li key={r.id}>
-          <div className="between"><strong>{new Date(r.verifiedAt).toLocaleString('zh-CN')}</strong><span className="muted">{r.verifiedBy} · {r.first ? '首次验证' : '二次验证'} · 指纹 {r.signature}</span></div>
+          <div className="between"><strong>{formatOaDateTime(r.verifiedAt)}</strong><span className="muted">{r.verifiedBy} · {r.first ? '首次验证' : '二次验证'} · 指纹 {r.signature}</span></div>
           {!r.first && (r.changes.length === 0
             ? <p className="muted">和上次验证相比没有可列出的资料变化。</p>
             : <div className="table-scroll"><table className="data-table">

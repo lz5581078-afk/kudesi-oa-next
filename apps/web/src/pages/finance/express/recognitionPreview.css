@@ -1,0 +1,10 @@
+.express-recognition-preview input:not([type="checkbox"]),
+.express-recognition-preview select { min-width: 110px; width: 100%; }
+.express-recognition-preview input[type="date"] { min-width: 140px; }
+.express-recognition-preview th { white-space: nowrap; }
+
+.express-recognition-upload { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px; margin: 12px 0; border: 1px dashed #cad8df; background: #f7faf9; }
+.express-recognition-dialog { width: min(1480px, calc(100vw - 32px)); background: #fff; border-radius: 8px; opacity: 1; }
+.express-recognition-dialog .modal-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; background: #fff; }
+.express-recognition-dialog h3 { margin: 0; font-size: 18px; }
+.express-recognition-dialog .modal-head p { margin: 6px 0 0; font-size: 12px; color: #5e7180; }

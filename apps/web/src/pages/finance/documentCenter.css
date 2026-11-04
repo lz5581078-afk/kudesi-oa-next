@@ -1,0 +1,7 @@
+.document-center-main-text{font-weight:800;color:#172033}
+.document-center-status{display:inline-flex;align-items:center;min-height:24px;padding:3px 8px;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:700}
+.document-center-status.draft,.document-center-status.pending{background:#fff7e6;color:#92400e}
+.document-center-status.completed{background:#ecfdf3;color:#166534}
+.document-center-status.cancelled{background:#f1f5f9;color:#64748b}
+.finance-document-center .link-button{font-size:14px;font-weight:800;color:#166534}
+.finance-document-center .qk-panel>.notice{margin-bottom:12px}

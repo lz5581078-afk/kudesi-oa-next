@@ -22,6 +22,8 @@ export interface NavPage {
   /** 访问这个页面需要的权限键 */
   permission: string;
   ready: boolean;
+  /** 原数据关联仍可进入的页面，保留路由与权限，仅不添加到主菜单。 */
+  menuHidden?:boolean;
   /** 左侧菜单里的分组小标题（可选） */
   group?: string;
   /** 菜单条目下方的一行说明（可选，照旧程序二级导航） */
@@ -146,7 +148,7 @@ function financePages(): NavPage[] {
     res('finance-customers', '基础资料'),
     res('finance-fee-items', '基础资料'),
     own('history', '经营历程', '单据中心'),
-    res('finance-ledger-history', '单据中心'),
+    {...res('finance-ledger-history', '单据中心'),menuHidden:true},
     own('drafts', '草稿中心', '单据中心'),
     ...DOC_TYPES.filter((d) => d.type !== 'withdrawal').map((d) => own(`doc-${d.type}`, d.label, '制单中心')),
     own('cost-table', '成本表', '数据'),
@@ -155,8 +157,8 @@ function financePages(): NavPage[] {
     res('finance-express-prices', '数据'),
     own('inventory', '库存查询', '实时查询'),
     own('cash-bank', '现金银行查询', '实时查询'),
-    own('unsettled-receipts', '未完全结算收付款单', '实时查询'),
-    own('settlement-detail', '收付款结算明细表', '实时查询'),
+    {...own('unsettled-receipts', '未完全结算收付款单', '实时查询'),menuHidden:true},
+    {...own('settlement-detail', '收付款结算明细表', '实时查询'),menuHidden:true},
     res('finance-base-codes', '聚水潭分类'),
     res('finance-bundles', '聚水潭分类'),
     own('master-import', '商品数据导入', '聚水潭分类'),
@@ -173,8 +175,8 @@ export interface PageTab { id: string; label: string; ref: string; permission: s
 const rtab = (key: string, label: string): PageTab => ({ id: key, label, ref: key, permission: `resource.${key}.view` });
 const ptab = (id: string, label: string): PageTab => ({ id, label, ref: id, permission: `finance.${id}.view` });
 export const PAGE_TABS: Record<string, readonly PageTab[]> = {
-  'finance/cost-table': [ptab('cost-table', 'SKU成本表'), ptab('cost-history', '成本历史'), rtab('finance-margins', '分类利润率'), rtab('finance-cost-versions', '成本版本与辅助成本')],
-  'finance/finance-express-prices': [rtab('finance-express-prices', '快递价格'), rtab('finance-freight-overrides', '成本表预估快递费'), ptab('zone-suggestion', '分区建议')],
+  'finance/cost-table': [ptab('cost-table', 'SKU成本表'), ptab('cost-history', '成本历史')],
+  'finance/finance-express-prices': [rtab('finance-express-prices', '经营网点'), ptab('zone-suggestion', '分区建议'), rtab('finance-freight-overrides', '成本表预估快递费')],
   'finance/finance-products': [rtab('finance-products', '商品档案'), rtab('finance-packaging-schemes', '包装方案'), ptab('packaging-match', '包装方案匹配'), rtab('finance-zero-reasons', '零值原因'), rtab('finance-product-units', '单位与规格')],
   'finance/finance-suppliers': [rtab('finance-suppliers', '供应商档案'), rtab('finance-supplier-categories', '供应商分类')],
   'finance/finance-customers': [rtab('finance-customers', '客户档案'), rtab('finance-customer-categories', '客户分类')],
@@ -331,7 +333,7 @@ export function visibleSections(
   const result: VisibleSection[] = [];
   for (const section of NAV_SECTIONS) {
     const pages = section.pages.filter(
-      (p) => (options.includePlanned || p.ready) && can(p.permission),
+      (p) => !p.menuHidden && (options.includePlanned || p.ready) && can(p.permission),
     );
     if (pages.length === 0) continue;
     result.push({ ...section, pages, landingPath: pages[0].path });

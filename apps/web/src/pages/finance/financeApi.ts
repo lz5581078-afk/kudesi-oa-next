@@ -1,16 +1,17 @@
-import type { DocInput, DocLineInput, DocType } from '@kudesi/shared';
+import type { CostBreakdown, CostBreakdownLine, DocInput, DocLineInput, DocType } from '@kudesi/shared';
 import type { FileInfo } from '../../resources/api';
 import { api } from '../../api/client';
 
-export interface DocRow { id: number; docNo: string; docType: DocType; typeLabel: string; status: 'draft' | 'issued' | 'posted' | 'reversed'; docDate: string; amountCents: number; paidCents: number; bankName: string | null; handler: string | null; auditedAt: string | null; createdBy: number; memo: string | null; reversesId: number | null; partyName: string | null; createdByName: string | null; direction?: 'in' | 'out' | 'internal'; source?: string; refNo?: string | null; transitStatus?: 'pending' | 'confirmed' | null; feeCents?: number; discountCents?: number; acctCount?: number }
+export interface DocRow { sourceKind?: 'manual' | 'workflow'; firstItemName?: string | null; summary?: string | null; id: number; docNo: string; docType: DocType; typeLabel: string; status: 'draft' | 'issued' | 'posted' | 'reversed'; docDate: string; amountCents: number; paidCents: number; bankName: string | null; handler: string | null; auditedAt: string | null; createdBy: number; memo: string | null; reversesId: number | null; partyName: string | null; createdByName: string | null; direction?: 'in' | 'out' | 'internal'; source?: string; refNo?: string | null; transitStatus?: 'pending' | 'confirmed' | null; feeCents?: number; discountCents?: number; acctCount?: number }
 export interface DocList { todayCount?: number; total: number; amountCents: number; paidCents: number; incomeCents?: number; expenseCents?: number; page: number; pageSize: number; rows: DocRow[] }
 export interface BatchResult { okCount: number; failCount: number; results: Array<{ id: number; ok: boolean; docNo?: string; error?: string }> }
-export interface DocEntry { id: string; kind: string; accountId: number; accountName: string; subId: number; amountCents: number | null; qty: number | null }
-export interface DocLineView extends DocLineInput { id: number; productName: string; feeItemName: string; lineNo: number; relatedNode: string | null; relatedId: number | null; relatedName: string | null }
+export interface DocEntry { unit?: string | null; id: string; kind: string; accountId: number; accountName: string; subId: number; amountCents: number | null; qty: number | null }
+export interface DocLineView extends DocLineInput { id: number; productName: string; feeItemName: string; lineNo: number; relatedNode: string | null; relatedId: number | null; relatedName: string | null;relatedNameSource?:'snapshot'|'current'|null;itemCode?:string|null;itemNameSource?:'snapshot'|'current'|null }
 export interface DocDetailDto {
+  counterpartyName?: string | null; summary?: string | null; linkedPartyName?: string;
   id: number; docNo: string; docType: DocType; typeLabel: string; status: DocRow['status']; docDate: string; partyId: number | null; partyName: string;
   storeId: number | null; storeName: string; refNo: string | null; bankAccountId: number | null; bankName: string; toBankAccountId: number | null; toBankName: string; warehouseId: number | null; warehouseName: string;
-  amountCents: number; offsetCents: number; paidCents: number; discountCents?: number; feeCents?: number; feeBearer?: 'out' | 'in' | null; transitStatus?: 'pending' | 'confirmed' | null; handlerId?: number | null; confirmedAt?: string | null; confirmedByName?: string; partyKind: 'customer' | 'store' | 'supplier' | 'employee' | null; handler: string | null; department: string | null; memo: string | null; reversesId: number | null; reversedById: number | null; auditedAt: string | null; createdByName: string;
+  settlementMode?: import('@kudesi/shared').PayMode | null; amountCents: number; offsetCents: number; paidCents: number; discountCents?: number; feeCents?: number; feeBearer?: 'out' | 'in' | null; transitStatus?: 'pending' | 'confirmed' | null; handlerId?: number | null; confirmedAt?: string | null; confirmedByName?: string; partyKind: 'customer' | 'store' | 'supplier' | 'employee' | null; handler: string | null; department: string | null; memo: string | null; reversesId: number | null; reversedById: number | null; auditedAt: string | null; createdByName: string;
   sourceKey?: string | null; openingVouchers?: FileInfo[];
   settleBy?: 'doc' | 'product' | null; settleByLabel?: string | null;
   settlements?: Array<{ id: number; sourceDocId: number; sourceDocNo: string; sourceTypeLabel: string; productId: number | null; productName: string; amountCents: number }>;
@@ -21,15 +22,20 @@ export interface PartyBalance { partyId: number; partyKind: string; name: string
 export interface LineHint { productId: number; stockQty: number; lastPurchaseCents?: number | null; lastPurchaseDocNo?: string | null; lastPurchaseDate?: string | null; lastSaleCents?: number | null; lastSaleDocNo?: string | null; lastSaleDate?: string | null }
 export type DocBody = DocInput & { memo?: string };
 
-export interface CostLine { role: string; code: string; name: string; qty: number; unitCostCents: number | null; subtotalCents: number | null; unitWeightG: number | null; weightG: number }
+export interface CostLine extends CostBreakdownLine { qty: number }
 export interface CostRow {
   bundleId: number; code: string; name: string; status: string; categoryId: number | null; categoryName: string; preShipCostCents: number | null; weightG: number | null;
   freightCents: number | null; freightMethod: string | null; marginPercent: number | null; marginSource: string; marginOverride: boolean; inheritedMargin: { percent: number | null; source: string };
-  carrierName: string; costIncludingFreightCents: number | null; revision: string; minPriceCents: number | null; issues: string[]; lines: CostLine[];
+  carrierName: string; costIncludingFreightCents: number | null; revision: string; minPriceCents: number | null; issues: string[]; lines: CostLine[]; breakdown?: CostBreakdown;
+}
+export interface CostRegisterPreview {
+  rows: Array<{ id: number; code: string; name: string; costCents: number; weightG: number }>;
+  issues: Array<{ id: number; code: string; issues: string[] }>;
+  signature: string;
 }
 export interface CostCategory { id: number; name: string; parentId: number | null; ownPercent: number | null; percent: number | null; source: string; revision: string; count: number }
 export interface CostTableData {
-  total: number; page: number; pageSize: number; rows: CostRow[]; categories: CostCategory[]; defaultMargin: { percent: number | null; revision: string }; allTotal: number; canEdit: boolean;
+  total: number; page: number; pageSize: number; rows: CostRow[]; categories: CostCategory[]; defaultMargin: { percent: number | null; revision: string }; allTotal: number; canEdit: boolean; canFill?: boolean;
 }
 export interface CostPricingSave { revision: string; carrierName: string; profitPercent: number | null; reason: string }
 export interface MarginHistoryRow { id: string; createdAt: string; actorName: string; scopeName: string; beforePercent: number | null; afterPercent: number | null; reason: string }
@@ -50,22 +56,23 @@ export interface BankBalance {
   id: number; title: string; kind: string; status: string; openingCents: number; movementCents: number; balanceCents: number; entries: number; inTransitCents?: number;
   bank?: string; ownerName?: string; licenseName?: string; keeperName?: string; storeIds?: number[]; storeNames?: string[]; updatedAt?: string | null;
 }
-export interface LedgerRow { id: number; entryDate: string; amountCents: number; balanceCents: number; documentId: number; docNo: string; typeLabel: string; memo: string | null; handler: string | null; partyName: string | null }
+export interface LedgerRow { summary?: string | null; id: number; entryDate: string; amountCents: number; balanceCents: number; documentId: number; docNo: string; typeLabel: string; memo: string | null; handler: string | null; partyName: string | null }
 export interface Ledger { openingCents: number; incomeCents: number; expenseCents: number; closingCents: number; rows: LedgerRow[] }
 export interface StockRow { code: string; unit: string; productId: number; warehouseId: number; productName: string; warehouseName: string; qty: number; avgCostCents: number | null; amountCents: number | null }
-export interface StockLedgerRow { id: number; entryDate: string; documentId: number; docNo: string; typeLabel: string; partyName: string; memo: string | null; qty: number; balanceQty: number; amountCents: number | null; balanceAmountCents: number | null }
-export interface StockLedger { rows: StockLedgerRow[]; inQty: number; outQty: number; closingQty: number; closingAmountCents: number | null }
-export interface StoreFund { storeId: number; name: string; storeNo?: string; platform?: string; platformLabel?: string; snapshotDate: string; updatedAt?: string | null; withdrawableCents: number; depositCents: number; frozenCents: number; promotionCents: number }
+export interface StockLedgerRow { unit?: string; id: number; entryDate: string; documentId: number; docNo: string; typeLabel: string; partyName: string; memo: string | null; qty: number; balanceQty: number; amountCents: number | null; balanceAmountCents: number | null }
+export interface StockLedger { mixedUnits?: boolean; unit?: string | null; byUnit?: Array<{unit:string;inQty:number;outQty:number;closingQty:number;closingAmountCents:number|null}>; rows: StockLedgerRow[]; inQty: number | null; outQty: number | null; closingQty: number | null; closingAmountCents: number | null }
+export interface StoreFund { storeId: number; name: string; storeNo?: string; platformStoreId?: string; platform?: string; platformLabel?: string; snapshotDate: string; updatedAt?: string | null; withdrawableCents: number; depositCents: number; frozenCents: number; promotionCents: number }
 export interface Overview {
+  storeTrend?: Array<{ date: string; salesCents: number; costCents: number | null; profitCents: number | null }>;
   trend: Array<{ date: string; revenueCents: number; expenseCents: number; financeCostCents?: number; profitCents: number | null }>;
   trendBy?: 'day' | 'month';
-  stores: Array<{ storeId: number; name: string; licenseName?: string; platform?: string; salesCents: number; adCostCents: number; profitCents: number | null }>;
+  stores: Array<{ storeId: number; name: string; licenseName?: string; platform?: string; platformLabel?: string; salesCents: number; adCostCents: number; profitCents: number | null }>;
   ledger: Array<{ date: string; direction: 'in' | 'out'; kind: string; amountCents: number; documentId: number; docNo: string; docType: string; storeName?: string; source?: string }>;
   month: string; revenueCents: number; cogsCents: number | null; grossProfitCents: number | null; expenseCents: number; financeCostCents?: number; otherIncomeCents: number; netProfitCents: number | null;
   receivableCents: number; payableCents: number; advanceReceiptCents: number; prepaymentCents: number; bankCents: number | null; drafts: number; issued: number;
 }
 
-export interface CostSnapshotRow { eventType?: string; eventLabel?: string; id: number; bundleId: number; code: string; name: string; revision: number; reason: string; actorName: string; createdAt: string; preShipCostCents: number | null; weightG: number | null; freightCents: number | null; marginPercent: number | null; minPriceCents: number | null; changes: Array<{ field: string; label: string; before: number | null; after: number | null }> }
+export interface CostSnapshotRow { eventType?: string; eventLabel?: string; id: number; bundleId: number; code: string; name: string; revision: number; reason: string; actorName: string; createdAt: string; preShipCostCents: number | null; weightG: number | null; freightCents: number | null; marginPercent: number | null; minPriceCents: number | null; explicitMarginPercent?: number | null; productCostCents?: number | null; categoryId?: number | null; carrierName?: string | null; before?: Partial<Record<'explicitMarginPercent' | 'productCostCents' | 'categoryId' | 'carrierName' | 'code' | 'name' | 'preShipCostCents' | 'weightG' | 'freightCents' | 'marginPercent' | 'minPriceCents', string | number | null>> | null; changes: Array<{ field: string; label: string; before?: string | number | null; after?: string | number | null }> }
 export interface ZoneRow { carrier: string; branch: string; weightStart: number; weightEnd: number; cents: number; provinces: string[]; suggestedName: string }
 export interface PackagingMatch {
   selected: { scheme: { id: number; code: string; name: string; usageScene: string }; lines: Array<{ componentName: string; qty: number; lossRate: number | null; costTreatment: string; costBucket: string }> } | null;
@@ -78,22 +85,22 @@ export interface ExpressDraft { carrier: string; branch: string; province: strin
 
 export interface OutboxJobRow { id: number; kind: string; resourceType: string; resourceId: number; status: 'pending' | 'sending' | 'done' | 'failed' | 'cancelled'; attempts: number; lastError: string | null; createdAt: string; doneAt: string | null; payload: { code?: string; name?: string } }
 
-const qs = (o: Record<string, string | number | undefined>) => {
+const qs = (o: Record<string, string | number | undefined>, keepEmpty: string[] = []) => {
   const q = new URLSearchParams();
-  for (const [k, v] of Object.entries(o)) if (v !== undefined && v !== '') q.set(k, String(v));
+  for (const [k, v] of Object.entries(o)) if (v !== undefined && (v !== '' || keepEmpty.includes(k))) q.set(k, String(v));
   const s = q.toString();
   return s ? `?${s}` : '';
 };
 
 export const financeApi = {
-  docs: (p: { scope: string; direction?: string; status?: string; transit?: string; from?: string; to?: string; keyword?: string; creatorId?: number; audited?: string; docType?: string; page?: number }) => api<DocList>(`/finance/docs${qs(p)}`),
+  docs: (p: { scope: string; includeDrafts?: 'yes'; direction?: string; status?: string; transit?: string; from?: string; to?: string; keyword?: string; creatorId?: number; audited?: string; docType?: string; page?: number; pageSize?: number }) => api<DocList>(`/finance/docs${qs(p)}`),
   doc: (id: number) => api<DocDetailDto>(`/finance/docs/${id}`),
   create: (b: DocBody) => api<DocDetailDto>('/finance/docs', { method: 'POST', body: b }),
   update: (id: number, b: DocBody) => api<DocDetailDto>(`/finance/docs/${id}`, { method: 'PUT', body: b }),
   remove: (id: number) => api<{ ok: true }>(`/finance/docs/${id}`, { method: 'DELETE', body: {} }),
   issue: (id: number) => api<DocDetailDto>(`/finance/docs/${id}/issue`, { method: 'POST', body: {} }),
   unissue: (id: number, reason: string) => api<DocDetailDto>(`/finance/docs/${id}/unissue`, { method: 'POST', body: { reason } }),
-  editHeader: (id: number, b: { date?: string; handler?: string | null; handlerId?: number | null; memo?: string | null }) => api<DocDetailDto>(`/finance/docs/${id}/header`, { method: 'PUT', body: b }),
+  editHeader: (id: number, b: { date?: string; handler?: string | null; handlerId?: number | null; memo?: string | null; summary?: string | null }) => api<DocDetailDto>(`/finance/docs/${id}/header`, { method: 'PUT', body: b }),
   audit: (id: number, on: boolean) => api<DocDetailDto>(`/finance/docs/${id}/audit`, { method: 'POST', body: { on } }),
   copy: (id: number) => api<DocDetailDto>(`/finance/docs/${id}/copy`, { method: 'POST', body: {} }),
   batch: (action: 'post' | 'delete' | 'copy', ids: number[]) => api<BatchResult>('/finance/docs-batch', { method: 'POST', body: { action, ids } }),
@@ -107,7 +114,7 @@ export const financeApi = {
   exportCostTable: (p: { categoryId?: number; keyword?: string }) => api<{ fileName: string; fileBase64: string; rowCount: number }>(`/finance/cost-table/export${qs(p)}`),
   saveCostPricing: (bundleId: number, b: CostPricingSave) => api<{ ok: true; changed: boolean }>(`/finance/cost-table/${bundleId}/pricing`, { method: 'PUT', body: b }),
   saveCategoryMargin: (categoryId: number, b: { revision: string; profitPercent: number | null; reason: string }) => api<{ ok: true; changed: boolean }>(`/finance/cost-table/category-margins/${categoryId}`, { method: 'PUT', body: b }),
-  skuCostHistory: (bundleId: number, page = 1) => api<{ changes: { total: number; rows: CostSnapshotRow[] }; pricing: { total: number; rows: PricingHistoryRow[] } }>(`/finance/cost-table/${bundleId}/history${qs({ page })}`),
+  skuCostHistory: (bundleId: number, page = 1, keyword?: string) => api<{ changes: { total: number; rows: CostSnapshotRow[] }; pricing: { total: number; rows: PricingHistoryRow[] } }>(`/finance/cost-table/${bundleId}/history${qs({ page, keyword })}`),
   marginHistory: (p: { keyword?: string; page?: number }) => api<Paged<MarginHistoryRow>>(`/finance/cost-history/margins${qs(p)}`),
   pricingHistory: (p: { keyword?: string; page?: number }) => api<Paged<PricingHistoryRow>>(`/finance/cost-history/pricing${qs(p)}`),
   debugComponents: (p: { categoryId?: number; keyword?: string; page?: number }) => api<DebugComponents>(`/finance/pricing-debug/components${qs(p)}`),
@@ -121,16 +128,17 @@ export const financeApi = {
   setKeyAccount: (id: number, on: boolean) => api<number[]>(`/finance/key-accounts/${id}`, { method: 'PUT', body: { on } }),
   banks: () => api<BankBalance[]>('/finance/bank-balances'),
   ledger: (id: number, p: { from?: string; to?: string } = {}) => api<Ledger>(`/finance/bank-ledger/${id}${qs(p)}`),
-  inventory: (p: { warehouseId?: number; keyword?: string; asOf?: string; stockStatus?: string }) => api<StockRow[]>(`/finance/inventory${qs(p)}`),
-  inventoryLedger: (p: { productId: number; warehouseId: number; asOf?: string }) => api<StockLedger>(`/finance/inventory-ledger${qs(p)}`),
+  inventory: (p: { warehouseId?: number; warehouse?: string; keyword?: string; asOf?: string; stockStatus?: string }) => api<StockRow[]>(`/finance/inventory${qs(p)}`),
+  inventoryLedger: (p: { productId: number; warehouseId: number; asOf?: string; unit?: string }) => api<StockLedger>(`/finance/inventory-ledger${qs(p)}${p.unit===''?'&unit=':''}`),
   partyBalance: (p: { partyKind: string; partyId: number }) => api<PartyBalance>(`/finance/party-balance${qs(p)}`),
-  lineHints: (productIds: number[], warehouseId?: number) => api<LineHint[]>(`/finance/line-hints${qs({ productIds: productIds.join(','), warehouseId })}`),
+  lineHints: (productIds: number[], warehouseId?: number, warehouseName?: string) => api<LineHint[]>(`/finance/line-hints${qs({ productIds: productIds.join(','), warehouseId, warehouseName }, ['warehouseName'])}`),
   syncEmployees: () => api<{ created: number }>('/finance/employee-parties/sync', { method: 'POST', body: {} }),
   openItems: (p: { dir: 'in' | 'out'; partyKind: string; partyId: number }) => api<OpenItem[]>(`/finance/open-items${qs(p)}`),
   settlementDetail: (p: { from?: string; to?: string; partyId?: number; docType?: string }) => api<SettlementRow[]>(`/finance/settlement-detail${qs(p)}`),
   unsettledReceipts: (p: { from?: string; to?: string; partyId?: number; docType?: string }) => api<UnsettledRow[]>(`/finance/unsettled-receipts${qs(p)}`),
   costHistory: (p: { bundleId?: number; keyword?: string; page?: number }) => api<{ total: number; page: number; pageSize: number; rows: CostSnapshotRow[] }>(`/finance/cost-history${qs({ ...p, pageSize: 20 })}`),
-  registerCost: (b: { bundleId?: number; reason?: string }) => api<{ recorded: number; unchanged: number }>('/finance/cost-history/register', { method: 'POST', body: b }),
+  previewCostRegistration: () => api<CostRegisterPreview>('/finance/cost-history/register-preview'),
+  registerCost: (b: { bundleId?: number; reason?: string; missingOnly?: boolean; confirmed?: boolean; signature?: string }) => api<{ recorded: number; unchanged: number }>('/finance/cost-history/register', { method: 'POST', body: b }),
   zone: (maxWeightKg: number) => api<{ generatedAt: string; day: string; maxWeightKg: number; ruleCount: number; rows: ZoneRow[] }>(`/finance/zone-suggestion${qs({ maxWeightKg })}`),
   packagingMatch: (b: Record<string, unknown>) => api<PackagingMatch>('/finance/packaging-match', { method: 'POST', body: b }),
   apiKeys: () => api<ApiKeyRow[]>('/finance/api-keys'),

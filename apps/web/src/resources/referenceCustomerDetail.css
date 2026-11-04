@@ -1,0 +1,57 @@
+/* 24号客户查看卡：整窗滚动，基础字段与操作记录各占一块。 */
+.rd.resource-detail.finance-detail-dialog:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items){display:grid;grid-template-columns:minmax(0,1fr);gap:14px;width:min(840px,calc(100vw - 32px));height:auto;max-height:calc(100dvh - 48px);padding:18px;overflow:auto;border-top:4px solid #0e8062;border-radius:8px;line-height:normal}
+.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .finance-detail-head{min-height:0;padding:0 0 14px;gap:12px;align-items:flex-start}
+.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .finance-detail-head .rd-title{font-size:24px;line-height:normal;margin:0}
+.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .finance-detail-head p{font-size:16px;line-height:normal;margin:0;color:#172235}
+.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .finance-detail-head .secondary-button{height:38px;padding:0 12px;border-radius:8px;font-size:16px;font-weight:400}
+.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .rd-body.finance-detail-body{display:contents}
+.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .finance-view-section,.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .reference-record-history{margin:0 20px 12px;padding:16px;border:1px solid #dbe5ed;border-radius:10px;background:#fff}
+.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .finance-view-heading{margin:0 0 14px;padding:0;border:0}
+.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .finance-view-heading h3,.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .reference-record-history h3{display:flex;align-items:center;gap:9px;margin:0;font-size:16px;line-height:normal;font-weight:700;color:#172235}
+.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .reference-record-history h3{margin-bottom:14px}
+.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .finance-view-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:0}
+.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .finance-view-fields>div{display:grid;gap:7px;padding:10px;border:1px solid #dce9e2;border-radius:8px;background:#fbfdfb}
+.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .finance-view-fields dt{color:#52657f;font-size:12px;font-weight:800;line-height:normal}
+.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .finance-view-fields dd{display:flex;align-items:center;min-height:34px;margin:0;color:#0f172a;font-size:14px;font-weight:700;line-height:normal}
+.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .finance-view-fields .pill{display:flex;align-items:center;width:100%;padding:4px 9px;border-radius:999px;font-size:12px;line-height:normal}
+.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .finance-view-fields .pill.ok{color:#166534;background:#dcfce7}
+.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .reference-record-history>div{padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:#fbfdfb;font-size:16px}
+.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .reference-record-history>div strong{display:block}
+.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .reference-record-history>div p{display:block;margin:5px 0 0;color:#64748b;font-size:13px;line-height:normal}
+.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .finance-detail-foot{padding:6px 20px 20px;margin:0;justify-content:flex-end;background:#fff;border-top:1px solid #e5edf7}
+.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .finance-detail-foot-actions{gap:12px;width:auto}
+.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .finance-detail-foot-actions>.secondary-button{display:none}
+.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .finance-detail-foot .primary-button{height:38px;padding:0 12px;border-radius:8px;border-color:#07864f;background:#07864f;font-size:16px;font-weight:700}
+.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .finance-detail-extra{margin:0 20px}
+.finance-reference-copy-actions{display:flex;flex-wrap:wrap;gap:8px 14px}
+form.modal.rf.rf-reference.reference-customer-edit{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;width:min(840px,calc(100vw - 32px));height:auto;max-height:calc(100dvh - 48px);padding:18px;overflow:auto;border:1px solid #dfe6ee;border-top:4px solid #0e8062;border-radius:8px;background:#fff;line-height:normal}
+form.modal.rf.rf-reference.reference-customer-edit .rf-head{padding:0 0 14px;min-height:0;align-items:flex-start;border-bottom:1px solid #e5eaf1}
+form.modal.rf.rf-reference.reference-customer-edit .reference-title{display:block}
+form.modal.rf.rf-reference.reference-customer-edit .reference-title h2{margin:0;font-size:24px;line-height:normal}
+form.modal.rf.rf-reference.reference-customer-edit .reference-title p{display:block;margin:0;font-size:16px;line-height:normal;color:#172235}
+form.modal.rf.rf-reference.reference-customer-edit .reference-full-close{height:38px;min-width:0;padding:0 12px;border:1px solid #d4dbe1;border-radius:8px;background:#fff;color:#344054;font-size:16px;font-weight:400}
+form.modal.rf.rf-reference.reference-customer-edit .rf-main,form.modal.rf.rf-reference.reference-customer-edit .rf-scroll{display:contents}
+form.modal.rf.rf-reference.reference-customer-edit .rf-anchors{display:none}
+form.modal.rf.rf-reference.reference-customer-edit .reference-party-fields,form.modal.rf.rf-reference.reference-customer-edit .reference-record-history{margin:0 20px 12px;padding:16px;border:1px solid #dbe5ed;border-radius:10px;background:#fff}
+form.modal.rf.rf-reference.reference-customer-edit .rf-sec-title{display:flex;align-items:center;gap:9px;margin:0 0 14px;padding:0;border:0;font-size:16px;line-height:normal;color:#172235}
+form.modal.rf.rf-reference.reference-customer-edit .reference-party-fields .form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:0}
+form.modal.rf.rf-reference.reference-customer-edit .reference-party-fields .form-grid>.rf-field,form.modal.rf.rf-reference.reference-customer-edit .reference-party-fields .form-grid>label{display:grid;grid-column:auto;gap:7px;padding:10px;min-width:0;border:1px solid #dce9e2;border-radius:8px;background:#fbfdfb}
+form.modal.rf.rf-reference.reference-customer-edit .reference-party-fields [data-field=note]{grid-column:1/-1!important}
+form.modal.rf.rf-reference.reference-customer-edit .rf-label{font-size:12px;font-weight:800;color:#52657f;line-height:normal}
+form.modal.rf.rf-reference.reference-customer-edit .rf-label>.req{display:none}
+form.modal.rf.rf-reference.reference-customer-edit .reference-party-fields input,form.modal.rf.rf-reference.reference-customer-edit .reference-party-fields select,form.modal.rf.rf-reference.reference-customer-edit .reference-party-fields textarea{height:auto;min-height:36px;width:100%;padding:8px 10px;border:1px solid #cbd8ea;border-radius:7px;color:#0f172a;background:#fff;font:inherit;font-size:16px;line-height:normal}
+form.modal.rf.rf-reference.reference-customer-edit .reference-party-fields textarea{min-height:86px;resize:vertical}
+form.modal.rf.rf-reference.reference-customer-edit .reference-record-history h3{margin:0 0 14px;font-size:16px}
+form.modal.rf.rf-reference.reference-customer-edit .reference-record-history>div{padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:#fbfdfb}
+form.modal.rf.rf-reference.reference-customer-edit .reference-record-history>div p{margin:5px 0 0;font-size:13px;color:#64748b}
+form.modal.rf.rf-reference.reference-customer-edit .rf-foot{display:flex;justify-content:flex-end;gap:12px;margin:0;padding:6px 20px 20px;background:#fff;border-top:1px solid #e5edf7;box-shadow:none}
+form.modal.rf.rf-reference.reference-customer-edit .rf-foot>button{order:0!important;min-width:0;height:38px;padding:0 12px;border-radius:8px;font-size:16px}
+@media(max-width:620px){.rd.resource-detail.finance-detail-dialog:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items){width:calc(100vw - 24px);max-height:calc(100dvh - 24px);padding:14px}.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .finance-view-section,.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .reference-record-history{margin-left:0;margin-right:0}.rd.resource-detail:is(.finance-detail-finance-customers,.finance-detail-finance-fee-items) .finance-view-fields{grid-template-columns:minmax(0,1fr)}}
+
+/* 费用原详情同一字段卡片结构，独立1060px窗口、面板与操作区。 */
+.rd.resource-detail.finance-detail-dialog.finance-detail-finance-fee-items,form.modal.rf.rf-reference.reference-expense-edit{width:min(1060px,calc(100vw - 48px));border:0}
+.rd.resource-detail.finance-detail-finance-fee-items .finance-view-section,.rd.resource-detail.finance-detail-finance-fee-items .reference-record-history,form.modal.rf.rf-reference.reference-expense-edit .reference-party-fields,form.modal.rf.rf-reference.reference-expense-edit .reference-record-history{margin:0}
+.rd.resource-detail.finance-detail-finance-fee-items .finance-detail-foot,form.modal.rf.rf-reference.reference-expense-edit .rf-foot{padding:14px 0 0;gap:14px}
+form.modal.rf.rf-reference.reference-expense-edit .reference-party-fields [data-field=relationRequirement]{grid-column:1/-1!important}
+form.modal.rf.rf-reference.reference-customer-edit .rf-label{min-height:0;gap:0}
+form.modal.rf.rf-reference.reference-customer-edit .reference-party-fields input:focus,form.modal.rf.rf-reference.reference-customer-edit .reference-party-fields select:focus,form.modal.rf.rf-reference.reference-customer-edit .reference-party-fields textarea:focus{outline:1px auto #005fcc;box-shadow:none}

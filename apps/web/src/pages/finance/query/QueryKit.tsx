@@ -1,5 +1,8 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { downloadCsv, useIsMobile } from '../fin-ui';
+import { useQueryTableControls, type QueryTableControls } from './useQueryTableControls';
+import './referenceQueryTable.css';
+import './referenceQueryPage.css';
 
 /**
  * 实时查询页共用组件（库存查询、现金银行查询、未完全结算收付款单、收付款结算明细表共用一套版式）：
@@ -20,10 +23,10 @@ export function QueryPage({ title, subtitle, actions, children, className }: { t
 }
 
 /** 面板：标题 + 右上角操作；collapsed 为 true 时只显示 collapsedHint（旧版“展开 N 个账户”的折叠形式） */
-export function QueryPanel({ title, hint, actions, collapsed, collapsedHint, always, children }: { title: string; hint?: ReactNode; actions?: ReactNode; collapsed?: boolean; collapsedHint?: ReactNode; always?: ReactNode; children?: ReactNode }) {
+export function QueryPanel({ title, icon, hint, actions, collapsed, collapsedHint, always, children }: { title: string; icon?: ReactNode; hint?: ReactNode; actions?: ReactNode; collapsed?: boolean; collapsedHint?: ReactNode; always?: ReactNode; children?: ReactNode }) {
   return (
     <section className="qk-panel" aria-label={title}>
-      <div className="qk-panel-head"><h2>{title}</h2>{hint && <span className="muted qk-hint">{hint}</span>}{actions && <div className="qk-panel-actions">{actions}</div>}</div>
+      <div className="qk-panel-head"><h2>{icon}{title}</h2>{hint && <span className="muted qk-hint">{hint}</span>}{actions && <div className="qk-panel-actions">{actions}</div>}</div>
       {always}
       {collapsed ? <p className="muted qk-collapsed">{collapsedHint}</p> : children}
     </section>
@@ -68,6 +71,7 @@ export interface Col<R> {
   sum?: (rows: R[]) => ReactNode;
   /** 导出 CSV 用的值；不给就不导出这一列（操作列、按钮列） */
   csv?: (r: R) => string | number | null | undefined;
+  sortValue?: (r: R) => string | number | null | undefined;
   /** 手机卡片上作为卡片标题 */
   primary?: boolean;
   /** 手机卡片上不显示（操作列用 action 单独放卡片底部） */
@@ -79,10 +83,16 @@ export interface GroupBy<R> { key: (r: R) => string; label: (key: string, rows: 
 /**
  * 查询表格：可选分组（分组行可折叠，带小计）、合计行、行选中；手机宽度下换成卡片列表（标题 + 字段对 + 操作）。
  */
-export function QueryTable<R>({ cols, rows, rowKey, empty, loading, group, foot = true, footLabel, selectedKey, onRowClick, caption }: {
+export interface QueryTableProps<R> {
   cols: Array<Col<R>>; rows: R[] | null; rowKey: (r: R) => string | number; empty: ReactNode; loading?: ReactNode;
   group?: GroupBy<R> | null; foot?: boolean; footLabel?: (rows: R[]) => ReactNode; selectedKey?: string | number | null; onRowClick?: (r: R) => void; caption?: string;
-}) {
+  controls?: QueryTableControls<R>;
+}
+export function QueryTable<R>(props:QueryTableProps<R>){
+  return <QueryTableContent key={props.controls?.storageKey??'plain'} {...props}/>;
+}
+function QueryTableContent<R>({ cols: allCols, rows: allRows, rowKey, empty, loading, group, foot = true, footLabel, selectedKey, onRowClick, caption, controls }: QueryTableProps<R>) {
+  const { cols, rows, toolbar, pagination, sort, toggleSort, widths, startResize, moveResize, stopResize } = useQueryTableControls(allCols, allRows, controls, caption);
   const mobile = useIsMobile();
   const [closed, setClosed] = useState<Record<string, boolean>>({});
   const groups = useMemo(() => {
@@ -94,12 +104,12 @@ export function QueryTable<R>({ cols, rows, rowKey, empty, loading, group, foot 
   const hasSum = cols.some((c) => c.sum);
   const firstSum = cols.findIndex((c) => c.sum);
   const span = firstSum > 0 ? firstSum : cols.length;
-  if (rows === null) return <p className="muted qk-state" role="status">{loading ?? '正在读取…'}</p>;
-  if (rows.length === 0) return <p className="muted qk-state qk-empty">{empty}</p>;
+  if (rows === null) return <>{toolbar}<p className="muted qk-state" role="status">{loading ?? '正在读取…'}</p></>;
+  if (rows.length === 0 && !controls) return <p className="muted qk-state qk-empty">{empty}</p>;
   const toggle = (k: string) => setClosed((c) => ({ ...c, [k]: !c[k] }));
   const sel = (r: R) => selectedKey !== undefined && selectedKey !== null && selectedKey === rowKey(r);
 
-  if (mobile) {
+  if (mobile && !controls) {
     const card = (r: R) => {
       const main = cols.find((c) => c.primary) ?? cols[0];
       return (
@@ -133,8 +143,9 @@ export function QueryTable<R>({ cols, rows, rowKey, empty, loading, group, foot 
     </tr>
   );
   return (
-    <div className="table-scroll qk-table"><table className="data-table" aria-label={caption}>
-      <thead><tr>{cols.map((c) => <th key={c.key} className={c.num ? 'num' : undefined}>{c.head}</th>)}</tr></thead>
+    <>{toolbar}<div className={`table-scroll qk-table${controls ? ' qk-reference-table' : ''}`}><table className="data-table" aria-label={caption}>
+      {controls && <colgroup>{cols.map(col=><col key={col.key} style={widths[col.key]?{width:widths[col.key]}:undefined}/>)}</colgroup>}
+      <thead><tr>{cols.map((c) => <th key={c.key} className={c.num ? 'num' : undefined} aria-sort={controls ? sort?.key === c.key ? sort.direction === 'asc' ? 'ascending' : 'descending' : 'none' : undefined}>{controls && !c.action ? <button type="button" title={sort?.key===c.key?sort.direction==='asc'?`按${c.head}降序排列`:`恢复${c.head}默认顺序`:`按${c.head}升序排列`} onClick={() => toggleSort(c.key)}><span>{c.head}</span><i aria-hidden="true" className={sort?.key===c.key?'is-sorted':undefined}>{sort?.key === c.key ? sort.direction === 'asc' ? '▲' : '▼' : '↕'}</i></button> : c.head}{controls&&<button type="button" className="qk-column-resize" aria-label={`调整${c.head}列宽`} onPointerDown={event=>startResize(c.key,event)} onPointerMove={moveResize} onPointerUp={stopResize} onPointerCancel={stopResize}/>}</th>)}</tr></thead>
       <tbody>
         {groups ? groups.flatMap(([k, list]) => [
           <tr key={`g-${k}`} className="qk-grow">
@@ -147,7 +158,7 @@ export function QueryTable<R>({ cols, rows, rowKey, empty, loading, group, foot 
         ]) : rows.map(row)}
       </tbody>
       {foot && hasSum && <tfoot><tr>{cols.map((c, i) => <th key={c.key} className={c.num ? 'num' : undefined}>{i === 0 ? (footLabel ? footLabel(rows) : `合计（${rows.length} 行）`) : c.sum ? c.sum(rows) : ''}</th>)}</tr></tfoot>}
-    </table></div>
+    </table></div>{pagination}</>
   );
 }
 

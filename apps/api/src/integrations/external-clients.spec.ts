@@ -161,7 +161,7 @@ describe('聚水潭单价精度边界', () => {
   it('上传表单在创建资料和入队之前明确返回精度错误，原输入不变', async () => {
     const { JstMaintenanceService } = await import('../resources/jst-maintenance.service');
     const resources = { createRecord: jest.fn() }, outbox = { enqueueUpload: jest.fn() };
-    const service = new JstMaintenanceService(undefined as any, resources as any, outbox as any);
+    const service = new JstMaintenanceService(undefined as any, resources as any, outbox as any, undefined as never);
     const form = { costPrice: 0.012345, purchasePrice: 0.012345 };
     await expect(service.upload({ permissions: { isCompanyAdmin: true } } as any, form)).rejects.toThrow(/只保留元后 4 位/);
     expect(resources.createRecord).not.toHaveBeenCalled(); expect(outbox.enqueueUpload).not.toHaveBeenCalled();

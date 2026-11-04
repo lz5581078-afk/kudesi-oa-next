@@ -5,7 +5,7 @@ import { DataSource } from 'typeorm';
 import { SPECIAL_PERMISSIONS } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
-import { Company, FlowRun, User } from '../entities';
+import { Company, FlowRun, User, ResourceRecord, OutboxJob } from '../entities';
 import { buildServices } from '../test-support';
 import { ResourcesService } from '../resources/resources.service';
 import { BundleToolsService } from '../resources/bundle-tools.service';
@@ -100,6 +100,25 @@ d('组合装同步维护（真实数据库 + 假发送器）', () => {
     await expect(outbox.itemsSummary(boss, 'finance-products')).rejects.toThrow(/不支持/);
   });
 
+  it('本页ids仅取同公司同类型已验证资料，确定排序/去重/分页/四种ACL，GET无写副作用',async()=>{
+    const beforeJobs=await ds.manager.count(OutboxJob,{where:{companyId:boss.companyId}}),beforeSent=fake.sent.length;
+    const foreignCompany=await ds.manager.save(Company,ds.manager.create(Company,{code:crypto.randomBytes(8).toString('hex'),name:'合成本页外公司',status:'active'}));
+    const foreign=await ds.manager.save(ResourceRecord,ds.manager.create(ResourceRecord,{companyId:foreignCompany.id,type:'finance-bundles',title:'合成外公司不可读',status:'verified',data:{code:'FOREIGN-IDS'},createdBy:null,updatedBy:null}));
+    const pending=await ds.manager.save(ResourceRecord,ds.manager.create(ResourceRecord,{companyId:boss.companyId,type:'finance-bundles',title:'合成未验证不能扩大读域',status:'pending',data:{code:'PENDING-IDS'},createdBy:boss.id,updatedBy:boss.id}));
+    const idsScope=[ids.b1,ids.b2,ids.b1,ids.bc,foreign.id,pending.id];
+    for(const cost of [false,true])for(const price of [false,true]){
+      const actor={...nobody,permissions:{isCompanyAdmin:false,allow:['finance.jst-sync.view',...(cost?['product.cost.view']:[]),...(price?['product.price.view']:[])],deny:[]}};
+      const baseline=await outbox.items(actor,{type:'finance-bundles',page:1,pageSize:50});
+      const result=await outbox.items(actor,{type:'finance-bundles',ids:idsScope,page:1,pageSize:50});expect(result.total).toBe(2);expect(result.rows.map(row=>row.id)).toEqual([ids.b1,ids.b2].sort((a,b)=>b-a));expect(result.rows).toEqual(baseline.rows.filter(row=>[ids.b1,ids.b2].includes(row.id)));
+      if(!price)for(const row of result.rows)expect(row.current).not.toHaveProperty('compose_sale_price');
+      const baseScope=await outbox.items(actor,{type:'finance-base-codes',ids:idsScope,page:1,pageSize:50});expect(baseScope.rows).toHaveLength(1);expect(Object.hasOwn(baseScope.rows[0].current,'cost_price')).toBe(cost);
+    }
+    const one=await outbox.items(boss,{type:'finance-bundles',ids:idsScope,page:2,pageSize:1});expect(one.total).toBe(2);expect(one.rows.map(row=>row.id)).toEqual([Math.min(ids.b1,ids.b2)]);
+    expect((await outbox.items(boss,{type:'finance-base-codes',ids:idsScope,page:1,pageSize:50})).rows.map(row=>row.id)).toEqual([ids.bc]);
+    await expect(outbox.items(boss,{type:'finance-bundles',ids:[],page:1,pageSize:50})).rejects.toThrow(/正整数/);await expect(outbox.items(boss,{type:'finance-bundles',ids:[-1],page:1,pageSize:50})).rejects.toThrow(/正整数/);await expect(outbox.items(boss,{type:'finance-bundles',ids:Array.from({length:51},(_,i)=>i+1),page:1,pageSize:50})).rejects.toThrow(/50/);
+    expect(await ds.manager.count(OutboxJob,{where:{companyId:boss.companyId}})).toBe(beforeJobs);expect(fake.sent).toHaveLength(beforeSent);await ds.manager.remove([foreign,pending]);
+  });
+
   it('基本售价：开关默认关；不齐全的被拦截并写日志；齐全后入队，价格开关关着不发送，打开后发送并回读', async () => {
     expect((await price.getSwitch(boss)).enabled).toBe(false);
     await expect(price.run(helper, {})).rejects.toThrow(/开关还没开/);
@@ -133,6 +152,12 @@ d('组合装同步维护（真实数据库 + 假发送器）', () => {
     const b = await svc.get(boss, 'finance-bundles', ids.b1);
     expect(b.data.jstPriceStatus).toBe('success');
     expect(b.data.jstPriceCents).toBe(row.minPriceCents);
+    // 同步清单的当前/已上传资料同样按成本、售价独立ACL投影；保留实际同步状态。
+    for(const canCost of [false,true])for(const canPrice of [false,true]){
+      const actor={...nobody,permissions:{isCompanyAdmin:false,allow:['finance.jst-sync.view',...(canCost?['product.cost.view']:[]),...(canPrice?['product.price.view']:[])],deny:[]}};
+      const bundle=(await outbox.items(actor,{type:'finance-bundles',page:1,pageSize:50})).rows.find(item=>item.id===ids.b1)!,base=(await outbox.items(actor,{type:'finance-base-codes',page:1,pageSize:50})).rows.find(item=>item.id===ids.bc)!;
+      expect(Object.hasOwn(bundle.current,'compose_sale_price')).toBe(canPrice);expect(Object.hasOwn(bundle.uploaded!,'compose_sale_price')).toBe(canPrice);expect(Object.hasOwn(base.current,'cost_price')).toBe(canCost);expect(Object.hasOwn(base.uploaded!,'cost_price')).toBe(canCost);expect(base.state).toBe('synced');
+    }
     // 回读到的子商品没被覆盖
     expect((fake.remote.get(String(b.data.code)) as { childList?: unknown[] }).childList?.length).toBe(1);
     // 价格已经同步：再跑算“相同”

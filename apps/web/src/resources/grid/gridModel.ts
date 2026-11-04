@@ -1,5 +1,5 @@
 import {
-  formatGridCell,
+  formatGridCell, resolveFieldDef,
   parseGridCell,
   type FieldDef,
   type GridCellKind,
@@ -172,6 +172,13 @@ export function cellEditText(col: GridCol, row: GridRow, options?: readonly Opti
   return formatGridCell(col.field, col.kind, row.data[col.key], options);
 }
 
+/** 混合档案的同一列按当前行解析，文字规格不能被网格粘贴当成数字丢弃。 */
+export function resolveGridCol(col: GridCol, row?: GridRow): GridCol {
+  if (!col.field?.typeBy || !row) return col;
+  const field = resolveFieldDef(col.field, row.data);
+  return field.type === col.field.type ? col : { ...col, field, kind: field.type === 'number' ? 'integer' : field.type };
+}
+
 export interface TextCtx {
   options?: (field: FieldDef, row: GridRow) => readonly Option[] | undefined;
   resolveRef?: (field: FieldDef, text: string) => Promise<RefChoice | null>;
@@ -179,6 +186,7 @@ export interface TextCtx {
 
 /** 文本 → 单元格改动（粘贴、键入、填充共用）。格式不对的不丢，标红留在格子里等人修改 */
 export async function textToChange(col: GridCol, row: GridRow, rowIndex: number, text: string, ctx: TextCtx): Promise<CellChange> {
+  col = resolveGridCol(col, row);
   const base: CellChange = { row: rowIndex, key: col.key };
   if (col.special === 'status') {
     const t = text.trim();

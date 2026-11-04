@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import readXlsxFile, { readSheetNames } from 'read-excel-file';
 import writeXlsxFile from 'write-excel-file';
 import { api, ApiError } from '../api/client';
@@ -24,8 +24,10 @@ async function save(name: string, tables: Record<Key, string[][]>) {
   URL.revokeObjectURL(url);
 }
 
+export const downloadPackagingSchemeTemplate = () => save('包装方案导入模板.xlsx', Object.fromEntries(keys.map((k) => [k, [[...HEADERS[k]]]])) as Record<Key, string[][]>);
+
 /** 包装方案 Excel 导入导出：方案、明细、匹配规则三张表，先预检，没问题再导入（整批同成同败）。 */
-export function PackagingExcelDialog({ canCreate, onClose, onDone }: { canCreate: boolean; onClose: () => void; onDone: () => void }) {
+export function PackagingExcelDialog({ canCreate, onClose, onDone, initialFile }: { canCreate: boolean; onClose: () => void; onDone: () => void; initialFile?: File }) {
   const input = useRef<HTMLInputElement>(null);
   const [rows, setRows] = useState<Rows | null>(null);
   const [result, setResult] = useState<Result | null>(null);
@@ -38,7 +40,7 @@ export function PackagingExcelDialog({ canCreate, onClose, onDone }: { canCreate
     setError('');
     try { await save('包装方案.xlsx', await api('/finance/packaging/export')); } catch (e) { fail(e); }
   };
-  const template = () => save('包装方案导入模板.xlsx', Object.fromEntries(keys.map((k) => [k, [[...HEADERS[k]]]])) as Record<Key, string[][]>);
+  const template = downloadPackagingSchemeTemplate;
 
   const pickFile = async (file: File) => {
     setError(''); setNotice(''); setResult(null); setRows(null); setBusy(true);
@@ -57,6 +59,9 @@ export function PackagingExcelDialog({ canCreate, onClose, onDone }: { canCreate
       setResult(await api<Result>('/finance/packaging/import/preflight', { method: 'POST', body: parsed }));
     } catch (e) { fail(e); } finally { setBusy(false); }
   };
+
+  const loadedFile = useRef<File>();
+  useEffect(()=>{if(canCreate && initialFile && loadedFile.current!==initialFile){loadedFile.current=initialFile;void pickFile(initialFile);}},[initialFile,canCreate]);
 
   const run = async () => {
     if (!rows || !result?.confirm) return;

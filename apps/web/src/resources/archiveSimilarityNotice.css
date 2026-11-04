@@ -1,0 +1,6 @@
+form.rf .reference-archive-similarity{display:grid;grid-template-columns:auto minmax(0,1fr);gap:9px;padding:11px 12px;border:1px solid #f2ce83;border-radius:8px;color:#775316;background:#fff9e9}
+form.rf .reference-archive-similarity.is-blocked{border-color:#efaaa5;color:#9b2923;background:#fff3f2}
+form.rf .reference-archive-similarity>svg{margin-top:1px}
+form.rf .reference-archive-similarity>div{display:grid;gap:3px}
+form.rf .reference-archive-similarity strong{font-size:12px}
+form.rf .reference-archive-similarity p,form.rf .reference-archive-similarity small{margin:0;font-size:11px;line-height:1.55}

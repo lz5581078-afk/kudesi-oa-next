@@ -1,5 +1,5 @@
 import { storeJstText } from './StoreJstSelect';
-import { unitYuanText, formatYuan, type FieldDef, type ResourceDef, type StatusDef } from '@kudesi/shared';
+import { unitYuanText, validUnitCents, LOGISTICS_CENT_SCALE, UNIT_CENT_SCALE, formatYuan, type FieldDef, type ResourceDef, type StatusDef } from '@kudesi/shared';
 import type { ResourceDto } from './api';
 import { unitOptionLabel } from './unitOptions';
 import { categoryLabel } from './categoryOptions';
@@ -27,7 +27,8 @@ export function displayValue(f: FieldDef, dto: ResourceDto): string {
       if (f.multi && Array.isArray(v)) return v.map(value => f.options?.find(o => o.value === value)?.label ?? String(value)).join('、');
       return f.options?.find((o) => o.value === v)?.label ?? String(v);
     case 'money':
-      return f.scale ? `¥${unitYuanText(Number(v))}` : formatYuan(Number(v));
+      if(f.scale===LOGISTICS_CENT_SCALE&&!validUnitCents(v,LOGISTICS_CENT_SCALE))return '';
+      return f.scale ? `¥${unitYuanText(Number(v),f.scale===LOGISTICS_CENT_SCALE?LOGISTICS_CENT_SCALE:UNIT_CENT_SCALE)}` : formatYuan(Number(v));
     case 'ref':
     case 'refs':
       return dto.refLabels[f.key] || (Array.isArray(v) ? v : [v]).filter(id => typeof id === 'number').map(id => `#${id}`).join('、');

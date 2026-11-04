@@ -1,88 +1,18 @@
-import { FormEvent, useEffect, useState } from 'react';
+import {AlertTriangle,Trash2} from 'lucide-react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api/client';
-import { SearchPick, money, pct } from './common';
+import { SearchPick, money } from './common';
 import { JstSyncItems } from './jst/JstSyncItems';
 import { JstSyncExtras } from './jst/JstSyncExtras';
 import { api } from '../../api/client';
 import { CopyButton } from '../../resources/CopyValue';
 import { FeishuSwitchCard } from './jst/FeishuSwitchCard';
-import { financeApi, type MarginHistoryRow, type PricingHistoryRow, type OutboxJobRow, type ApiKeyRow, type CostSnapshotRow, type PackagingMatch, type ResetPreview, type SnapshotRow } from './financeApi';
+import { financeApi, type OutboxJobRow, type ApiKeyRow, type PackagingMatch, type ResetPreview, type SnapshotRow } from './financeApi';
 
 const msg = (e: unknown) => (e instanceof ApiError ? e.message : (e as Error).message || '操作失败');
 const when = (s: string) => new Date(s).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
 
-/** 成本历史：每个组合每次成本/重量/运费/利润率/最低售价变化的快照。验证通过时自动登记，也能手工登记。 */
-export function CostHistoryPage() {
-  const [rows, setRows] = useState<CostSnapshotRow[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [keyword, setKeyword] = useState('');
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [busy, setBusy] = useState(false);
-  // 三种记录：成本变更（每次成本/重量/运费/利润率/最低售价的变化）、售价维护（使用快递、单品利润率）、分类利润率调整
-  const [source, setSource] = useState<'changes' | 'pricing' | 'margins'>('changes');
-  const [pricingRows, setPricingRows] = useState<PricingHistoryRow[]>([]);
-  const [marginRows, setMarginRows] = useState<MarginHistoryRow[]>([]);
-  const load = () => {
-    setError('');
-    const q = { keyword: keyword || undefined, page };
-    if (source === 'pricing') return financeApi.pricingHistory(q).then((r) => { setPricingRows(r.rows); setTotal(r.total); }).catch((e) => setError(msg(e)));
-    if (source === 'margins') return financeApi.marginHistory(q).then((r) => { setMarginRows(r.rows); setTotal(r.total); }).catch((e) => setError(msg(e)));
-    return financeApi.costHistory(q).then((r) => { setRows(r.rows); setTotal(r.total); }).catch((e) => setError(msg(e)));
-  };
-  useEffect(() => { void load(); }, [page, keyword, source]); // eslint-disable-line react-hooks/exhaustive-deps
-  async function register() {
-    setBusy(true); setError(''); setNotice('');
-    try { const r = await financeApi.registerCost({ reason: '手工登记' }); setNotice(`登记了 ${r.recorded} 个组合的新成本，${r.unchanged} 个没有变化`); await load(); } catch (e) { setError(msg(e)); }
-    setBusy(false);
-  }
-  const fmt = (k: string, v: number | null) => (v === null ? '—' : k === 'weightG' ? `${v}g` : k === 'marginPercent' ? `${v}%` : money(v));
-  return (
-    <div>
-      <div className="page-head between"><h1>成本历史</h1><div className="toolbar"><select aria-label="历史类型" value={source} onChange={(e) => { setSource(e.target.value as typeof source); setPage(1); setKeyword(''); }}><option value="changes">成本变更记录</option><option value="pricing">售价维护记录</option><option value="margins">分类利润率记录</option></select><input aria-label="搜索组合" placeholder={source === 'margins' ? '搜索分类或修改原因' : '搜索组合编码或名称'} value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} />{source === 'changes' && <button type="button" className="secondary-button" disabled={busy} onClick={register}>{busy ? '登记中…' : '登记所有已验证组合的当前成本'}</button>}</div></div>
-      <p className="muted">组合验证通过时会自动登记一次；成本、重量、运费、利润率或最低售价和上一次不同才会新增一条版本，没变化不重复记。</p>
-      {notice && <div role="status" className="notice ok">{notice}</div>}
-      {error && <div role="alert" className="notice error">{error}</div>}
-      {source === 'pricing' && (
-        <div className="table-scroll"><table className="data-table">
-          <thead><tr><th>时间</th><th>组合</th><th>使用快递</th><th>单品利润率</th><th>操作人</th><th>修改原因</th></tr></thead>
-          <tbody>
-            {pricingRows.length === 0 && <tr><td colSpan={6} className="empty-state muted">还没有售价维护记录。在成本表里点“维护售价”保存后会出现在这里。</td></tr>}
-            {pricingRows.map((r) => (
-              <tr key={r.id}><td>{when(r.createdAt)}</td><td><strong>{r.code}</strong><div className="muted">{r.name}</div></td><td>{r.beforeCarrier || '未指定'} → <strong>{r.afterCarrier || '未指定'}</strong></td>
-                <td>{r.beforePercent === null ? '继承' : pct(r.beforePercent)} → <strong>{r.afterPercent === null ? '继承' : pct(r.afterPercent)}</strong></td><td>{r.actorName}</td><td>{r.reason}</td></tr>
-            ))}
-          </tbody>
-        </table></div>
-      )}
-      {source === 'margins' && (
-        <div className="table-scroll"><table className="data-table">
-          <thead><tr><th>时间</th><th>分类</th><th>利润率变化</th><th>操作人</th><th>修改原因</th></tr></thead>
-          <tbody>
-            {marginRows.length === 0 && <tr><td colSpan={5} className="empty-state muted">还没有分类利润率记录。</td></tr>}
-            {marginRows.map((r) => (
-              <tr key={r.id}><td>{when(r.createdAt)}</td><td>{r.scopeName}</td><td>{r.beforePercent === null ? '未设置（继承）' : pct(r.beforePercent)} → <strong>{r.afterPercent === null ? '未设置（继承）' : pct(r.afterPercent)}</strong></td><td>{r.actorName}</td><td>{r.reason}</td></tr>
-            ))}
-          </tbody>
-        </table></div>
-      )}
-      {source === 'changes' && <div className="table-scroll"><table className="data-table">
-        <thead><tr><th>时间</th><th>组合</th><th>版本</th><th className="num">发货前成本</th><th className="num">运费</th><th className="num">最低售价</th><th>相比上一版</th><th>登记人 / 原因</th></tr></thead>
-        <tbody>
-          {rows.length === 0 && <tr><td colSpan={8} className="empty-state muted">还没有成本历史。组合验证通过后会自动出现。</td></tr>}
-          {rows.map((r) => (
-            <tr key={r.id}><td>{when(r.createdAt)}</td><td><strong>{r.code}</strong><div className="muted">{r.name}</div></td><td>v{r.revision}</td>
-              <td className="num">{fmt('p', r.preShipCostCents)}</td><td className="num">{fmt('f', r.freightCents)}</td><td className="num">{fmt('m', r.minPriceCents)}</td>
-              <td>{r.revision === 1 ? <span className="muted">首版</span> : r.changes.map((c) => <div key={c.field}>{c.label}：{fmt(c.field, c.before)} → <strong>{fmt(c.field, c.after)}</strong></div>)}</td>
-              <td>{r.actorName}<div className="muted">{r.reason}</div></td></tr>
-          ))}
-        </tbody>
-      </table></div>}
-      <div className="toolbar"><button type="button" className="secondary-button small" disabled={page <= 1} onClick={() => setPage(page - 1)}>上一页</button><span className="muted">共 {total} 条 · 第 {page} 页</span><button type="button" className="secondary-button small" disabled={page * 20 >= total} onClick={() => setPage(page + 1)}>下一页</button></div>
-    </div>
-  );
-}
+export { CostHistoryPage } from './CostHistoryPage';
 
 const SCENES = [['', '全部场景'], ['production', '生产包装'], ['supplier_oem', '供应商 OEM 包装'], ['dispatch', '发货包装']];
 const TREAT: Record<string, string> = { include: '计入成本', included_in_parent: '含在上级内', reference_only: '仅参考' };
@@ -210,7 +140,7 @@ export function ApiKeysPage() {
 }
 
 /** 主数据整体重置：先自动留快照再清空商品基础资料；输入确认文本才执行；可以随时从快照恢复。 */
-export function MasterResetPage({ embedded = false }: { embedded?: boolean } = {}) {
+export function MasterResetPage({ embedded = false,presentation,blocked=false,onBusyChange,onFeedback }: { embedded?: boolean;presentation?:'master';blocked?:boolean;onBusyChange?:(busy:boolean)=>void;onFeedback?:(message:{type:'error'|'success';text:string}|null)=>void } = {}) {
   const [includePlatforms, setIncludePlatforms] = useState(true);
   const [pre, setPre] = useState<ResetPreview | null>(null);
   const [snaps, setSnaps] = useState<SnapshotRow[]>([]);
@@ -219,20 +149,44 @@ export function MasterResetPage({ embedded = false }: { embedded?: boolean } = {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  const alive=useRef(false),readSerial=useRef(0),writing=useRef(false);
+  useEffect(()=>{onBusyChange?.(busy);return()=>onBusyChange?.(false);},[busy,onBusyChange]);
+  useEffect(()=>{alive.current=true;return()=>{alive.current=false;readSerial.current++;};},[]);
   const load = async () => {
-    try { setPre(await financeApi.resetPreview(includePlatforms)); setSnaps(await financeApi.snapshots()); } catch (e) { setError(msg(e)); }
+    const request=++readSerial.current,current=()=>alive.current&&readSerial.current===request;
+    setError('');setBusy(true);onFeedback?.(null);
+    try{const [preview,snapshots]=await Promise.all([financeApi.resetPreview(includePlatforms),presentation==='master'?Promise.resolve([]):financeApi.snapshots()]);if(current()){setPre(preview);setSnaps(snapshots);}}
+    catch(e){if(current()){setPre(null);setError(msg(e));onFeedback?.({type:'error',text:msg(e)});}}
+    finally{if(current())setBusy(false);}
   };
-  useEffect(() => { void load(); }, [includePlatforms]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>{readSerial.current++;setPre(null);setConfirm('');if(presentation!=='master')void load();else setBusy(false);},[includePlatforms,presentation]); // eslint-disable-line react-hooks/exhaustive-deps
   async function reset() {
-    setBusy(true); setError(''); setNotice('');
-    try { const r = await financeApi.resetExecute({ confirm, includePlatforms }); setNotice(`已清空 ${r.totalDeleted} 条，备份快照 #${r.snapshot.id}`); setConfirm(''); await load(); } catch (e) { setError(msg(e)); }
-    setBusy(false);
+    if(blocked||writing.current||!pre||confirm!==pre.confirmation||pre.blockedByDocuments>0||(pre.blockedByCostVersions??0)>0)return;
+    writing.current=true;setBusy(true);setError('');setNotice('');onFeedback?.(null);
+    try{const r=await financeApi.resetExecute({confirm,includePlatforms});if(!alive.current)return;setNotice(presentation==='master'?`已清理 ${r.totalDeleted} 条本地商品基础资料，并创建可恢复快照 #${r.snapshot.id}。`:`已清空 ${r.totalDeleted} 条，备份快照 #${r.snapshot.id}`);setConfirm('');if(presentation==='master'){setPre(null);onFeedback?.({type:'success',text:`已清理 ${r.totalDeleted} 条本地商品基础资料，并创建可恢复快照 #${r.snapshot.id}。`});}else await load();}
+    catch(e){if(alive.current){setError(msg(e));onFeedback?.({type:'error',text:msg(e)});}}
+    finally{writing.current=false;if(alive.current)setBusy(false);}
   }
   async function restore(s: SnapshotRow) {
-    setBusy(true); setError(''); setNotice('');
-    try { const r = await financeApi.restoreSnapshot(s.id, restoreText[s.id] ?? ''); setNotice(`已从快照 #${s.id} 恢复 ${r.restored} 条`); await load(); } catch (e) { setError(msg(e)); }
-    setBusy(false);
+    if(writing.current||restoreText[s.id]!==s.confirmation)return;
+    writing.current=true;setBusy(true);setError('');setNotice('');onFeedback?.(null);
+    try{const r=await financeApi.restoreSnapshot(s.id,restoreText[s.id]??'');if(!alive.current)return;setNotice(`已从快照 #${s.id} 恢复 ${r.restored} 条`);await load();}
+    catch(e){if(alive.current){setError(msg(e));onFeedback?.({type:'error',text:msg(e)});}}
+    finally{writing.current=false;if(alive.current)setBusy(false);}
   }
+
+  if(presentation==='master')return <section className="mdi-card danger-zone" aria-label="清空待导入商品基础资料">
+    <div className="mdi-card-title"><AlertTriangle aria-hidden="true"/><div><h3>清空待导入商品基础资料</h3><p>先统计，再创建完整快照并按依赖顺序清空。不会清理五类档案类型定义、聚水潭镜像、库存、成本、订单和组织数据。</p></div></div>
+    <label className="mdi-check"><input type="checkbox" disabled={busy||blocked} checked={includePlatforms} onChange={event=>setIncludePlatforms(event.target.checked)}/>同时清空销售平台</label>
+    <button type="button" disabled={busy||blocked} onClick={()=>void load()}><Trash2 aria-hidden="true"/>预览清理范围</button>
+    {error&&!onFeedback&&<div role="alert" className="mdi-message error">{error}</div>}{notice&&!onFeedback&&<div role="status" className="mdi-message success">{notice}</div>}
+    {pre&&<div className="mdi-reset-preview"><p>共将清理 <strong>{pre.total}</strong> 条。执行前会自动创建可恢复快照。</p><div className="mdi-counts">{pre.tables.map(table=><span key={table.type}>{table.label}：{table.count}</span>)}</div>
+      {(pre.blockedByCostVersions??0)>0&&<p role="alert">已有 {pre.blockedByCostVersions} 项成本版本或生产标准引用，不能整体重置主数据。</p>}{pre.blockedByDocuments>0&&<p role="alert">有 {pre.blockedByDocuments} 行财务单据明细用到了商品档案，目前不能重置。</p>}
+      <label><span>输入确认文本：<code>{pre.confirmation}</code></span><input aria-label="确认文本" value={confirm} onChange={event=>setConfirm(event.target.value)}/></label>
+      <button type="button" className="danger" disabled={busy||blocked||confirm!==pre.confirmation||pre.blockedByDocuments>0||(pre.blockedByCostVersions??0)>0} onClick={()=>void reset()}><Trash2 aria-hidden="true"/>创建快照并清空</button>
+    </div>}
+  </section>;
+
   return (
     <div>
       <div className="page-head">{embedded ? <h2>清空待导入商品基础资料</h2> : <h1>主数据重置</h1>}</div>
@@ -241,7 +195,7 @@ export function MasterResetPage({ embedded = false }: { embedded?: boolean } = {
       {notice && <div role="status" className="notice ok">{notice}</div>}
       {pre && (
         <section>
-          <label className="check-line"><input type="checkbox" checked={includePlatforms} onChange={(e) => setIncludePlatforms(e.target.checked)} />同时清空销售平台和销售场景</label>
+          <label className="check-line"><input type="checkbox" disabled={busy} checked={includePlatforms} onChange={(e) => setIncludePlatforms(e.target.checked)} />同时清空销售平台</label>
           <table className="data-table"><thead><tr><th>将清空的资料</th><th className="num">条数</th></tr></thead>
             <tbody>{pre.tables.map((t) => <tr key={t.type}><td>{t.label}</td><td className="num">{t.count}</td></tr>)}</tbody>
             <tfoot><tr><th>合计</th><th className="num">{pre.total}</th></tr></tfoot></table>
@@ -311,7 +265,7 @@ export function JstSyncPage() {
           {data?.rows.length === 0 && <tr><td colSpan={6} className="empty-state muted">队列是空的</td></tr>}
           {data?.rows.map((j) => (
             <tr key={j.id}><td>{when(j.createdAt)}</td><td>{JOB_KIND[j.kind] ?? (j.resourceType === 'finance-bundles' ? '商品组合' : '基础编码')} <strong>{j.payload.code ?? (j.payload as { skuId?: string }).skuId}</strong><div className="muted">{j.payload.name}</div>{(j.payload as { oldCode?: string }).oldCode && <div className="muted">旧编码：{(j.payload as { oldCode?: string }).oldCode}</div>}</td>
-              <td><span className={`pill ${JOB_STATUS[j.status][1]}`}>{JOB_STATUS[j.status][0]}</span></td><td className="num">{j.attempts}</td><td className="bad-text">{j.lastError}</td>
+              <td><span className={`pill ${'blockedIntent' in j.payload&&j.payload.blockedIntent===true?'warn':JOB_STATUS[j.status][1]}`}>{'blockedIntent' in j.payload&&j.payload.blockedIntent===true?'待处理配置/资料问题':JOB_STATUS[j.status][0]}</span></td><td className="num">{j.attempts}</td><td className="bad-text">{j.lastError}</td>
               <td>{(j.status === 'failed' || j.status === 'cancelled') && <button type="button" className="secondary-button small" onClick={() => void act(() => financeApi.jstRetry(j.id))}>重试</button>}{(j.status === 'pending' || j.status === 'failed') && <button type="button" className="secondary-button small" onClick={() => void act(() => financeApi.jstCancel(j.id))}>取消</button>}</td></tr>
           ))}
         </tbody>

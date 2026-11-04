@@ -1,0 +1,48 @@
+.reference-bom.reference-production-bom{display:grid;gap:0;font-family:Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif}
+.reference-production-bom .reference-production-block{display:grid;gap:12px;margin:12px 16px 0;padding:14px;border:1px solid #d8e2ea;border-radius:8px;background:#fff;box-shadow:0 4px 12px rgb(30 41 59 / 4%)}
+.reference-production-bom .reference-production-block:last-of-type{margin-bottom:12px}
+.reference-production-bom .reference-production-block>header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0;padding:0;background:none;border:0;box-shadow:none}
+.reference-production-bom .reference-production-heading{display:flex!important;flex-direction:row;align-items:center;gap:9px!important}
+.reference-production-bom .reference-production-heading>i{display:grid;place-items:center;flex:0 0 26px;width:26px;height:26px;font-size:10px;font-style:normal;font-weight:900;color:#087346;background:#e6f6ee;border-radius:6px}
+.reference-production-bom .reference-production-heading>div{display:grid;gap:2px}
+.reference-production-bom .reference-production-heading strong{font-size:14px;color:#122033}
+.reference-production-bom .reference-production-heading small{font-size:11px;font-weight:600;color:#728196}
+.reference-production-bom .reference-production-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:7px}
+.reference-production-bom button.reference-production-add{display:inline-flex;flex-direction:row;align-items:center;justify-content:center;gap:5px;min-height:32px;margin:0;padding:5px 10px;color:#087346;border:1px solid #bfe6d1;border-radius:6px;background:#f0faf5;font-size:12px;font-weight:700;line-height:normal;white-space:nowrap}
+.reference-production-bom button.reference-production-add:disabled{opacity:.55;cursor:not-allowed}
+.reference-production-bom button.reference-production-add svg{width:14px;height:14px}
+.reference-production-bom .reference-production-subtitle{margin:10px 0 6px;padding-left:2px;font-size:11px;font-weight:800;color:#4f6075}
+.reference-production-bom .reference-production-empty{margin:0;padding:10px 12px;color:#64748b;border:1px dashed #cbd5e1;border-radius:8px;background:#f8fafc;font-size:13px;line-height:normal;text-align:left}
+.reference-production-bom .reference-production-empty.is-error{color:#b42318;background:#fff7f6}
+.reference-production-bom .reference-production-row{display:grid;grid-template-columns:1fr;gap:10px;padding:12px;border:1px solid #dbe4ec;border-radius:8px;background:#fbfcfe}
+.reference-production-bom .reference-production-row+.reference-production-row{margin-top:8px}
+.reference-production-bom .reference-production-main{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:10px;min-width:0}
+.reference-production-bom .reference-production-picker,.reference-production-bom .reference-production-quantity,.reference-production-bom .reference-production-metric,.reference-production-bom .reference-oem-unit{display:grid;gap:6px;margin:0;min-width:0;font-size:inherit;font-weight:400}
+.reference-production-bom .reference-production-picker>span,.reference-production-bom .reference-production-quantity>span,.reference-production-bom .reference-production-metric>span,.reference-production-bom .reference-oem-unit>span{display:block;width:auto;height:auto;color:#66758a;font-size:11px;font-weight:800;background:none;border-radius:0;place-items:normal}
+.reference-production-bom .reference-production-picker>small{display:block;overflow:hidden;margin:0;color:#728196;font-size:11px;font-weight:400;white-space:nowrap;text-overflow:ellipsis}
+.reference-production-bom .reference-production-details{display:grid;grid-template-columns:minmax(100px,.65fr) repeat(3,minmax(118px,.8fr)) minmax(145px,1fr);align-items:stretch;gap:8px;padding-top:10px;border-top:1px solid #e3e9ef}
+.reference-production-bom .is-labor .reference-production-details{grid-template-columns:minmax(100px,.65fr) minmax(118px,.8fr) minmax(118px,.8fr) minmax(145px,1fr)}
+.reference-production-bom .reference-production-quantity input{box-sizing:border-box;width:100%;min-width:0;min-height:42px;margin:0;padding:8px 10px;border:1px solid #ccd7e2;border-radius:7px;background:#fff;font:inherit}
+.reference-production-bom .reference-production-metric{align-content:center;min-height:58px;padding:8px 11px;border:1px solid #e0e7ee;border-radius:6px;background:#fff}
+.reference-production-bom .reference-production-metric strong{display:block;overflow:hidden;margin:0;color:#25364a;font-size:13px;white-space:nowrap;text-overflow:ellipsis}
+.reference-production-bom .reference-production-metric small{display:block;margin:0;color:#7b8797;font-size:10px;font-weight:400}
+.reference-production-bom .reference-production-metric.is-total{border-color:#addbc4;background:#edf9f3}
+.reference-production-bom .reference-production-metric.is-total strong{color:#087346}
+.reference-production-bom .reference-production-metric.is-version strong{font-size:10px}
+.reference-production-bom button.reference-production-delete{display:inline-flex;flex-direction:row;align-self:end;align-items:center;justify-content:center;gap:5px;min-height:38px;margin:0 0 1px;padding:0 9px;border:1px solid #f1c4c4;border-radius:7px;background:#fff8f8;color:#c92d2d;font-size:12px;font-weight:800}
+.reference-production-bom button.reference-production-delete svg{width:14px;height:14px}
+.reference-production-bom .reference-oem-composition-row{display:grid;grid-template-columns:minmax(0,1fr) 105px 112px 124px 72px;align-items:start;gap:12px;padding:12px;border:1px solid #dce5ed;border-radius:9px;background:#fff}
+.reference-production-bom .reference-oem-composition-row .reference-production-quantity input,.reference-production-bom .reference-oem-unit output{box-sizing:border-box;display:flex;align-items:center;width:100%;min-width:0;height:38px;min-height:38px;margin:0;padding:0 11px;color:#116b46;border:1px solid #c8e5d5;border-radius:7px;background:#f1faf5;font-weight:850}
+.reference-production-bom .reference-oem-composition-row .reference-production-quantity input{color:#243449;border-color:#ccd7e2;background:#fff;font-weight:400}
+.reference-production-bom .reference-oem-unit.is-cost output{color:#8a4b08;border-color:#f0d4a9;background:#fff8ec}
+.reference-production-bom .reference-oem-unit.is-cost small{margin:0;color:#927044;font-size:10px;white-space:nowrap}
+.reference-production-bom .reference-oem-cost-summary{display:grid;grid-template-columns:auto auto minmax(0,1fr);align-items:center;gap:10px;padding:10px 12px;border:1px solid #ecd5b5;border-radius:8px;background:#fff9ef;color:#5f4a2d}
+.reference-production-bom .reference-oem-cost-summary span,.reference-production-bom .reference-oem-cost-summary strong{font-weight:900}
+.reference-production-bom .reference-oem-cost-summary strong{color:#a45708;font-size:17px}
+.reference-production-bom .reference-oem-cost-summary small{margin:0;text-align:right;color:#88745a}
+@media(max-width:900px){.reference-production-bom .reference-production-details,.reference-production-bom .is-labor .reference-production-details{grid-template-columns:repeat(2,minmax(0,1fr))}.reference-production-bom .reference-oem-composition-row{grid-template-columns:minmax(0,1fr) 105px}.reference-production-bom .reference-production-block>header{align-items:flex-start;flex-wrap:wrap}}
+
+.reference-production-bom.is-readonly .reference-production-main{grid-template-columns:minmax(0,1fr)}
+.reference-production-bom.is-readonly .reference-oem-composition-row{grid-template-columns:minmax(0,1fr) 105px 112px 124px}
+.reference-production-bom input.reference-production-readonly-choice{box-sizing:border-box;width:100%;min-width:0;height:38px;margin:0;padding:8px 10px;border:1px solid #ccd7e2;border-radius:7px;background:#fff;color:#243449;font:inherit}
+@media(max-width:900px){.reference-production-bom.is-readonly .reference-oem-composition-row{grid-template-columns:minmax(0,1fr) 105px}}

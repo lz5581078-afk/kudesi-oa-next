@@ -49,3 +49,8 @@ export function downloadText(filename: string, content: string) {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+/** Excel另存CSV可为GBK，和既有通用导入保持同一读取方式。 */
+export async function readCsvText(file:File):Promise<string>{
+ const buffer=await file.arrayBuffer();try{return new TextDecoder('utf-8',{fatal:true}).decode(buffer);}catch{return new TextDecoder('gb18030').decode(buffer);}
+}

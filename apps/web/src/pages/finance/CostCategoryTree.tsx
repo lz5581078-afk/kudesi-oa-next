@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Pencil } from 'lucide-react';
+import { Pencil, ChevronDown, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import { pct } from './common';
 import type { CostTableData } from './financeApi';
@@ -26,7 +26,7 @@ export function CostCategoryTree({ data, selected, onSelect, onEdit }: {
               <span>{c.name} <small>{c.count}</small></span>
               <small>{pct(c.percent)} · {c.ownPercent === null ? (c.percent === null ? '未设置' : '继承') : '分类设置'}</small>
             </button>
-            {data.canEdit && <button type="button" className="cost-category-edit" aria-label={`设置${c.name}利润率`} onClick={() => onEdit({ id: c.id, name: c.name, ownPercent: c.ownPercent, revision: c.revision })}><Pencil size={14}/></button>}
+            {data.canEdit && <button type="button" className="link-button" aria-label={`设置${c.name}利润率`} onClick={() => onEdit({ id: c.id, name: c.name, ownPercent: c.ownPercent, revision: c.revision })}><Pencil size={14}/></button>}
           </div>
           {!collapsed.has(c.id) && branch(c.id, depth + 1, new Set([...seen, c.id]))}
         </div>
@@ -41,7 +41,7 @@ export function CostCategoryTree({ data, selected, onSelect, onEdit }: {
           <span>全部 <small>{data.allTotal}</small></span>
           <small>默认利润率 {pct(data.defaultMargin.percent)}</small>
         </button>
-        {data.canEdit && <button type="button" className="cost-category-edit" aria-label="设置全部默认利润率" onClick={() => onEdit({ id: 0, name: '全部默认', ownPercent: data.defaultMargin.percent, revision: data.defaultMargin.revision })}><Pencil size={14}/></button>}
+        {data.canEdit && <button type="button" className="link-button" aria-label="设置全部默认利润率" onClick={() => onEdit({ id: 0, name: '全部默认', ownPercent: data.defaultMargin.percent, revision: data.defaultMargin.revision })}><Pencil size={14}/></button>}
       </div>
       {branch(null, 0, new Set())}
     </nav>

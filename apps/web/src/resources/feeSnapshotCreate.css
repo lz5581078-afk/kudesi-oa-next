@@ -1,0 +1,13 @@
+.fee-snapshot-create-backdrop{position:fixed;inset:0;z-index:240;display:grid;place-items:center;padding:24px;background:rgba(15,23,42,.52)}
+.fee-snapshot-create{width:min(760px,calc(100vw - 48px));max-height:calc(100vh - 48px);overflow:auto;padding:18px;background:#fff;color:#172235;border:0;border-radius:8px;box-shadow:0 24px 70px #0f172a3d;font:16px/normal Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif}
+.fee-snapshot-create>header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;border-bottom:1px solid #e5eaf1;padding-bottom:14px}
+.fee-snapshot-create h2{margin:0;font-size:24px;line-height:normal}.fee-snapshot-create p{margin:0;font-size:16px;line-height:normal}
+.fee-snapshot-create-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:0}
+.fee-snapshot-create-fields label{display:grid;grid-column:1/-1;gap:6px;font-size:16px;font-weight:400;color:#172033}
+.fee-snapshot-create-fields input,.fee-snapshot-create-fields textarea{width:100%;min-height:38px;padding:0 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#172235;font:inherit;outline:none;box-shadow:none}
+.fee-snapshot-create-fields label>span{font-size:13px;font-weight:700;color:#64748b}
+.fee-snapshot-create-fields textarea{min-height:92px;padding:10px;margin-bottom:12px;resize:vertical}
+.fee-snapshot-create>footer{display:block;margin:0}
+.fee-snapshot-create>header>button,.fee-snapshot-create>footer>button{min-height:38px;padding:0 12px;font:inherit;border:1px solid #d7e1eb;border-radius:8px;background:#fff;color:#334155}
+.fee-snapshot-create button[type=submit]{background:#0e8062;border-color:#166534;color:#fff;font-weight:700}
+.fee-snapshot-create [role=alert]{color:#b91c1c;margin-top:12px}

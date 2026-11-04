@@ -4,7 +4,7 @@ import { DataSource } from 'typeorm';
 import { buildDataSourceOptions } from '../database/data-source';
 import { Company, ResourceRecord, User } from '../entities';
 import { buildServices } from '../test-support';
-import { buildSnapshot } from './base-code-support';
+import { baseCodeOutbound, buildSnapshot } from './base-code-support';
 
 const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
 d('24号基础编码专属资料：重量分类独立维护及生效引用保护', () => {
@@ -26,7 +26,12 @@ d('24号基础编码专属资料：重量分类独立维护及生效引用保护
     let custom = await svc.update(actor, 'finance-base-codes', bc.id, { weightG: 750.123456, categoryId: b.id, shortName: '专属原料' });
     expect(custom.data.weightG).toBe(750.123456);
     expect(custom.data.categoryId).toBe(b.id);
+    expect(await baseCodeOutbound(ds.manager, c.id, await ds.manager.findOneByOrFail(ResourceRecord, { id: bc.id }))).toMatchObject({ weight: 0.750123, c_name: '独立分类' });
     expect(custom.data.profileManual).toBe(true);
+    const longProfile = await svc.confirmBaseProfile(actor, 'finance-base-codes', bc.id, { name: '名'.repeat(500), shortName: '简'.repeat(500), spec: '色'.repeat(255) });
+    expect(longProfile.data).toMatchObject({ name: '名'.repeat(500), shortName: '简'.repeat(500), spec: '色'.repeat(255) });
+    await expect(svc.confirmBaseProfile(actor, 'finance-base-codes', bc.id, { shortName: '简'.repeat(501) })).rejects.toThrow(/500/);
+    await expect(svc.confirmBaseProfile(actor, 'finance-base-codes', bc.id, { spec: '色'.repeat(256) })).rejects.toThrow(/255/);
     expect((await buildSnapshot(ds.manager, c.id, await ds.manager.findOneByOrFail(ResourceRecord, { id: bc.id }))).signature).not.toBe(before.signature);
     await svc.update(actor, 'finance-products', p.id, { purchaseSpec: '斤' });
     custom = await svc.update(actor, 'finance-base-codes', bc.id, { shortName: '专属原料甲' });

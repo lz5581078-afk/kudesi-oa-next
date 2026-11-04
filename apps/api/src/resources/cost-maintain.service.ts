@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { In, DataSource } from 'typeorm';
 import { percentToMicro } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceChangeLog, ResourceRecord } from '../entities';
@@ -60,7 +60,7 @@ export class CostMaintainService {
       if (!samePercent) notes.push(`单品利润率 ${num(b.data.marginOverridePercent) ?? '继承'} → ${percent ?? '继承'}`);
       await this.resources.patchData(em, user, 'finance-bundles', bundleId, { carrierName: carrier || null, marginOverridePercent: percent, overrideReason: reason }, `${PRICING_NOTE}${reason}（${notes.join('；')}）`.slice(0, 500));
       changed = true;
-      // 成本历史：新的最低售价和上一版不同，就登记一版（和保存在同一个事务里）
+      // 和售价保存同事务，登记快递及单品利润率的变化；金额相同也不能丢掉覆盖/继承切换。
       await this.tools.registerCost(user, bundleId, reason, em, 'pricing_update');
     });
     return { ok: true, changed };
@@ -72,10 +72,12 @@ export class CostMaintainService {
     const percent = cleanPercent(input.profitPercent);
     let changed = false;
     await this.dataSource.transaction(async (em) => {
+      let codingCategory=false;
       if (categoryId > 0) {
-        const cat = await em.findOne(ResourceRecord, { where: { id: categoryId, companyId: user.companyId, type: 'finance-categories' } });
+        const cat = await em.findOne(ResourceRecord, { where: { id: categoryId, companyId: user.companyId, type: In(['finance-categories','finance-code-dictionaries']) } });
         if (!cat || cat.status !== 'active') throw new NotFoundException('分类不存在或已停用');
-        if (cat.data.archiveType !== 'bundle') throw new BadRequestException('分类利润率只能设在组合分类上');
+        codingCategory=cat.type==='finance-code-dictionaries';
+        if (cat.data.archiveType !== 'bundle' && cat.data.kind!=='product_category') throw new BadRequestException('分类利润率只能设在组合分类上');
       }
       const scopeKey = categoryId > 0 ? `cat:${categoryId}` : 'all';
       const existing = await em.findOne(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-margins', uniqueKey: scopeKey }, lock: { mode: 'pessimistic_write' } });
@@ -85,7 +87,7 @@ export class CostMaintainService {
         await this.resources.patchData(em, user, 'finance-margins', existing.id, { profitPercent: percent, reason }, `维护分类利润率：${reason}`.slice(0, 500));
       } else {
         if (percent === null) return;
-        await this.resources.createRecord(em, user, 'finance-margins', { ...(categoryId > 0 ? { categoryId } : {}), profitPercent: percent, reason }, `维护分类利润率：${reason}`.slice(0, 500));
+        await this.resources.createRecord(em, user, 'finance-margins', { ...(categoryId > 0 ? codingCategory ? {codeDictionaryCategoryId:categoryId} : { categoryId } : {}), profitPercent: percent, reason }, `维护分类利润率：${reason}`.slice(0, 500));
       }
       changed = true;
     });

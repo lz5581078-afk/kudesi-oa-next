@@ -1,3 +1,4 @@
+import {Settings} from 'lucide-react';
 import type { FieldDef, ResourceDef } from '@kudesi/shared';
 import { ChevronDown, CloseIcon, ColumnsIcon, DensityIcon, FilterIcon } from './ResIcons';
 import { ToolPop } from './ToolPop';
@@ -105,15 +106,15 @@ export function ActiveChips({ chips, summary, onClearAll }: { chips: Chip[]; sum
   );
 }
 
-export function ColumnsPop({ fields, picked, onChange, defaults }: { fields: FieldDef[]; picked: string[]; onChange: (keys: string[]) => void; defaults: FieldDef[] }) {
+export function ColumnsPop({ fields, picked, onChange, defaults, iconOnly = false, requiredKeys = [], referenceProduct=false }: { referenceProduct?:boolean; iconOnly?:boolean; requiredKeys?:string[]; fields: FieldDef[]; picked: string[]; onChange: (keys: string[]) => void; defaults: FieldDef[] }) {
   return (
-    <ToolPop label="显示列" trigger={<><ColumnsIcon /><span className="lbl">显示列</span></>} panelClass="res-cols">
+    <ToolPop label={iconOnly || referenceProduct ? "显示字段" : "显示列"} trigger={referenceProduct?<><Settings size={16}/><span>列设置</span></>:iconOnly ? <Settings size={16}/> : <><ColumnsIcon /><span className="lbl">显示列</span></>} panelClass="res-cols">
       {() => (
         <>
           <div className="res-pop-body res-cols-list">
             {fields.map((f) => (
               <label key={f.key} className="check">
-                <input type="checkbox" checked={picked.includes(f.key)} onChange={(e) => onChange(e.target.checked ? [...picked, f.key] : picked.filter((k) => k !== f.key))} />
+                <input type="checkbox" disabled={requiredKeys.includes(f.key)} checked={picked.includes(f.key)} onChange={(e) => onChange(e.target.checked ? [...picked, f.key] : picked.filter((k) => k !== f.key))} />
                 {f.label}
               </label>
             ))}

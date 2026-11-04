@@ -5,6 +5,7 @@ import { compatiblePurchaseTemplate } from '@kudesi/shared';
 import { api } from '../../api/client';
 import { FlowFieldsForm } from './FlowFields';
 import { PurchaseCompatibilityPanel as PurchasePanel } from './PurchaseCompatibilityPanel';
+vi.mock('../../auth/AuthContext',()=>({useAuth:()=>({user:{id:1,companyId:1,permissions:{isCompanyAdmin:true,allow:[],deny:[]}},can:()=>true})}));
 
 vi.mock('../../api/client', async (orig) => ({ ...(await orig<typeof import('../../api/client')>()), api: vi.fn() }));
 vi.mock('../../resources/RecordForm', async (orig) => ({

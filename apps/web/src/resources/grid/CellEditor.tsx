@@ -5,7 +5,7 @@ import type { Option, ResourceDef } from '@kudesi/shared';
 import type { FileInfo } from '../api';
 import { FilesInput } from '../FilesField';
 import { AttrsInput, ReasonDialog, RefsSelect } from '../RecordForm';
-import type { GridCol, GridRow } from './gridModel';
+import { resolveGridCol, type GridCol, type GridRow } from './gridModel';
 import { refChoices, searchRefChoices, type RefChoice } from './refResolve';
 
 /**
@@ -29,6 +29,7 @@ interface Props {
 
 /** 单元格里的编辑器，按列类型派生：下拉、多选、引用选择、文本类输入。提交 = Enter/Tab/失焦，Esc 取消。 */
 export function CellEditor(props: Props) {
+  props = { ...props, col: resolveGridCol(props.col, props.row) };
   const { col } = props;
   if (props.def.key === 'stores' && col.key === 'jushuitanShopId') return <StoreJstEditor {...props} />;
   if (col.special === 'status') return <StatusEditor {...props} />;

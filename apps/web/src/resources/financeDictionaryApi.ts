@@ -1,0 +1,8 @@
+import {api} from '../api/client';
+export type DictionaryUnitKind='spec_unit'|'archive_unit'|'packaging_unit'|'shipping_unit';
+export type FinanceDictionaryKind='brand'|'spec_unit'|'product_category';
+export interface DictionaryUsage {known:boolean;referenceCount:number|null;knownReferenceCount:number;archiveReferences:number;baseReferences:number;bundleReferences:number;otherReferences:number;bomReferences:number|null;childCount:number;codeLocked:boolean;nameLocked:boolean}
+export interface DictionaryContext {kind:FinanceDictionaryKind;defaults?:Array<{name:string;code:string}>;rows:Array<{id:number;usage:DictionaryUsage}>}
+export interface DictionaryPreview {code:string;baseCode:string;conflict:boolean;errors:string[];nameConflict:{id:number;name:string;code:string}|null;nameMaxLength:number;codeMaxLength:number;usage:DictionaryUsage|null}
+export function dictionaryKind(target:string,kind?:string):FinanceDictionaryKind|null{return target==='finance-brands'?'brand':target==='finance-product-units'&&['spec_unit','archive_unit','packaging_unit','shipping_unit'].includes(kind||'')?'spec_unit':target==='finance-code-dictionaries'&&kind==='product_category'?'product_category':null;}
+export const financeDictionaryApi={context:(kind:FinanceDictionaryKind,unitKind?:DictionaryUnitKind)=>api<DictionaryContext>('/finance/base-codes/dictionary-context?kind='+kind+(unitKind?'&unitKind='+unitKind:'')),preview:(kind:FinanceDictionaryKind,name:string,id?:number,parentId?:number,unitKind?:DictionaryUnitKind)=>{const query=new URLSearchParams({kind,name});if(id)query.set('id',String(id));if(parentId)query.set('parentId',String(parentId));if(unitKind)query.set('unitKind',unitKind);return api<DictionaryPreview>('/finance/base-codes/dictionary-preview?'+query);}};

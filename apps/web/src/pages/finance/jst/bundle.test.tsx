@@ -1,12 +1,13 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { resourceApi } from '../../../resources/api';
+import { resourceApi,type ResourceDto } from '../../../resources/api';
 import { BundleManualDialog } from './BundleManualDialog';
-import { BundleVerifyDialog, GenerateDialog } from './BundleDialogs';
+import { BundleVerifyDialog } from './BundleDialogs';
 import { LineEditor, toLineInput, type LineRow } from './BundleLineEditor';
 import { jstApi } from './jstApi';
 import { useState } from 'react';
 
+vi.mock('../../../auth/AuthContext',()=>({useAuth:()=>({user:{id:1,companyId:1,permissions:{isCompanyAdmin:true,allow:[],deny:[]}},can:()=>true})}));
 vi.mock('./jstApi', async (orig) => {
   const real = await orig<typeof import('./jstApi')>();
   return { ...real, jstApi: { bundleReport: vi.fn(), bundleVerify: vi.fn(), bundlePreview: vi.fn(), bundleGenerate: vi.fn() } };
@@ -46,61 +47,6 @@ describe('组合构成行编辑器', () => {
   it('用途里有辅料，可加人工行', () => {
     render(<LineEditor rows={[]} allowLabor onChange={() => undefined} />);
     expect(screen.getByText('＋ 加人工')).toBeTruthy();
-  });
-});
-
-describe('批量生成：组合分类必选', () => {
-  it('没选组合分类不能检查；选了以后带着分类去预览', async () => {
-    r.list.mockImplementation(async (type: string) => ({ items: type === 'finance-platforms' ? [{ id: 1, title: '淘宝', data: {} }] : type === 'finance-scenarios' ? [{ id: 2, title: '自销', data: {} }] : type === 'finance-base-codes' ? [{ id: 3, title: 'APPLE', data: { name: '苹果' } }] : [], total: 1 }) as never);
-    r.categoryTree.mockResolvedValue({ field: 'bundleCategoryId', total: 0, uncategorized: 0, nodes: [{ id: 5, title: '礼盒', status: 'active', parentId: 0, sort: 0, count: 0 }, { id: 6, title: '水果礼盒', status: 'active', parentId: 5, sort: 0, count: 0 }] } as never);
-    j.bundlePreview.mockResolvedValue({ targets: [], namingRule: false });
-    render(<GenerateDialog onClose={() => undefined} onDone={() => undefined} />);
-    fireEvent.focus(screen.getByLabelText('基础编码'));
-    fireEvent.click(await screen.findByRole('option', { name: /APPLE/ }));
-    fireEvent.click(await screen.findByLabelText(/淘宝/));
-    const check = screen.getByRole('button', { name: '保存前检查' }) as HTMLButtonElement;
-    await waitFor(() => expect(screen.getByText('礼盒 / 水果礼盒')).toBeTruthy());
-    expect(check.disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText('组合分类'), { target: { value: '6' } });
-    expect(check.disabled).toBe(false);
-    fireEvent.click(check);
-    await waitFor(() => expect(j.bundlePreview).toHaveBeenCalled());
-    expect(j.bundlePreview.mock.calls[0][1][0]).toMatchObject({ platformId: 1, scenarioId: 2, bundleCategoryId: 6 });
-  });
-});
-
-describe('新建组合编码：分组、手填覆盖', () => {
-  it('分组加行；检查后可手填编码名称简称，写原因才能生成，改动后要重新检查', async () => {
-    r.list.mockImplementation(async (type: string) => ({ items: type === 'finance-platforms' ? [{ id: 1, title: '淘宝', data: {} }] : type === 'finance-scenarios' ? [{ id: 2, title: '自销', data: {} }] : type === 'finance-base-codes' ? [{ id: 3, title: 'APPLE', data: { name: '苹果' } }] : [], total: 1 }) as never);
-    r.categoryTree.mockResolvedValue({ field: 'bundleCategoryId', total: 0, uncategorized: 0, nodes: [{ id: 6, title: '水果礼盒', status: 'active', parentId: 0, sort: 0, count: 0 }] } as never);
-    const pv = { platformId: 1, platformName: '淘宝', scenarioId: 2, scenarioName: '自销', configNo: '01', code: 'ZH-TB-APPLE', name: '苹果组合', styleCode: 'S', shortName: '苹果', reuse: null, duplicates: [], ok: true };
-    j.bundlePreview.mockResolvedValue({ targets: [pv], namingRule: true });
-    j.bundleGenerate.mockResolvedValue({ created: [{ id: 9, code: 'MY-CODE', reused: false }] });
-    render(<GenerateDialog onClose={() => undefined} onDone={() => undefined} />);
-    fireEvent.click(screen.getByRole('button', { name: '＋ 包装' }));
-    expect(screen.getByText('包装', { selector: 'th' })).toBeTruthy();
-    expect(screen.getByText('主商品', { selector: 'th' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '＋ 赠品' }));
-    expect(screen.getByText('赠品', { selector: 'th' })).toBeTruthy();
-    fireEvent.focus(screen.getAllByLabelText('基础编码')[0]);
-    fireEvent.click(await screen.findByRole('option', { name: /APPLE/ }));
-    fireEvent.click(await screen.findByLabelText(/淘宝/));
-    await waitFor(() => expect(screen.getByText('水果礼盒')).toBeTruthy());
-    fireEvent.change(screen.getByLabelText('组合分类'), { target: { value: '6' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存前检查' }));
-    await screen.findByText('3. 组合品生成资料');
-    const gen = () => screen.getByRole('button', { name: /^生成/ }) as HTMLButtonElement;
-    expect(gen().disabled).toBe(false);
-    fireEvent.change(screen.getByLabelText('淘宝编码'), { target: { value: 'my-code' } });
-    expect(gen().disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText('改码改名原因'), { target: { value: '平台要求' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存前检查' }));
-    await waitFor(() => expect(j.bundlePreview).toHaveBeenCalledTimes(2));
-    expect(j.bundlePreview.mock.calls[1][1][0]).toMatchObject({ manualCode: 'MY-CODE', manualReason: '平台要求' });
-    await waitFor(() => expect(gen().disabled).toBe(false));
-    fireEvent.click(gen());
-    await waitFor(() => expect(j.bundleGenerate).toHaveBeenCalled());
-    expect(j.bundleGenerate.mock.calls[0][1][0]).toMatchObject({ manualCode: 'MY-CODE', manualReason: '平台要求' });
   });
 });
 

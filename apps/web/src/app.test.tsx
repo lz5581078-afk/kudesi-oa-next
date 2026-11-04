@@ -266,7 +266,8 @@ describe('财务 · 成本表与定价调试', () => {
     renderAt('/finance/cost-table');
     const row = (await screen.findByText('ZH-TB-SGPGHFSPGG-2D5KG*2')).closest('tr')!;
     expect(within(row).getAllByText('—').length).toBeGreaterThanOrEqual(2);
-    expect(within(row).getByText('1 项待补')).toBeTruthy();
+    expect(within(row).getByText('组合-红富士苹果×2').getAttribute('title')).toContain('运费无法预估');
+    expect(within(row).getByText('缺少运费预估')).toBeTruthy();
   });
 
   it('没有成本权限时（接口 403）显示接口给的原因，不显示任何金额', async () => {
@@ -320,9 +321,9 @@ describe('财务 · 制单中心', () => {
     expect(within(slip).getAllByText('¥37.50').length).toBeGreaterThan(0);
     // 结算方式：收了全款 → 收到金额等于合计，欠款为 0
     fireEvent.click(within(slip).getByRole('button', { name: '收了全款' }));
-    expect((within(slip).getByLabelText('收到金额') as HTMLInputElement).value).toBe('37.50');
+    expect((within(slip).getByLabelText('收到金额') as HTMLInputElement).value).toBe('37.5');
     fireEvent.click(within(slip).getByRole('button', { name: '欠款' }));
-    expect((within(slip).getByLabelText('收到金额') as HTMLInputElement).value).toBe('');
+    expect((within(slip).getByLabelText('收到金额') as HTMLInputElement).value).toBe('0');
     first.unmount();
     renderAt('/finance/doc-transfer');
     const t = await screen.findByRole('form', { name: '转款单开单' });

@@ -1,0 +1,12 @@
+.express-surcharge-dialog { width: min(1040px,calc(100vw - 48px)); background: #fff; border-radius: 8px; }
+.express-surcharge-dialog .modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.express-surcharge-dialog h3 { margin: 0; font-size: 18px; }
+.express-surcharge-dialog p { color: #5e7180; font-size: 12px; margin: 5px 0 12px; }
+.express-surcharge-sections { display: grid; gap: 14px; border: 0; margin: 0; padding: 0; min-width: 0; }
+.express-surcharge-sections > section { border: 1px solid #dce5eb; padding: 14px; border-radius: 8px; }
+.express-surcharge-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.express-surcharge-fields label { display: grid; gap: 6px; min-width: 0; font-size: 13px; font-weight: 700; }
+.express-surcharge-fields input, .express-surcharge-fields select, .express-surcharge-fields textarea { width: 100%; min-width: 0; }
+.express-province-checks { display: grid; grid-template-columns: repeat(auto-fill,minmax(95px,1fr)); gap: 8px; }
+.express-province-checks label { display: flex; gap: 6px; align-items: center; font-size: 12px; padding: 7px; border: 1px solid #dce5eb; border-radius: 6px; }
+@media (max-width: 600px) { .express-surcharge-fields { grid-template-columns: 1fr; } }

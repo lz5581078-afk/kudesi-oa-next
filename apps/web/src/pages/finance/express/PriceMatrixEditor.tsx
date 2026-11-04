@@ -21,7 +21,7 @@ export function PriceMatrixEditor({ versionId, source, rules, canEdit, onSaved }
 
   const setCell = (province: string, col: MatrixColumn, part: 'a' | 'b', value: string) => {
     setDirty(true);
-    setCells((c) => ({ ...c, [cellKey(province, col.id)]: { a: c[cellKey(province, col.id)]?.a ?? '', b: c[cellKey(province, col.id)]?.b ?? '', [part]: value } }));
+    setCells((c) => ({ ...c, [cellKey(province, col.id)]: { ...c[cellKey(province, col.id)], a: c[cellKey(province, col.id)]?.a ?? '', b: c[cellKey(province, col.id)]?.b ?? '', [part]: value } }));
   };
   const fillColumn = (col: MatrixColumn) => {
     const a = window.prompt(`把「${columnLabel(col)}」这一列所有省份都填成同一个价格（元）。已有的价格会被覆盖。`, '');
@@ -30,7 +30,7 @@ export function PriceMatrixEditor({ versionId, source, rules, canEdit, onSaved }
     setDirty(true);
     setCells((c) => {
       const next = { ...c };
-      for (const r of MATRIX_ROWS.filter((x) => x.value !== 'ALL')) next[cellKey(r.value, col.id)] = { a, b };
+      for (const r of MATRIX_ROWS.filter((x) => x.value !== 'ALL')) next[cellKey(r.value, col.id)] = { ...c[cellKey(r.value, col.id)], a, b };
       return next;
     });
   };

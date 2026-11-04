@@ -1,0 +1,27 @@
+.base-code-reference .data-table th>button{gap:0}
+.base-code-reference .base-code-sort-indicator{display:inline-block;flex:0 0 auto;margin-left:6px;color:#91a0b2;font-size:12px;font-style:normal;font-weight:400;line-height:1}
+.base-code-reference .base-code-sort-indicator.is-active{color:#087443}
+.base-code-reference .data-table td[data-label="商品编码"]>strong{font-weight:700}
+.base-code-reference .data-table tr.raw-finished-name-display td:nth-child(-n+3){color:#28749d;background:#eef8ff}
+.base-code-reference .base-code-row-actions{display:flex;align-items:center;gap:14px;white-space:nowrap}
+.base-code-reference .base-code-row-actions>.link-button{display:inline-flex;align-items:center;gap:5px;margin:0;padding:4px 0;border:0;background:transparent;font:inherit;line-height:normal;text-decoration:none}
+.base-code-reference .base-code-row-actions>.link-button:hover{text-decoration:underline}
+.base-code-reference .base-code-row-actions>.danger{color:#b42318}
+.base-code-reference .base-code-list-heading>.primary-button{display:inline-flex;flex-direction:row;align-items:center;justify-content:center;gap:7px}
+.base-code-reference .base-code-source-deleted{display:block;margin-top:3px;color:#b42318;font-size:12px}
+.base-code-reference .base-code-alias-note{display:block;margin-top:3px;color:#64748b;font-size:12px;font-weight:400}
+.base-code-reference .base-code-canonical-action{display:flex;align-items:center;margin-top:3px;padding:4px 0;font:inherit;font-size:13px;text-decoration:none}
+.base-code-reference .base-code-sync-badge{display:flex;flex-direction:row;align-items:center;gap:5px;width:max-content;max-width:100%;margin-top:6px;padding:3px 6px;border:1px solid #d7e0e8;border-radius:4px;background:#f4f7f9;color:#526174;font:inherit;font-size:12px;line-height:18px;white-space:normal;cursor:pointer}
+.base-code-reference .base-code-sync-badge svg{flex-shrink:0}
+.base-code-reference .base-code-sync-badge.success{color:#08783e;background:#edf9f1;border-color:#bae3c8}
+.base-code-reference .base-code-sync-badge.failed,.base-code-reference .base-code-sync-badge.error,.base-code-reference .base-code-sync-badge.blocked{color:#ad2929;background:#fff1f1;border-color:#efcaca}
+.base-code-reference .base-code-sync-badge.pending,.base-code-reference .base-code-sync-badge.confirming{color:#975d08;background:#fff8e8;border-color:#edd7a7}
+.base-code-reference .base-code-sync-counts{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;min-width:0;font-size:13px;color:#61738b}
+.base-code-reference .base-code-sync-counts>span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.base-code-reference .base-code-sync-counts .success{color:#08783e}
+.base-code-reference .base-code-sync-counts .failed{color:#ad2929}
+.base-code-reference .base-code-sync-counts strong{font-variant-numeric:tabular-nums;min-width:1ch}
+.base-code-reference .base-code-sync-counts svg{flex-shrink:0}
+.base-code-reference .code-category-directory>.between>button,.base-code-reference .base-batch-verification-bar>button{font-size:15px}
+.base-code-reference .data-table th,.base-code-reference .data-table th>button{font-weight:700}
+.base-code-reference .base-code-row-actions svg{width:16px;height:16px}

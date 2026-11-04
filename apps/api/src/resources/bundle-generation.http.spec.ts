@@ -1,0 +1,22 @@
+import {INestApplication,ValidationPipe} from '@nestjs/common';
+import {APP_GUARD} from '@nestjs/core';
+import {Test} from '@nestjs/testing';
+import {PermissionsGuard} from '../common/permissions.guard';
+import {BundleToolsController} from './bundle-tools.controller';
+import {BundleToolsService} from './bundle-tools.service';
+describe('原组合新建字段HTTP契约',()=>{
+ let app:INestApplication,url:string;
+ const generate=jest.fn(async(..._args:unknown[])=>({created:[]})),preview=jest.fn(async(..._args:unknown[])=>({targets:[]})),namingSample=jest.fn(async(..._args:unknown[])=>({input:{mains:[]}})),bomVersions=jest.fn(async(..._args:unknown[])=>({rows:[]}));
+ beforeAll(async()=>{const module=await Test.createTestingModule({controllers:[BundleToolsController],providers:[{provide:BundleToolsService,useValue:{generate,preview,namingSample,bomVersions}},{provide:APP_GUARD,useClass:PermissionsGuard}]}).compile();app=module.createNestApplication();app.useGlobalPipes(new ValidationPipe({transform:true,whitelist:true,forbidNonWhitelisted:true}));app.use((req:{headers:Record<string,string>;user?:unknown},_res:unknown,next:()=>void)=>{if(req.headers.authorization)req.user={id:7,companyId:3,name:'合成申请人',permissions:{isCompanyAdmin:false,allow:req.headers.authorization==='Bearer create'?['resource.finance-bundles.create']:['resource.finance-bundles.view'],deny:[]}};next();});await app.listen(0,'127.0.0.1');url=await app.getUrl();});
+ afterAll(async()=>{await app?.close();});beforeEach(()=>{generate.mockClear();preview.mockClear();namingSample.mockClear();bomVersions.mockClear();});
+ const target=()=>({platformId:1,scenarioId:2,bundleCategoryId:3,manualCode:'MANUAL-CODE',manualStyleCode:'MANUAL-STYLE',manualPropertiesValue:'真实规格',manualName:'合成名称',manualShortName:'合成简称',manualReason:'新建时人工修改',baseUnit:'组合件',weightMode:'manual',manualWeightG:1234.567891,overrideReason:'合成称重'});
+ const post=(kind:string,body:unknown,auth='create')=>fetch(url+'/finance/bundles/'+kind,{method:'POST',headers:{authorization:'Bearer '+auth,'Content-Type':'application/json'},body:JSON.stringify(body)});
+ it('同一字段白名单用于预览与生成，保留六位克事实且只传token公司',async()=>{for(const kind of ['preview','generate']){const body={lines:[{role:'main',baseCodeId:11,qty:1}],targets:[target()]};expect((await post(kind,body)).status).toBe(200);const call=(kind==='preview'?preview:generate).mock.calls[0];expect(call[0]).toMatchObject({companyId:3,id:7});expect(call[2]).toEqual(body.targets);}});
+ it('普通查看不能新建；伪造公司/价格/自动主款式及无效重量方式在HTTP即拒绝',async()=>{const body={lines:[{role:'main',baseCodeId:11,qty:1}],targets:[target()]};expect((await post('generate',body,'view')).status).toBe(403);for(const patch of [{companyId:999},{cost:1},{mainStyleCode:'FAKE'},{weightMode:'other'}])expect((await post('generate',{...body,targets:[{...target(),...patch}]})).status).toBe(400);expect(generate).not.toHaveBeenCalled();});
+ it('命名样本沿只读授权/严格query且身份只取token，不能借参数切公司',async()=>{const get=(query:string,auth='view')=>fetch(url+'/finance/bundles/naming-sample?'+query,{headers:{authorization:'Bearer '+auth}});expect((await get('baseCodeId=11&qty=2.123456')).status).toBe(200);expect(namingSample).toHaveBeenCalledWith(expect.objectContaining({companyId:3,id:7}),11,2.123456);namingSample.mockClear();expect((await get('baseCodeId=11&qty=1&companyId=999')).status).toBe(400);expect((await get('baseCodeId=-1&qty=1')).status).toBe(400);expect((await get('baseCodeId=11&qty=1','create')).status).toBe(403);expect(namingSample).not.toHaveBeenCalled();});
+
+ it('跨平台绑定字段与第201项组成传入统一服务，超过300项拒绝',async()=>{const lines=Array.from({length:201},(_,i)=>({role:i===0?'main':'package',baseCodeId:i+11,qty:1})),targets=[{...target(),sourceBundleId:9,sourceToken:'a'.repeat(64)}];expect((await post('generate',{lines,targets})).status).toBe(200);expect(generate.mock.calls[0][1]).toHaveLength(201);expect(generate.mock.calls[0][2]).toEqual(targets);generate.mockClear();expect((await post('generate',{lines:Array.from({length:301},()=>lines[0]),targets})).status).toBe(400);expect(generate).not.toHaveBeenCalled();});
+
+ it('独立BOM列表走原组合查看权限与令牌身份，不接受创建权限代替查看',async()=>{const get=(auth:string)=>fetch(url+'/finance/bundles/19/bom-versions',{headers:{authorization:'Bearer '+auth}});expect((await get('create')).status).toBe(403);expect(bomVersions).not.toHaveBeenCalled();expect((await get('view')).status).toBe(200);expect(bomVersions).toHaveBeenCalledWith(expect.objectContaining({id:7,companyId:3}),19);});
+
+});

@@ -1,8 +1,11 @@
+import {loadResourceDirectory} from './resourceDirectory';
+import {referenceIdentity} from './referenceOptionsCache';
 import { Fragment, useEffect, useState, type ReactNode } from 'react';
-import { createChecker, permissionOwner, resourcePermission, resolveProductSections, todayShanghai, unitYuanText, type ResourceDef } from '@kudesi/shared';
+import { createChecker, restrictedFieldKeys, permissionOwner, resourcePermission, resolveProductSections, todayShanghai, unitYuanText, type ResourceDef } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { resourceApi, type ResourceDto } from './api';
 import { resourceFields, resourceGroups, resourceFieldWide } from './resourceFieldLayout';
+import {displayValue} from './format';
 import { InfoValue, SecretCell } from './DetailFields';
 import { FileList } from './FilesField';
 
@@ -11,42 +14,40 @@ export const detailNumber = (value: unknown): number | null => !['number', 'stri
 export const detailMoney = (value: unknown) => detailNumber(value) === null ? '未维护' : `¥${unitYuanText(Number(value))}`;
 export const detailWeight = (value: unknown) => detailNumber(value) === null ? '未维护' : `${(Number(value) / 1000).toFixed(6)} kg`;
 
-export function FinanceSection({ title, hint, step, children, className = '' }: { title: string; hint?: ReactNode; step?: number; children: ReactNode; className?: string }) {
-  return <section className={`finance-view-section ${className}`} aria-label={title}><div className="finance-view-heading"><h3>{step && <i className="finance-view-step" aria-hidden="true">{step}</i>}{title}</h3>{hint && <small>{hint}</small>}</div>{children}</section>;
+export function FinanceSection({ title, hint, icon, step, children, className = '' }: { title: string; hint?: ReactNode; icon?:ReactNode; step?: number|string; children: ReactNode; className?: string }) {
+  return <section className={`finance-view-section ${className}`} aria-label={title}><div className="finance-view-heading"><h3>{icon}{step && <i className="finance-view-step" aria-hidden="true">{step}</i>}{title}</h3>{hint && <small>{hint}</small>}</div>{children}</section>;
 }
 
 /** 字段仍从统一资料定义取权限、选项和格式；只读视图不挂载任何输入/自动保存逻辑。 */
-export function FinanceFields({ def, record, keys }: { def: ResourceDef; record: ResourceDto; keys: Array<string | [string, string]> }) {
+export function FinanceFields({ def, record, keys, before, plain=false }: { def: ResourceDef; record: ResourceDto; keys: Array<string | [string, string]>;before?:ReactNode;plain?:boolean }) {
   const { user } = useAuth();
   const can = user ? createChecker(user.permissions) : () => false;
-  return <dl className="finance-view-fields">{keys.map(item => {
+  const restricted = restrictedFieldKeys(def, can);
+  return <dl className="finance-view-fields">{before}{keys.map(item => {
     const [key, label] = typeof item === 'string' ? [item, undefined] : item;
     const field = def.fields.find(f => f.key === key);
-    if (!field || field.permission && !can(field.permission) || field?.showWhen && !field.showWhen.in.includes(String(field.showWhen.field === 'status' ? record.status : record.data[field.showWhen.field] ?? ''))) return null;
+    if (!field || restricted.has(key) || field?.showWhen && !field.showWhen.in.includes(String(field.showWhen.field === 'status' ? record.status : record.data[field.showWhen.field] ?? ''))) return null;
     return <Fragment key={key}><div data-field={key} data-kind={field.type} className={resourceFieldWide(field) ? 'wide' : undefined}><dt>{label ?? field.label}</dt><dd>{field.type === 'secret' ? <SecretCell def={def} record={record} fieldKey={key} /> : field.type === 'files'
       ? <FileList ids={Array.isArray(record.data[key]) ? record.data[key] as number[] : []} files={record.files} />
-      : <InfoValue def={def} record={record} f={field} today={todayShanghai()} canView={type => can(resourcePermission(permissionOwner(type), 'view'))} />}</dd></div>{def.key === 'finance-fee-items' && key === 'isCommon' && <div data-field="requiresObject"><dt>费用单必须挂归属对象</dt><dd>{String(record.data.defaultObject || '').split(/[、,，]/).some(n => n && n !== '公司' && n !== '不固定') ? '是' : '否'}</dd></div>}</Fragment>;
+      : plain?(def.key==='finance-fee-items'&&key==='direction'&&record.data.direction==='expense'?'支出':displayValue(field,record))||'未填写':<InfoValue def={def} record={record} f={field} today={todayShanghai()} canView={type => can(resourcePermission(permissionOwner(type), 'view'))} />}</dd></div></Fragment>;
   })}</dl>;
 }
 
 export interface DetailRow { row: ResourceDto; item: ResourceDto | null }
-export async function allDetailRows(type: string, fieldKey: string, fieldValue: number): Promise<ResourceDto[]> {
-  const rows: ResourceDto[] = [];
-  for (let page = 1; ; page++) {
-    const result = await resourceApi.list(type, { fieldKey, fieldValue, page, pageSize: 200, showHidden: true });
-    rows.push(...result.items);
-    if (!result.items.length || rows.length >= result.total) return rows;
-  }
+export async function allDetailRows(type:string,fieldKey:string,fieldValue:number,current:()=>boolean=()=>true):Promise<ResourceDto[]>{
+ return await loadResourceDirectory(type,current,undefined,{includeInactive:true,preserveOrder:true,scopedQuery:{fieldKey,fieldValue}})??[];
 }
 
 /** 用于查看组成/供货来源的完整分页读取；引用无权读取时保留原行，不能伪装成空组成。 */
 export function useFinanceDetailRows(type: string, field: string, id: number, version: string, refs: (row: ResourceDto) => [string, number] | null) {
   const [state, setState] = useState<{ key: string; rows: DetailRow[] | null; error: string }>({ key: '', rows: null, error: '' });
-  const key = `${type}:${field}:${id}:${version}`;
+  const {user}=useAuth();
+  const key = JSON.stringify([referenceIdentity(user),type,field,id,version]);
   useEffect(() => {
     let alive = true;
     (async () => {
-      const rows = await allDetailRows(type, field, id);
+      const rows = await allDetailRows(type,field,id,()=>alive);
+      if(!alive)return;
       const targets = new Map(rows.map(row => refs(row)).filter((r): r is [string, number] => r !== null).map(r => [r.join(':'), r]));
       const found = new Map(await Promise.all([...targets].map(async ([key, [target, targetId]]) => {
         try { return [key, await resourceApi.get(target, targetId)] as const; } catch { return [key, null] as const; }

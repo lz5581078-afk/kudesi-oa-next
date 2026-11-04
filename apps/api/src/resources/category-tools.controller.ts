@@ -1,6 +1,6 @@
 import { createChecker } from '@kudesi/shared';
 import { ForbiddenException, Body, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsNumber, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsOptional, ValidateBy, IsString, Matches, MaxLength, Min } from 'class-validator';
 import { AuthenticatedOnly, AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
 import { CategoryToolsService } from './category-tools.service';
 
@@ -22,16 +22,17 @@ export class CategoryToolsController {
   reorder(@CurrentUser() u: AuthUser, @Body() b: ReorderDto) { return this.tools.reorder(u, b.orderedIds); }
 }
 
-class CodePreviewDto {
+export class CodePreviewDto {
   @IsString() @MaxLength(30) archiveType!: string;
   @IsOptional() @IsIn(['original_purchase', 'supplier_oem']) supplyMode?: string;
   @IsOptional() @IsInt() @Min(1) categoryId?: number;
   @IsOptional() @IsInt() @Min(1) brandId?: number;
   @IsOptional() @IsString() @MaxLength(120) name?: string;
-  @IsOptional() @IsNumber() specQty?: number;
+  @IsOptional() @ValidateBy({ name: 'specificationTextOrNumber', validator: { validate: (value: unknown) => typeof value === 'string' ? value.length <= 200 : typeof value === 'number' && Number.isFinite(value), defaultMessage: () => '规格须为最多200字的文字或有限数字' } }) specQty?: string | number;
+  @IsOptional() @IsString() @MaxLength(30) purchaseSpec?: string;
   @IsOptional() @IsString() @MaxLength(30) specUnit?: string;
-  @IsOptional() @IsString() @MaxLength(60) shape?: string;
-  @IsOptional() @IsString() @MaxLength(60) code?: string;
+  @IsOptional() @IsString() @MaxLength(160) shape?: string;
+  @IsOptional() @IsString() @MaxLength(160) code?: string;
   @IsOptional() @IsString() @MaxLength(80) materialCode?: string;
   @IsOptional() @IsString() @MaxLength(10000) capacities?: string;
   @IsOptional() @IsString() @MaxLength(100) dimensions?: string;

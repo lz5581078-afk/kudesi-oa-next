@@ -1,0 +1,18 @@
+.finance-composition-picker{min-width:0;width:100%}
+.finance-composition-select-line{display:flex;align-items:flex-start;gap:8px}
+.finance-composition-select-line>.secondary-button{flex:none;white-space:nowrap;min-height:40px}
+.finance-composition-combobox{position:relative;flex:1;min-width:0}
+.finance-composition-control{display:flex;align-items:center;gap:8px;border:1px solid #cbd8df;border-radius:8px;padding-left:10px;background:#fff;color:#64748b}
+.finance-composition-control input{flex:1;min-width:0;width:100%;border:0!important;background:transparent!important;box-shadow:none!important}
+.finance-composition-control>button{display:flex;align-items:center;border:0;background:transparent;padding:10px;color:inherit}
+.finance-composition-menu{position:absolute;z-index:50;top:calc(100% + 5px);left:0;right:0;max-height:250px;overflow:auto;padding:5px;border:1px solid #d7e0e9;border-radius:7px;background:#fff;box-shadow:0 14px 34px #1e293b29}
+.finance-composition-menu>button{display:flex;align-items:center;justify-content:space-between;gap:14px;width:100%;min-height:48px;padding:7px 9px;text-align:left;border:0;border-radius:5px;background:transparent;color:#233044}
+.finance-composition-menu>button:hover,.finance-composition-menu>button[aria-selected=true]{background:#edf8f1}
+.finance-composition-menu>button>span{display:grid;gap:3px;min-width:0;font-size:13px}
+.finance-composition-menu small{color:#78869a;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.finance-composition-menu b{flex:none;white-space:nowrap;font-size:11px;padding:3px 7px;border-radius:999px;color:#087346;background:#e9f8f0}
+.finance-composition-menu>p{padding:10px 12px;margin:0;color:#64748b;font-size:13px}
+.finance-composition-dialog{width:min(760px,100%);max-height:min(720px,calc(100dvh - 32px));border-radius:12px}
+.finance-composition-dialog .finance-supplier-options button>span{flex:1;min-width:0}
+.finance-composition-dialog .finance-supplier-options b{font-size:13px;white-space:nowrap}
+@media(max-width:600px){.finance-composition-select-line{flex-wrap:wrap}.finance-composition-combobox{flex-basis:100%}}

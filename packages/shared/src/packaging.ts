@@ -33,8 +33,10 @@ export function packagingRuleMatches(rule: PackagingRule, t: PackagingTarget): b
   if (rule.scenarioId && rule.scenarioId !== t.scenarioId) return false;
   const w = t.weightKg;
   const discrete = rule.discreteWeights ?? [];
-  if (discrete.length) return w != null && Number.isFinite(w) && discrete.some((d) => Math.abs(d - w) < 1e-6);
-  if (rule.minWeightKg != null && (w == null || w < rule.minWeightKg)) return false;
-  if (rule.maxWeightKg != null && (w == null || w > rule.maxWeightKg)) return false;
+  if (discrete.length && (w == null || !Number.isFinite(w) || !discrete.some((d) => Math.abs(d - w) < 1e-6))) return false;
+  // 原导入曾用0/0表示未设置范围；只有这种离散重量记录忽略范围。
+  const blankRange = discrete.length > 0 && Number(rule.minWeightKg) === 0 && Number(rule.maxWeightKg) === 0;
+  if (!blankRange && rule.minWeightKg != null && (w == null || !Number.isFinite(w) || w < rule.minWeightKg)) return false;
+  if (!blankRange && rule.maxWeightKg != null && (w == null || !Number.isFinite(w) || w > rule.maxWeightKg)) return false;
   return true;
 }

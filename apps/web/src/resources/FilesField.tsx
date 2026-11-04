@@ -1,3 +1,4 @@
+import { ImagePlus } from 'lucide-react';
 import { ImageCropDialog } from './ImageCropDialog';
 import { useEffect, useRef, useState } from 'react';
 import type { FieldDef } from '@kudesi/shared';
@@ -10,7 +11,7 @@ function size(n: number): string {
 }
 
 /** 单个文件：图片显示缩略图，其他显示文件名；点击用临时签名链接在新标签打开。链接按需获取，不长期保存。 */
-export function FileThumb({ file, onRemove }: { file: FileInfo; onRemove?: () => void }) {
+export function FileThumb({ file, onRemove,removeText }: { file: FileInfo; onRemove?: () => void;removeText?:string }) {
   const isImage = file.mime.startsWith('image/');
   const [src, setSrc] = useState<string | null>(null);
   const [error, setError] = useState(false);
@@ -54,7 +55,7 @@ export function FileThumb({ file, onRemove }: { file: FileInfo; onRemove?: () =>
           </div>
         </div>
       )}
-      {onRemove && <button type="button" className="icon-button file-remove" aria-label={`移除 ${file.name}`} onClick={onRemove}>✕</button>}
+      {onRemove && <button type="button" className={removeText?'link-button file-remove file-remove-text':'icon-button file-remove'} aria-label={`移除 ${file.name}`} onClick={onRemove}>{removeText || '✕'}</button>}
     </div>
   );
 }
@@ -93,6 +94,8 @@ export function FilesInput({ field, type, value, known, onChange, onKnown }: {
 
   async function pick(list: FileList | null) {
     if (!list || list.length === 0) return;
+    if(field.replacementOnly && list.length!==1){setError('每次请选择一张图片');return;}
+    if(field.accept==='image' && Array.from(list).some(file=>!file.type.startsWith('image/'))){setError('只能上传图片');return;}
     if(field.imageCrop==='square'){
       const file=list[0];setError('');if(file.size>10*1024*1024){setError('照片不能超过10MB，请压缩后重试');return;}
       if(valueRef.current.length>=max){setError('请先移除原照片，再上传新照片');return;}
@@ -100,14 +103,15 @@ export function FilesInput({ field, type, value, known, onChange, onKnown }: {
     }
     setBusy(true);
     setError('');
-    let ids = value;
+    let ids = field.replacementOnly ? [] : value;
     for (const file of Array.from(list)) {
       if (ids.length >= max) {
         setError(`最多 ${max} 个文件`);
         break;
       }
-      if (file.size > 10 * 1024 * 1024) {
-        setError(`「${file.name}」超过 10 MB，请压缩后再传`);
+      const limit=field.maxFileBytes ?? 10*1024*1024;
+      if (file.size > limit) {
+        setError(`「${file.name}」超过 ${limit/1024/1024} MB，请压缩后再传`);
         continue;
       }
       try {
@@ -125,26 +129,28 @@ export function FilesInput({ field, type, value, known, onChange, onKnown }: {
   }
 
   return (
-    <div className="files-input">
+    <div className={`files-input${field.replacementOnly ? ' replacement-only' : ''}`}>
       <div className="file-grid">
-        {value.map((id) => (known[id] ? <FileThumb key={id} file={known[id]} onRemove={() => onChange(value.filter((x) => x !== id))} /> : null))}
+        {field.replacementOnly && value.length === 0 && <div className="replacement-file-empty"><ImagePlus size={22}/><span>尚未上传</span></div>}
+        {value.map((id) => (known[id] ? <FileThumb key={id} file={known[id]} removeText={field.replacementOnly?'删除':undefined} onRemove={() => onChange(value.filter((x) => x !== id))} /> : null))}
       </div>
-      {value.length < max && (
+      {(field.replacementOnly || value.length < max) && (
         <>
           <input
             ref={input}
             type="file"
             hidden
-            multiple={max > 1}
+            multiple={!field.replacementOnly && max > 1}
             accept={field.accept === 'image' ? 'image/png,image/jpeg,image/gif,image/webp' : 'image/png,image/jpeg,image/gif,image/webp,application/pdf'}
             onChange={(e) => void pick(e.target.files)}
             aria-label={`上传${field.label}`}
           />
-          <button type="button" className="secondary-button" title="单个文件不超过 10 MB" disabled={busy} onClick={() => input.current?.click()}>
-            {busy ? '上传中…' : `＋ 上传${field.accept === 'image' ? '图片' : '图片/PDF'}（${value.length}/${max}）`}
+          <button type="button" className="secondary-button" title={`单个文件不超过 ${(field.maxFileBytes ?? 10*1024*1024)/1024/1024} MB`} disabled={busy} onClick={() => input.current?.click()}>
+            {field.replacementOnly && <ImagePlus size={14}/>}
+            {busy ? '上传中…' : field.replacementOnly ? value.length ? `更换${field.label}` : `上传${field.label}` : `＋ 上传${field.accept === 'image' ? '图片' : '图片/PDF'}（${value.length}/${max}）`}
           </button>
-          {field.phoneUpload && <button type="button" className="secondary-button" onClick={() => setPhone(true)}>手机上传</button>}
-          <small className="muted"> 单个文件不超过 10 MB</small>
+          {field.phoneUpload && !field.replacementOnly && <button type="button" className="secondary-button" onClick={() => setPhone(true)}>手机上传</button>}
+          {!field.replacementOnly && <small className="muted"> 单个文件不超过 {(field.maxFileBytes ?? 10*1024*1024)/1024/1024} MB</small>}
         </>
       )}
       {crop&&<ImageCropDialog file={crop} label={field.label} onClose={()=>setCrop(null)} onConfirm={async file=>{

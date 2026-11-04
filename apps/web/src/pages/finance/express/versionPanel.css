@@ -1,0 +1,64 @@
+.express-version-content { display: grid; gap: 14px; min-width: 0; }
+.express-version-summary { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px; border: 1px solid #dce5eb; border-left: 3px solid #097f59; background: #fff; }
+.express-version-summary > div:first-child { display: grid; gap: 6px; }
+.express-version-summary strong { font-size: 16px; color: #183a35; }
+.express-version-summary span { font-size: 12px; color: #5e7180; }
+.express-version-layout { display: grid; grid-template-columns: minmax(0,1fr) 300px; gap: 14px; align-items: start; }
+.express-version-side { display: grid; gap: 14px; }
+.express-config-actions { display: grid; gap: 8px; padding: 14px; }
+.express-price-source { display: grid; gap: 6px; margin: 0 14px 14px; font-size: 12px; font-weight: 700; }
+.express-version-side dl { display: grid; gap: 10px; margin: 0; padding: 14px; }
+.express-version-side dl > div { display: grid; grid-template-columns: 76px minmax(0,1fr); gap: 10px; font-size: 12px; }
+.express-version-side dt { font-weight: 700; color: #5e7180; }
+.express-version-side dd { margin: 0; overflow-wrap: anywhere; }
+.express-surcharge-section { padding: 14px; }
+.express-surcharge-section > p, .express-surcharge-batch p, .express-surcharge-batch small { font-size: 12px; color: #5e7180; }
+.express-surcharge-batch { border: 1px solid #dce5eb; padding: 14px; margin: 14px 0; }
+.express-surcharge-batch > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.express-surcharge-batch > header > div:first-child { display: grid; gap: 5px; }
+.express-surcharge-batch-meta { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; margin: 14px 0; }
+.express-surcharge-batch-meta > span { display: grid; gap: 4px; font-size: 12px; }
+.express-surcharge-batch-meta b { color: #5e7180; font-size: 11px; }
+.express-cooperation-note { display: grid; gap: 8px; padding: 14px; font-size: 14px; font-weight: 800; }
+.express-cooperation-note textarea { width: 100%; min-height: 220px; line-height: 1.6; padding: 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; }
+.express-version-content > .qk-panel > small { display: block; padding: 0 14px 14px; font-size: 12px; color: #5e7180; }
+.express-info-dialog { background: #fff; border-radius: 8px; }
+.express-info-dialog .modal-head { display: flex; justify-content: space-between; gap: 12px; }
+@media (max-width: 600px) { .express-version-summary, .express-surcharge-batch > header { align-items: flex-start; flex-direction: column; } .express-surcharge-batch-meta { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+.express-version-content { gap: 18px; }
+.express-version-summary { padding: 14px 16px; gap: 14px; border: 1px solid #d8e3de; border-radius: 8px; }
+.express-version-summary > div:first-child { display: block; }
+.express-version-summary strong { display: block; color: inherit; font-size: 17px; }
+.express-version-summary span { display: block; margin-top: 4px; color: #64748b; font-size: 13px; }
+.express-version-layout { gap: 12px; }
+.express-config-actions { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; padding: 0; }
+.express-config-actions button { justify-content: center; min-height: 38px; white-space: normal; }
+.express-config-actions button:first-child { grid-column: 1 / -1; }
+.express-price-source { margin: 12px 0 0; }
+.express-price-source select { all: revert; min-width: 0; font: inherit; }
+.express-version-side dl { padding: 0; gap: 6px; }
+.express-version-content .express-panel .data-table { min-width: 100%; table-layout: auto; font-size: 14px; line-height: normal; }
+.express-version-content .express-panel .data-table th, .express-version-content .express-panel .data-table td { padding: 11px 10px; font-size: 14px; line-height: normal; }
+.express-surcharge-section { padding: 0; }
+.express-cooperation-note { padding: 0; }
+.express-version-content > .express-panel > small { display: block; padding-top: 8px; color: #5e7180; font-size: 12px; }
+@media (max-width: 760px) { .express-config-actions { grid-template-columns: minmax(0,1fr); } .express-config-actions button:first-child { grid-column: auto; } }
+.express-version-layout { grid-template-columns: minmax(0,1fr) 320px; }
+.express-version-side { gap: 10px; }
+.express-version-side dl > div { grid-template-columns: 120px minmax(0,1fr); gap: 12px; align-items: start; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; color: #475569; font-size: 13px; }
+.express-version-side dt { color: #0f172a; }
+.express-version-content .express-panel .data-table th, .express-version-content .express-panel .data-table td { max-width: none; overflow: visible; text-overflow: clip; white-space: nowrap; }
+.express-surcharge-section { display: grid; gap: 16px; }
+.express-surcharge-batch { display: grid; gap: 14px; padding: 16px; margin: 0; border-color: #d8e3de; border-radius: 8px; }
+.express-surcharge-batch > header > div:first-child { display: block; }
+.express-surcharge-batch > header strong { color: #0f172a; font-size: 17px; }
+.express-surcharge-batch > header small { display: block; margin-top: 4px; color: #64748b; font-size: 13px; }
+.express-surcharge-batch-meta { grid-template-columns: repeat(auto-fit,minmax(160px,1fr)); gap: 8px; margin: 0; }
+.express-surcharge-batch-meta > span { padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; color: #334155; font-size: 16px; }
+.express-surcharge-batch-meta b { color: #64748b; font-size: 12px; }
+.express-surcharge-batch p { margin: 0; color: #64748b; font-size: 13px; line-height: 1.5; }
+.express-surcharge-section > details { padding: 10px 12px; border: 1px solid #d8e3de; border-radius: 8px; }
+.express-surcharge-section > details > summary { color: #1e293b; font-weight: 800; cursor: pointer; }
+.express-cooperation-note { margin: 0; font-size: 16px; font-weight: 400; }
+.express-cooperation-note textarea { margin-bottom: 12px; font-weight: 400; }
+.express-version-content > .express-panel > small { padding-top: 10px; color: #64748b; font-size: smaller; }

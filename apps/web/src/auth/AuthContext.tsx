@@ -1,7 +1,9 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { createChecker, CurrentUserDto, LoginRequest, LoginResponse, PermissionChecker, PlatformAdminDto } from '@kudesi/shared';
 import { api, setFeishuBindingRequiredHandler, setUnauthorizedHandler, tokenStore, TOKEN_KEY } from '../api/client';
+import {setReferenceCacheIdentity} from '../resources/referenceOptionsCache';
 import { resetCategoryOptions } from '../resources/categoryOptions';
+import { resetUnitOptions } from '../resources/unitOptions';
 
 interface AuthState {
   user: CurrentUserDto | null;
@@ -35,6 +37,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     tokenStore.clear();
     resetCategoryOptions(); // 换账号后不沿用上一家公司的分类缓存
+    resetUnitOptions();
+    setReferenceCacheIdentity(null,true);
     setUser(null);
     setPlatformAdmin(null);
   }, []);
@@ -43,10 +47,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const token = tokenStore.get();
     if (token && tokenIsPlatform(token)) {
       const result = await api<PlatformAdminDto>('/platform/me');
-      if (tokenStore.get() === token) setPlatformAdmin(result);
+      if (tokenStore.get() === token) { setReferenceCacheIdentity(null, true);resetCategoryOptions();resetUnitOptions();setPlatformAdmin(result); }
     } else {
       const result = await api<CurrentUserDto>('/auth/me');
-      if (tokenStore.get() === token) setUser(result);
+      if (tokenStore.get() === token) {if(setReferenceCacheIdentity(result)){resetCategoryOptions();resetUnitOptions();}setUser(result);}
     }
   }, []);
 
@@ -64,6 +68,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (event.storageArea !== localStorage || (event.key !== TOKEN_KEY && event.key !== null)) return;
       // 另一窗口退出或换账号时，立即移除旧身份及公司缓存，重新向服务端取权限。
       resetCategoryOptions();
+      resetUnitOptions();
+      setReferenceCacheIdentity(null,true);
       setUser(null); setPlatformAdmin(null);
       if (!event.newValue) { logout(); setLoading(false); return; }
       setLoading(true);
@@ -77,8 +83,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const result = await api<LoginResponse>('/auth/login', { method: 'POST', body: request });
     tokenStore.set(result.accessToken);
     resetCategoryOptions();
-    if (result.type === 'platform') setPlatformAdmin(result.admin);
-    else setUser(result.user);
+    resetUnitOptions();
+    if (result.type === 'platform') {setReferenceCacheIdentity(null,true);setPlatformAdmin(result.admin);}
+    else {setReferenceCacheIdentity(result.user);setUser(result.user);}
   }, []);
 
   const can = useMemo<PermissionChecker>(

@@ -1,6 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { resourceApi } from '../../resources/api';
+import {ReferenceResourcePick} from './ReferenceResourcePick';
+import type {PickOption,SearchPickProps} from './referencePickOptions';
+import './referenceDocumentPicker.css';
 
+export const ReferencePickContext = createContext(false);
+export {referenceProductLabel} from './referencePickOptions';
+export type {PickOption} from './referencePickOptions';
 /** 元（文本）→ 分；空串 → null；非法 → NaN */
 export function yuanToCents(text: string): number | null {
   const t = text.trim();
@@ -10,25 +16,36 @@ export function yuanToCents(text: string): number | null {
 }
 export const centsToYuan = (c: number | null | undefined) => (c === null || c === undefined ? '' : (c / 100).toFixed(2));
 export const money = (c: number | null | undefined) => (c === null || c === undefined || !Number.isFinite(c) ? '—' : `¥${(c / 100).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`);
+export const referenceMoney = (value: number | null | undefined) => typeof value === 'number' && value < 0 ? `-${money(-value)}` : money(value);
 
 export const DOC_STATUS_TONE: Record<string, string> = { draft: 'muted', issued: 'warn', posted: 'ok', reversed: 'bad' };
 
 /** 搜索式选择：输入关键字，从资料里找；用于商品、客户、费用项目等可能很多的资料。 */
-export function SearchPick({ type, value, label, onChange, placeholder, fieldKey, fieldValue, ariaLabel }: {
-  type: string; value: number | null | undefined; label?: string; onChange: (id: number | null, label: string) => void;
-  placeholder?: string; fieldKey?: string; fieldValue?: string; ariaLabel?: string;
-}) {
+export function SearchPick(props:SearchPickProps) {
+ const reference=useContext(ReferencePickContext);
+ return reference?<ReferenceResourcePick {...props}/>:<RemoteSearchPick {...props}/>;
+}
+function RemoteSearchPick({ type, value, label, onChange, placeholder, fieldKey, fieldValue, ariaLabel, options,excludeIds }:SearchPickProps) {
   const [text, setText] = useState(label ?? '');
-  const [items, setItems] = useState<Array<{ id: number; title: string }>>([]);
+  const [items, setItems] = useState<PickOption[]>([]);
   const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>();
+  const request = useRef(0);
   useEffect(() => { setText(label ?? ''); }, [label, value]);
+  useEffect(() => { request.current++; clearTimeout(timer.current); setItems([]); setOpen(false); return () => { request.current++; clearTimeout(timer.current); }; }, [type, fieldKey, fieldValue]);
   const search = (kw: string) => {
     clearTimeout(timer.current);
+    const version = ++request.current;
+    if (options) { setItems(options.filter(option => option.title.toLocaleLowerCase().includes(kw.trim().toLocaleLowerCase())).slice(0,80)); return; }
     timer.current = setTimeout(() => {
-      resourceApi.list(type, { keyword: kw, pageSize: 15, fieldKey, fieldValue }).then((r) => setItems(r.items.filter((i) => i.status !== 'inactive' && i.status !== 'deleted').map((i) => ({ id: i.id, title: i.title })))).catch(() => setItems([]));
+      resourceApi.list(type, { keyword: kw, pageSize: 15, fieldKey, fieldValue })
+        .then((r) => { if (request.current === version) setItems(r.items.filter((i) => i.status !== 'inactive' && i.status !== 'deleted').map((i) => ({ id: i.id, data: i.data, optionLabels: i.optionLabels, title: i.title }))); })
+        .catch(() => { if (request.current === version) setItems([]); });
     }, 200);
   };
+  const optionsKey = JSON.stringify(options);
+  useEffect(() => { if (open && options) search(''); }, [optionsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const visibleItems=items.filter(item=>!excludeIds?.includes(item.id));
   return (
     <div className="pick">
       <input
@@ -39,9 +56,9 @@ export function SearchPick({ type, value, label, onChange, placeholder, fieldKey
       />
       {open && (
         <ul className="pick-list" role="listbox">
-          {items.length === 0 && <li className="muted">没有找到</li>}
-          {items.map((i) => (
-            <li key={i.id}><button type="button" role="option" aria-selected={i.id === value} onMouseDown={(e) => e.preventDefault()} onClick={() => { setText(i.title); onChange(i.id, i.title); setOpen(false); }}>{i.title}</button></li>
+          {visibleItems.length === 0 && <li className="muted">没有找到</li>}
+          {visibleItems.map((i) => (
+            <li key={i.id}><button type="button" role="option" aria-selected={i.id === value} onMouseDown={(e) => e.preventDefault()} onClick={() => { setText(i.title); onChange(i.id, i.title,i.data,i.optionLabels); setOpen(false); }}>{i.title}</button></li>
           ))}
         </ul>
       )}
