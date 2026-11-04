@@ -23,7 +23,7 @@ npm run dev:desktop
 npm run desktop:win
 ```
 
-安装包在 `apps/desktop/release/KudesiOA-Setup-0.1.0-x64.exe`。使用 electron-builder 的 NSIS 1.2.1 工具包，可在 Apple Silicon Mac 交叉生成 Windows 安装包；Windows CI 另测安装与卸载及真实 Electron 剪贴板。
+安装包在 `apps/desktop/release/KudesiOA-Setup-0.1.0-x64.exe`。使用 electron-builder 的 NSIS 1.2.1 工具包，可在 Apple Silicon Mac 交叉生成 Windows 安装包；Windows 安装目录和可执行文件统一为 `KudesiOA`（显示名称保留酷得斯 OA），CI 另测安装与卸载及真实 Electron 剪贴板。
 
 开发时仅接受 `OA_DESKTOP_URL` 指定的本地 Vite 来源 `http://localhost:5173`、`http://127.0.0.1:5173`、`http://127.0.0.1:5186`。安装版固定 `https://lc.kudesi.com`，不能用环境变量改到其他网站。旧版项目只复用已授权的酷得斯图标资产，不复用旧客户端代码。
 

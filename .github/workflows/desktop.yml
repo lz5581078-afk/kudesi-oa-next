@@ -30,8 +30,8 @@ jobs:
           $setup = (Get-ChildItem 'apps/desktop/release/KudesiOA-Setup-*-x64.exe' | Select-Object -First 1).FullName
           $p = Start-Process -FilePath $setup -ArgumentList '/S' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "Installer failed: $($p.ExitCode)" }
-          $installed = Join-Path $env:LOCALAPPDATA 'Programs/酷得斯OA'
-          if (-not (Test-Path (Join-Path $installed '酷得斯OA.exe'))) { throw 'Installed application missing' }
+          $installed = Join-Path $env:LOCALAPPDATA 'Programs/KudesiOA'
+          if (-not (Test-Path (Join-Path $installed 'KudesiOA.exe'))) { throw 'Installed application missing' }
           $uninstaller = Get-ChildItem -LiteralPath $installed -Filter 'Uninstall*.exe' | Select-Object -First 1
           if (-not $uninstaller) { throw 'Uninstaller missing' }
           $p = Start-Process -FilePath $uninstaller.FullName -ArgumentList '/S' -Wait -PassThru

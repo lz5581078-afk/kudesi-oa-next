@@ -10,8 +10,8 @@
     "typecheck": "node scripts/check.cjs && tsc -p tsconfig.json",
     "test": "node --test test/*.test.cjs",
     "build": "npm run typecheck && npm test",
-    "dist:win": "electron-builder --win nsis --x64",
-    "dist:mac": "electron-builder --mac dir",
+    "dist:win": "electron-builder --win nsis --x64 --publish never",
+    "dist:mac": "electron-builder --mac dir --publish never",
     "test:native": "electron scripts/native-smoke.cjs"
   },
   "devDependencies": {
@@ -53,6 +53,7 @@
     },
     "toolsets": {
       "nsis": "1.2.1"
-    }
+    },
+    "executableName": "KudesiOA"
   }
 }
