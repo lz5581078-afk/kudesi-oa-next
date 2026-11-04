@@ -66,7 +66,7 @@ export function GoodsGrid({ def, type, lines, setLines, setLine, priceOf, hints,
                   <td data-cell="挂账节点">
                     <select aria-label={`第${i + 1}行挂账节点`} value={l.node} onChange={(e) => setLine(i, { node: e.target.value, relatedId: null, relatedName: '' })}>
                       <option value="">不选择</option>
-                      {FEE_BOOKING_NODES.map((n) => <option key={n.node} value={n.node}>{n.node}</option>)}
+                      {FEE_BOOKING_NODES.filter(n=>type!=='expense'||n.manualExpense!==false||n.node===l.node).map((n) => <option key={n.node} value={n.node}>{n.node}</option>)}
                     </select>
                   </td>
                   <td data-cell="挂账对象">

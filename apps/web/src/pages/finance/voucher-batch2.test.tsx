@@ -164,9 +164,9 @@ describe('经手人员工选择器', () => {
     expect(lastCreated().handler).toBeNull();
   });
   it('费用单新建同样留空，草稿不把登录员工偷偷当作经办人', async () => {
-    render(<DocForm type="expense" inline onSaved={vi.fn()} />);
+    render(<DocForm type="expense" onSaved={vi.fn()} />);
     expect(screen.getByLabelText('经办人').textContent).toContain('选择经办人');
-    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    fireEvent.click(screen.getByRole('button', { name: '存为草稿' }));
     await waitFor(() => expect(fa.create).toHaveBeenCalled());
     expect(lastCreated()).toMatchObject({ handlerId: null, handler: null });
   });

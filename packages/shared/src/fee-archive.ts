@@ -10,13 +10,13 @@ export function hasFeeDefaults(companyName: string | null | undefined): boolean 
 }
 
 /** 挂账节点：一笔费用“记在谁头上”。有对应资料表的可以选具体对象，没有的只写名字。 */
-export const FEE_BOOKING_NODES: ReadonlyArray<{ node: string; resource: string | null; kind?: string; entity?: 'company'|'user' }> = [
+export const FEE_BOOKING_NODES: ReadonlyArray<{ node: string; resource: string | null; kind?: string; entity?: 'company'|'user'; manualExpense?: boolean }> = [
   { node: '公司', resource: null, entity: 'company' },
   { node: '部门', resource: null },
   { node: '人员', resource: null, entity: 'user' },
   { node: '营业执照', resource: 'licenses' },
-  { node: '税务', resource: 'tax-profiles' },
-  { node: '商标', resource: 'trademarks' },
+  { node: '税务', resource: 'tax-profiles', manualExpense: false },
+  { node: '商标', resource: 'trademarks', manualExpense: false },
   { node: '店铺', resource: 'stores' },
   { node: '手机号', resource: 'phones' },
   { node: '宽带账号', resource: 'broadband' },
@@ -28,12 +28,12 @@ export const FEE_BOOKING_NODES: ReadonlyArray<{ node: string; resource: string |
   { node: '店铺公户', resource: 'bank-accounts', kind: 'store_public' },
   { node: '店铺个人银行卡', resource: 'bank-accounts', kind: 'store_personal_card' },
   { node: '固定资产', resource: 'fixed-assets' },
-  { node: '房间与档案位置', resource: 'locations' },
-  { node: '仓库', resource: 'finance-warehouses' },
+  { node: '房间与档案位置', resource: 'locations', manualExpense: false },
+  { node: '仓库', resource: 'finance-warehouses', manualExpense: false },
   { node: '商品', resource: 'finance-products' },
   { node: '供应商', resource: 'finance-suppliers' },
   { node: '客户', resource: 'finance-customers' },
-  { node: '快递网点', resource: null },
+  { node: '快递网点', resource: null, manualExpense: false },
   { node: '项目', resource: null },
   { node: '不固定', resource: null },
 ];

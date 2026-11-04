@@ -63,7 +63,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
   const [staff,setStaff]=useState<StaffOption[]>([]);
   useEffect(()=>{let alive=true;Promise.resolve().then(()=>resourceApi.users()).then(rows=>{if(alive)setStaff(Array.isArray(rows)?rows:[]);}).catch(()=>undefined);return()=>{alive=false;};},[]);
   const ui = def.ui;
-  const sourceInline=!!inline&&type!=='withdrawal'&&type!=='expense';
+  const sourceInline=!!inline&&type!=='withdrawal';
   const hasPayment = !!def.settle || !!def.moneySettlement;
   const structuredLines = !!def.lines && !ui.moneyEntry;
   const kinds = def.partyKinds;
@@ -342,7 +342,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
     return () => window.removeEventListener('keydown', on);
   }, [inline, can, sourceInline]);
 
-  const buttons = sourceInline ? <><button type="button" className="secondary-button" disabled={busy} onClick={()=>void save(null)}>保存草稿</button><button type="submit" className="primary-button" disabled={busy}>{busy?'保存中':ui.saveText}</button></> : (
+  const buttons = sourceInline ? type==='expense'?<button type="submit" className="reference-expense-save" disabled={busy}>{busy?'保存中':ui.saveText}</button>:<><button type="button" className="secondary-button" disabled={busy} onClick={()=>void save(null)}>保存草稿</button><button type="submit" className="primary-button" disabled={busy}>{busy?'保存中':ui.saveText}</button></> : (
     <>
       {!inline && <button type="button" className="secondary-button" onClick={onClose}>取消</button>}
       <button type="submit" className="secondary-button" disabled={busy}>{inline ? '保存草稿' : '存为草稿'}</button>
@@ -503,7 +503,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
         <label>单据摘要<input aria-label="单据摘要" placeholder="不填则自动生成" maxLength={255} value={summary} onChange={e => setSummary(e.target.value)} /></label>
         <label>单据备注<textarea rows={2} maxLength={500} aria-label="备注" value={memo} onChange={e => setMemo(e.target.value)} /></label>
       </section> : <label>{def.lines ? '备注' : `${moneyItem} / 备注`}<textarea rows={2} maxLength={500} aria-label="备注" value={memo} onChange={e => setMemo(e.target.value)} /></label>}
-      {sourceInline&&<div className="reference-document-actions">{buttons}</div>}
+      {sourceInline&&(type==='expense'?buttons:<div className="reference-document-actions">{buttons}</div>)}
       {(!sourceInline||notice||error)&&<div ref={noticeRef}>
         {notice && <div role="status" className="notice ok">{notice}</div>}
         {error && <div role="alert" className="notice error">{error}</div>}
@@ -516,7 +516,7 @@ function DocumentForm({ type, doc, preset, inline, onClose, onSaved, onPickDraft
   if (inline) {
     return (
       <ReferencePickContext.Provider value={type !== 'withdrawal'}><form className={`card slip vc-slip${type !== 'withdrawal' ? ' reference-document' : ''}${sourceInline?' reference-document-source':''}`} data-doc-type={type} aria-label={`${def.label}开单`} onSubmit={(e) => save(e,sourceInline?'issue':undefined)}>
-        <div className="slip-title">{type === 'withdrawal' ? <strong>{def.label} / 手工开单</strong> : <h1>{def.label} / 手工开单</h1>}{doc && <span className="vc-editing">正在编辑草稿 {doc.docNo}</span>}{sourceInline&&<button type="button" className="secondary-button" disabled={busy} onClick={()=>{if(doc)onClose?.();else reset();}}>清空单据</button>}</div>
+        <div className="slip-title">{type === 'withdrawal' ? <strong>{def.label} / 手工开单</strong> : <h1>{def.label} / 手工开单</h1>}{doc && <span className="vc-editing">正在编辑草稿 {doc.docNo}</span>}{sourceInline&&<button type="button" className="secondary-button" disabled={busy} onClick={()=>{if(doc)onClose?.();else reset();}}>{type==='expense'?'清空':'清空单据'}</button>}</div>
         {!sourceInline&&<div className="slip-toolbar-row"><VoucherToolbar type={type} busy={busy} editing={!!doc}
           onClear={() => { if (doc) onClose?.(); else reset(); }} onPrint={doPrint} onList={() => onShowList?.()} onPickDraft={(id) => onPickDraft?.(id)} />
           <span className="vc-keys muted">Ctrl+G 保存草稿 · F8 过账 · Ctrl+F9 打印 · Ctrl+F8 回到明细</span></div>}
