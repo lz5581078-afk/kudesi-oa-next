@@ -36,3 +36,27 @@
 @media (max-width:760px) { .sm-hero { align-items:stretch; flex-direction:column; padding:16px; }.sm-agent { min-width:0; width:100%; }.sm-toolbar { flex-wrap:wrap; }.sm-search { width:100%; }.sm-total { margin-left:0; }.sm-table-wrap { max-height:none; }.sm-detail-grid { grid-template-columns:1fr; }.sm-pairing,.sm-release { align-items:flex-start; flex-direction:column; gap:5px; }.sm-release code { max-width:82vw; }.sm-add-controls { grid-template-columns:1fr; }.sm-remote-backdrop { padding:0; }.sm-remote-dialog { width:100vw; height:100dvh; border:0; border-radius:0; }.sm-remote-toolbar { flex-wrap:wrap; }.sm-remote-toolbar > span { margin-left:0; }.sm-remote-toolbar > strong { margin-left:auto; min-width:0; }.sm-remote-dialog > footer span { max-width:62%; }.sm-remote-dialog h2 { font-size:14px; } }
 .sm-auto-login-toggle{display:inline-flex;align-items:center;gap:6px;border:0;padding:0;color:#7a8798;background:transparent;cursor:pointer;font-size:12px;white-space:nowrap}.sm-auto-login-toggle i{width:28px;height:16px;flex:0 0 28px;border-radius:999px;background:#cbd5e1;position:relative;transition:.16s}.sm-auto-login-toggle i:after{content:"";position:absolute;left:2px;top:2px;width:12px;height:12px;border-radius:50%;background:#fff;transition:.16s}.sm-auto-login-toggle.active{color:#087443;font-weight:800}.sm-auto-login-toggle.active i{background:#16a36a}.sm-auto-login-toggle.active i:after{transform:translateX(12px)}.sm-auto-login-toggle:disabled{opacity:.55;cursor:not-allowed}.sm-auto-login-toggle.is-updating:disabled{cursor:wait}
 .sm-credential-input{width:100%;min-width:0;height:30px;border:1px solid #cbd9e8;border-radius:6px;padding:0 8px;color:var(--sm-ink);background:#fff}.sm-credential-input:focus{outline:0;border-color:#0e8062;box-shadow:0 0 0 2px #0b6fd31a}.sm-credential-editor{width:100%;min-width:0;display:flex;align-items:center;gap:4px}.sm-credential-editor>.sm-credential-input{flex:1 1 auto}.sm-credential-editor>button{height:28px;flex:0 0 auto;border:1px solid #cbd9e8;border-radius:6px;padding:0 7px;color:#526a80;background:#fff;cursor:pointer}.sm-credential-editor>.sm-save-credential{color:#fff;background:#0e8062;border-color:#0e8062;font-size:11px;font-weight:700;white-space:nowrap}.sm-credential-editor>button:disabled{opacity:.55;cursor:wait}
+
+/* New OA host: keep remote controls independent of global form rules. */
+.sm-page .sm-remote-dialog { height:min(850px,calc(100dvh - 36px)); }
+.sm-page .sm-remote-dialog > header > div { min-width:0; }
+.sm-page .sm-remote-dialog h2,.sm-page .sm-remote-dialog header p { overflow-wrap:anywhere; }
+.sm-page .sm-remote-dialog header button { flex:none; }
+.sm-page .sm-remote-toolbar { height:auto; min-height:0; flex-wrap:wrap; gap:8px 12px; padding:9px 12px; }
+.sm-page .sm-remote-tools { display:flex; flex:1 1 auto; min-width:0; align-items:center; flex-wrap:wrap; gap:7px; }
+.sm-page .sm-remote-toolbar button,.sm-page .sm-remote-toolbar label { box-sizing:border-box; display:inline-flex; flex-direction:row; flex:none; align-items:center; justify-content:center; height:34px; min-height:34px; margin:0; line-height:1.2; white-space:nowrap; }
+.sm-page .sm-remote-toolbar svg { flex:none; }
+.sm-page .sm-remote-toolbar select { box-sizing:border-box; display:block; flex:none; width:auto; min-width:54px; max-width:150px; height:26px; margin:0; padding:0 2px; line-height:normal; font:inherit; border:0; box-shadow:none; }
+.sm-page .sm-remote-telemetry { display:flex; flex:1 1 230px; min-width:0; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:4px 12px; color:#9db2c4; font-size:11px; line-height:1.5; overflow-wrap:anywhere; }
+.sm-page .sm-remote-telemetry strong { color:#6ed3aa; font-weight:500; }
+.sm-page .sm-remote-stage.empty { background-image:none; }
+.sm-page .sm-remote-stage video.sm-remote-media-unready { visibility:hidden; }
+.sm-page .sm-remote-wait { position:relative; box-sizing:border-box; width:min(440px,100%); min-width:0; padding:24px; line-height:1.6; overflow-wrap:anywhere; }
+.sm-page .sm-remote-wait strong { font-size:15px; }
+.sm-page .sm-remote-wait.error strong { color:#ffb5ae; }
+.sm-page .sm-remote-wait.error p { color:#d8e4ed; }
+.sm-page .sm-remote-wait small { color:#9db2c4; }
+.sm-page .sm-remote-dialog > footer { flex-wrap:wrap; gap:8px 12px; }
+.sm-page .sm-remote-dialog > footer > span { flex:1 1 280px; min-width:0; max-width:none; line-height:1.5; overflow-wrap:anywhere; }
+.sm-page .sm-remote-dialog > footer > button { flex:none; min-height:34px; }
+@media (max-width:760px) { .sm-page .sm-remote-dialog { height:100dvh; }.sm-page .sm-remote-dialog > header { padding:10px 12px; gap:10px; }.sm-page .sm-remote-toolbar { max-height:30dvh; overflow:auto; }.sm-page .sm-remote-telemetry { justify-content:flex-start; flex-basis:100%; }.sm-page .sm-remote-wait { padding:16px; } }

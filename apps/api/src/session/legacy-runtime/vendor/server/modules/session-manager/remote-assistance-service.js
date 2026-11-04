@@ -260,7 +260,11 @@ async function requestRemoteBrowserClose({ companyId, workspaceId, userId, sessi
               device.status AS device_status
        FROM session_remote_sessions remote
        JOIN managed_browser_sessions browser ON browser.id = remote.browser_session_id
+         AND browser.company_id = remote.company_id AND browser.workspace_id = remote.workspace_id
+         AND browser.device_id = remote.device_id AND browser.shop_id = remote.shop_id
+         AND browser.user_id = remote.user_id
        JOIN session_devices device ON device.id = remote.device_id
+         AND device.company_id = remote.company_id AND device.workspace_id = remote.workspace_id
        WHERE remote.id = ? LIMIT 1 FOR UPDATE`,
       [id]
     );
@@ -268,7 +272,10 @@ async function requestRemoteBrowserClose({ companyId, workspaceId, userId, sessi
     if (Number(session.company_id) !== Number(companyId) || Number(session.workspace_id) !== Number(workspaceId) || Number(session.user_id) !== Number(userId)) {
       throw publicError('无权关闭这个店铺浏览器', 403);
     }
-    if (session.remote_status === 'ended' || session.browser_status === 'closed') {
+    // Media can be stopped independently of the browser. Historical hosts also
+    // wrote 'ended' when revoking transport; only the browser's confirmed state
+    // permits an idempotent successful close response.
+    if (session.browser_status === 'closed') {
       response = {
         id,
         status: 'ended',
@@ -294,7 +301,7 @@ async function requestRemoteBrowserClose({ companyId, workspaceId, userId, sessi
     if (!['open', 'closing'].includes(session.browser_status)) {
       throw publicError('店铺浏览器状态异常，无法确认安全关闭', 409);
     }
-    if (!['requested', 'connected', 'error', 'closed', 'expired'].includes(session.remote_status)) {
+    if (!['requested', 'connected', 'error', 'closed', 'expired', 'ended'].includes(session.remote_status)) {
       throw publicError('远程操作会话已经结束', 409);
     }
     await tx.execute(
