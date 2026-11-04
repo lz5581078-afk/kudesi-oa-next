@@ -1,3 +1,4 @@
+import { AnchorMonthPanel } from '../pages/live/AnchorMonthPanel';
 import { StoreJstRefresh } from './StoreJstSelect';
 import { copyValuesOf } from './HierRowActions';
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
@@ -443,7 +444,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
                 <PhoneArchiveButton type="partners" record={record} numberKey="cardPhone" idKey="cardPhoneId" holder={String(record.data.cardPhoneHolder ?? record.title)} onDone={reloadAll} onError={setError} />
               )}
               {def.key === 'duty-groups' && <DutyGroupSummary groupId={record.id} departmentLabel={record.refLabels.departmentId ?? ''} />}
-              {def.key === 'workforce' && <WorkforceAccountNote />}
+              {def.key === 'workforce' && <><WorkforceAccountNote />{Number(record.data.userId)>0&&<div className="workforce-live-month"><AnchorMonthPanel key={Number(record.data.userId)} userId={Number(record.data.userId)}/></div>}</>}
               {sectionList.map(({ group, fields, shown }) => (
                 <section key={group} id={secId(group)} className="rd-sec" data-layout={shown.length <= 2 ? 'compact' : 'full'}>
                   <h3 className="rd-sec-title">

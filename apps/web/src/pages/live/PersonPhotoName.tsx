@@ -1,3 +1,4 @@
+import { AnchorMonthPanel } from './AnchorMonthPanel';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { PersonPhotoUpload } from './PersonPhotoUpload';
@@ -28,6 +29,7 @@ export function PersonPhotoName({
   const trigger = useRef<HTMLButtonElement>(null),
     panel = useRef<HTMLDivElement>(null);
   const [cropOpen, setCropOpen] = useState(false);
+  const [detailOpen,setDetailOpen]=useState(false);
   const [position, setPosition] = useState({
     left: 8,
     top: 8,
@@ -59,7 +61,7 @@ export function PersonPhotoName({
       );
       const above = a.top - oy - 16,
         belowSpace = oy + height - a.bottom - 16;
-      const below = above < Math.min(p.scrollHeight, 170) && belowSpace > above;
+      const below = belowSpace > above;
       const maxHeight = Math.max(80, below ? belowSpace : above);
       const top = below
         ? a.bottom + 8
@@ -84,7 +86,7 @@ export function PersonPhotoName({
     window.visualViewport?.addEventListener('resize', place);
     const outside = (e: PointerEvent) => {
       if (
-        !cropOpen &&
+        !cropOpen && !detailOpen &&
         !panel.current?.contains(e.target as Node) &&
         !trigger.current?.contains(e.target as Node)
       )
@@ -92,7 +94,7 @@ export function PersonPhotoName({
     };
     document.addEventListener('pointerdown', outside);
     const escape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !cropOpen) {
+      if (e.key === 'Escape' && !cropOpen && !detailOpen) {
         e.stopPropagation();
         close();
       }
@@ -106,7 +108,7 @@ export function PersonPhotoName({
       document.removeEventListener('pointerdown', outside);
       document.removeEventListener('keydown', escape);
     };
-  }, [open, cropOpen]);
+  }, [open, cropOpen, detailOpen]);
   const valid = Number.isSafeInteger(personId) && Number(personId) > 0;
   useEffect(() => {
     if (!open || !valid) return;
@@ -138,7 +140,7 @@ export function PersonPhotoName({
         ref={trigger}
         aria-expanded={open}
         aria-haspopup="dialog"
-        title={`查看${name}的人员照片`}
+        title={`查看${name}的照片与本月直播业绩`}
         aria-label={`查看${name}照片`}
         onClick={(e) => {
           e.stopPropagation();
@@ -171,12 +173,12 @@ export function PersonPhotoName({
             onKeyDown={(e) => {
               if (e.key === 'Escape') {
                 e.stopPropagation();
-                if (!cropOpen) close();
+                if (!cropOpen && !detailOpen) close();
               }
             }}
           >
             <div className="live-person-photo-heading">
-              <strong>{name} · 人员照片</strong>
+              <strong>{name} · 主播资料</strong>
               <button
                 type="button"
                 className="icon-button"
@@ -224,6 +226,7 @@ export function PersonPhotoName({
                   )}
                 </>
               )}
+              <AnchorMonthPanel userId={personId!} onOverlayChange={setDetailOpen}/>
             </div>
           </div>,
           document.body,
