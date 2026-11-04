@@ -1,3 +1,4 @@
+import { isScriptMp4 } from '../live/script-media';
 import { configuredLocalStorage, LocalStorage } from './local-storage';
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -121,21 +122,40 @@ export class FilesService {
     if (file.size > MAX_UPLOAD_BYTES) throw new BadRequestException('文件不能超过 10MB');
     const kind = sniffFile(file.buffer);
     if (!kind) throw new BadRequestException('只能上传图片（png、jpg、gif、webp）或 PDF');
+    return this.storeBlob(companyId, uploadedBy, type, fieldKey, file, kind, cleanFileName(file.originalname), null, em);
+  }
+
+  async putScriptMedia(companyId: number, userId: number, versionId: number, category: string, name: string, file: UploadedFile) {
+    if (!file?.size || file.size > MAX_UPLOAD_BYTES) throw new BadRequestException('请选择 10 MB 以内的素材');
+    const image = sniffFile(file.buffer);
+    const kind = category === 'video'
+      ? (isScriptMp4(file.buffer) ? {mime:'video/mp4', ext:'mp4'} : null)
+      : (image?.image ? image : null);
+    if (!kind) throw new BadRequestException('素材格式与所选分类不符');
+    return this.storeBlob(companyId, userId, 'live-script-media', category, file, kind, name, versionId, this.dataSource.manager);
+  }
+
+  private async storeBlob(companyId: number, uploadedBy: number | null, type: string, fieldKey: string, file: UploadedFile,
+    kind: {mime:string; ext:string}, name: string, recordId: number | null, em: EntityManager): Promise<FileInfo> {
     const storage = await this.storage(companyId);
     const month = new Date().toISOString().slice(0, 7).replace('-', '');
     const key = `${storage instanceof LocalStorage ? 'local:' : ''}oa/${companyId}/${type}/${month}/${crypto.randomUUID()}.${kind.ext}`;
-    const name = cleanFileName(file.originalname);
     try {
       await storage.upload(key, file.buffer, kind.mime, name);
     } catch (e) {
       throw new BadRequestException(`上传到七牛失败：${(e as Error).message}`);
     }
     if (em.queryRunner?.data.legacyImport) (em.queryRunner.data.importUploadedKeys ??= []).push(key);
-    const row = await em.save(
-      ResourceFile,
-      em.create(ResourceFile, { companyId, resourceType: type, resourceId: null, fieldKey, storageKey: key, name, mime: kind.mime, size: file.size, uploadedBy }),
-    );
-    return { id: row.id, name: row.name, mime: row.mime, size: row.size };
+    try {
+      const row = await em.save(ResourceFile, em.create(ResourceFile, {
+        companyId, resourceType: type, resourceId: recordId, fieldKey, storageKey: key,
+        name, mime: kind.mime, size: file.size, uploadedBy,
+      }));
+      return { id: row.id, name: row.name, mime: row.mime, size: row.size };
+    } catch (error) {
+      await storage.remove(key).catch(() => undefined);
+      throw error;
+    }
   }
 
   /** 同 url()，但权限由调用方负责，并限定文件类型。 */
