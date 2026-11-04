@@ -55,14 +55,15 @@ export function RoomDayDialog({ roomId, date, onClose, onOpenSession }: { roomId
     const locked = new Set<number>();
     setTurnovers({});
     const ids = [...new Set([...(d?.sessions.map(s => s.id) ?? []), ...(d?.schedules.flatMap(s => s.sessionId === null ? [] : [s.sessionId]) ?? [])])];
-    const read = async () => {
-      await Promise.all(ids.filter(id => !locked.has(id)).map(id => liveApi.turnover(id).then(
+    const liveIds = new Set([...(d?.sessions.filter(s => s.status === 'live' && !s.endAt).map(s => s.id) ?? []), ...(d?.schedules.filter(s => s.status === 'live' && s.sessionId !== null).map(s => s.sessionId!) ?? [])]);
+    const read = async (initial = false) => {
+      await Promise.all(ids.filter(id => (initial || liveIds.has(id)) && !locked.has(id)).map(id => liveApi.turnover(id).then(
         data => { if (active) { if (data.locked) locked.add(id); setTurnovers(current => ({ ...current, [id]: { data } })); } },
         e => { if (active) setTurnovers(current => ({ ...current, [id]: { error: errText(e, '读取营业额失败') } })); },
       )));
-      if (active && ids.some(id => !locked.has(id))) timer = setTimeout(() => { if (document.visibilityState === 'visible') void read(); else timer = setTimeout(() => void read(), 30_000); }, 30_000);
+      if (active && ids.some(id => liveIds.has(id) && !locked.has(id))) timer = setTimeout(() => { if (document.visibilityState === 'visible') void read(); else timer = setTimeout(() => void read(), 30_000); }, 30_000);
     };
-    if (ids.length) void read();
+    if (ids.length) void read(true);
     return () => { active = false; if (timer) clearTimeout(timer); };
   }, [d]);
   const turnover = (id: number | null) => {
