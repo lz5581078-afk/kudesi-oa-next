@@ -1,0 +1,556 @@
+{
+  "source": "24号 product-archives.js / buildImportedArchiveCode; synthetic inputs only, no legacy code copied",
+  "sourceSha256": "b3adac7930c16408561879aac3eefdb4558b969fc642d6165a694457ae89333c",
+  "rows": [
+    {
+      "family": "raw",
+      "n": 1,
+      "archiveCode": "YL-YL-YL1-R1-0D5KG",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-R1-0P5KG",
+        "DY": "ZH-DY-CSP-R1-0P5KG"
+      }
+    },
+    {
+      "family": "raw",
+      "n": 2,
+      "archiveCode": "YL-YL-YL1-R2-2D5J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-R2-5J",
+        "DY": "ZH-DY-CSP-R2-5J"
+      }
+    },
+    {
+      "family": "raw",
+      "n": 3,
+      "archiveCode": "YL-YL-YL1-R3-125G",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-R3-375G",
+        "DY": "ZH-DY-CSP-R3-375G"
+      }
+    },
+    {
+      "family": "raw",
+      "n": 4,
+      "archiveCode": "YL-YL-YL1-R4-0D5KG",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-R4-2KG",
+        "DY": "ZH-DY-CSP-R4-2KG"
+      }
+    },
+    {
+      "family": "raw",
+      "n": 5,
+      "archiveCode": "YL-YL-YL1-R5-2D5J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-R5-12P5J",
+        "DY": "ZH-DY-CSP-R5-12P5J"
+      }
+    },
+    {
+      "family": "raw",
+      "n": 6,
+      "archiveCode": "YL-YL-YL1-R6-125G",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-R6-750G",
+        "DY": "ZH-DY-CSP-R6-750G"
+      }
+    },
+    {
+      "family": "raw",
+      "n": 7,
+      "archiveCode": "YL-YL-YL1-R7-0D5KG",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-R7-3P5KG",
+        "DY": "ZH-DY-CSP-R7-3P5KG"
+      }
+    },
+    {
+      "family": "raw",
+      "n": 8,
+      "archiveCode": "YL-YL-YL1-R8-2D5J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-R8-20J",
+        "DY": "ZH-DY-CSP-R8-20J"
+      }
+    },
+    {
+      "family": "raw",
+      "n": 9,
+      "archiveCode": "YL-YL-YL1-R9-125G",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-R9-1125G",
+        "DY": "ZH-DY-CSP-R9-1125G"
+      }
+    },
+    {
+      "family": "raw",
+      "n": 10,
+      "archiveCode": "YL-YL-YL1-R10-0D5KG",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-R10-5KG",
+        "DY": "ZH-DY-CSP-R10-5KG"
+      }
+    },
+    {
+      "family": "raw",
+      "n": 11,
+      "archiveCode": "YL-YL-YL1-R11-2D5J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-R11-27P5J",
+        "DY": "ZH-DY-CSP-R11-27P5J"
+      }
+    },
+    {
+      "family": "raw",
+      "n": 12,
+      "archiveCode": "YL-YL-YL1-R12-125G",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-R12-1500G",
+        "DY": "ZH-DY-CSP-R12-1500G"
+      }
+    },
+    {
+      "family": "raw",
+      "n": 13,
+      "archiveCode": "YL-YL-YL1-R13-0D5KG",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-R13-6P5KG",
+        "DY": "ZH-DY-CSP-R13-6P5KG"
+      }
+    },
+    {
+      "family": "raw",
+      "n": 14,
+      "archiveCode": "YL-YL-YL1-R14-2D5J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-R14-35J",
+        "DY": "ZH-DY-CSP-R14-35J"
+      }
+    },
+    {
+      "family": "raw",
+      "n": 15,
+      "archiveCode": "YL-YL-YL1-R15-125G",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-R15-1875G",
+        "DY": "ZH-DY-CSP-R15-1875G"
+      }
+    },
+    {
+      "family": "raw",
+      "n": 16,
+      "archiveCode": "YL-YL-YL1-R16-0D5KG",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-R16-8KG",
+        "DY": "ZH-DY-CSP-R16-8KG"
+      }
+    },
+    {
+      "family": "raw",
+      "n": 17,
+      "archiveCode": "YL-YL-YL1-R17-2D5J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-R17-42P5J",
+        "DY": "ZH-DY-CSP-R17-42P5J"
+      }
+    },
+    {
+      "family": "raw",
+      "n": 18,
+      "archiveCode": "YL-YL-YL1-R18-125G",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-R18-2250G",
+        "DY": "ZH-DY-CSP-R18-2250G"
+      }
+    },
+    {
+      "family": "raw",
+      "n": 19,
+      "archiveCode": "YL-YL-YL1-R19-0D5KG",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-R19-9P5KG",
+        "DY": "ZH-DY-CSP-R19-9P5KG"
+      }
+    },
+    {
+      "family": "raw",
+      "n": 20,
+      "archiveCode": "YL-YL-YL1-R20-2D5J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-R20-50J",
+        "DY": "ZH-DY-CSP-R20-50J"
+      }
+    },
+    {
+      "family": "original_purchase",
+      "n": 1,
+      "archiveCode": "WG-YZ-YZ-YZ1-CSP-O1-05KG-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-O1-0P5KG",
+        "DY": "ZH-DY-CSP-O1-0P5KG"
+      }
+    },
+    {
+      "family": "original_purchase",
+      "n": 2,
+      "archiveCode": "WG-YZ-YZ-YZ1-CSP-O2-25J-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-O2-5J",
+        "DY": "ZH-DY-CSP-O2-5J"
+      }
+    },
+    {
+      "family": "original_purchase",
+      "n": 3,
+      "archiveCode": "WG-YZ-YZ-YZ1-CSP-O3-125G-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-O3-375G",
+        "DY": "ZH-DY-CSP-O3-375G"
+      }
+    },
+    {
+      "family": "original_purchase",
+      "n": 4,
+      "archiveCode": "WG-YZ-YZ-YZ1-CSP-O4-05KG-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-O4-2KG",
+        "DY": "ZH-DY-CSP-O4-2KG"
+      }
+    },
+    {
+      "family": "original_purchase",
+      "n": 5,
+      "archiveCode": "WG-YZ-YZ-YZ1-CSP-O5-25J-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-O5-12P5J",
+        "DY": "ZH-DY-CSP-O5-12P5J"
+      }
+    },
+    {
+      "family": "original_purchase",
+      "n": 6,
+      "archiveCode": "WG-YZ-YZ-YZ1-CSP-O6-125G-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-O6-750G",
+        "DY": "ZH-DY-CSP-O6-750G"
+      }
+    },
+    {
+      "family": "original_purchase",
+      "n": 7,
+      "archiveCode": "WG-YZ-YZ-YZ1-CSP-O7-05KG-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-O7-3P5KG",
+        "DY": "ZH-DY-CSP-O7-3P5KG"
+      }
+    },
+    {
+      "family": "original_purchase",
+      "n": 8,
+      "archiveCode": "WG-YZ-YZ-YZ1-CSP-O8-25J-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-O8-20J",
+        "DY": "ZH-DY-CSP-O8-20J"
+      }
+    },
+    {
+      "family": "original_purchase",
+      "n": 9,
+      "archiveCode": "WG-YZ-YZ-YZ1-CSP-O9-125G-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-O9-1125G",
+        "DY": "ZH-DY-CSP-O9-1125G"
+      }
+    },
+    {
+      "family": "original_purchase",
+      "n": 10,
+      "archiveCode": "WG-YZ-YZ-YZ1-CSP-O10-05KG-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-O10-5KG",
+        "DY": "ZH-DY-CSP-O10-5KG"
+      }
+    },
+    {
+      "family": "original_purchase",
+      "n": 11,
+      "archiveCode": "WG-YZ-YZ-YZ1-CSP-O11-25J-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-O11-27P5J",
+        "DY": "ZH-DY-CSP-O11-27P5J"
+      }
+    },
+    {
+      "family": "original_purchase",
+      "n": 12,
+      "archiveCode": "WG-YZ-YZ-YZ1-CSP-O12-125G-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-O12-1500G",
+        "DY": "ZH-DY-CSP-O12-1500G"
+      }
+    },
+    {
+      "family": "original_purchase",
+      "n": 13,
+      "archiveCode": "WG-YZ-YZ-YZ1-CSP-O13-05KG-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-O13-6P5KG",
+        "DY": "ZH-DY-CSP-O13-6P5KG"
+      }
+    },
+    {
+      "family": "original_purchase",
+      "n": 14,
+      "archiveCode": "WG-YZ-YZ-YZ1-CSP-O14-25J-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-O14-35J",
+        "DY": "ZH-DY-CSP-O14-35J"
+      }
+    },
+    {
+      "family": "original_purchase",
+      "n": 15,
+      "archiveCode": "WG-YZ-YZ-YZ1-CSP-O15-125G-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-O15-1875G",
+        "DY": "ZH-DY-CSP-O15-1875G"
+      }
+    },
+    {
+      "family": "original_purchase",
+      "n": 16,
+      "archiveCode": "WG-YZ-YZ-YZ1-CSP-O16-05KG-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-O16-8KG",
+        "DY": "ZH-DY-CSP-O16-8KG"
+      }
+    },
+    {
+      "family": "original_purchase",
+      "n": 17,
+      "archiveCode": "WG-YZ-YZ-YZ1-CSP-O17-25J-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-O17-42P5J",
+        "DY": "ZH-DY-CSP-O17-42P5J"
+      }
+    },
+    {
+      "family": "original_purchase",
+      "n": 18,
+      "archiveCode": "WG-YZ-YZ-YZ1-CSP-O18-125G-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-O18-2250G",
+        "DY": "ZH-DY-CSP-O18-2250G"
+      }
+    },
+    {
+      "family": "original_purchase",
+      "n": 19,
+      "archiveCode": "WG-YZ-YZ-YZ1-CSP-O19-05KG-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-O19-9P5KG",
+        "DY": "ZH-DY-CSP-O19-9P5KG"
+      }
+    },
+    {
+      "family": "original_purchase",
+      "n": 20,
+      "archiveCode": "WG-YZ-YZ-YZ1-CSP-O20-25J-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-O20-50J",
+        "DY": "ZH-DY-CSP-O20-50J"
+      }
+    },
+    {
+      "family": "supplier_oem",
+      "n": 1,
+      "archiveCode": "WG-OEM-OM-OM1-CSP-M1-05KG-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-M1-0P5KG",
+        "DY": "ZH-DY-CSP-M1-0P5KG"
+      }
+    },
+    {
+      "family": "supplier_oem",
+      "n": 2,
+      "archiveCode": "WG-OEM-OM-OM1-CSP-M2-25J-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-M2-5J",
+        "DY": "ZH-DY-CSP-M2-5J"
+      }
+    },
+    {
+      "family": "supplier_oem",
+      "n": 3,
+      "archiveCode": "WG-OEM-OM-OM1-CSP-M3-125G-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-M3-375G",
+        "DY": "ZH-DY-CSP-M3-375G"
+      }
+    },
+    {
+      "family": "supplier_oem",
+      "n": 4,
+      "archiveCode": "WG-OEM-OM-OM1-CSP-M4-05KG-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-M4-2KG",
+        "DY": "ZH-DY-CSP-M4-2KG"
+      }
+    },
+    {
+      "family": "supplier_oem",
+      "n": 5,
+      "archiveCode": "WG-OEM-OM-OM1-CSP-M5-25J-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-M5-12P5J",
+        "DY": "ZH-DY-CSP-M5-12P5J"
+      }
+    },
+    {
+      "family": "supplier_oem",
+      "n": 6,
+      "archiveCode": "WG-OEM-OM-OM1-CSP-M6-125G-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-M6-750G",
+        "DY": "ZH-DY-CSP-M6-750G"
+      }
+    },
+    {
+      "family": "supplier_oem",
+      "n": 7,
+      "archiveCode": "WG-OEM-OM-OM1-CSP-M7-05KG-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-M7-3P5KG",
+        "DY": "ZH-DY-CSP-M7-3P5KG"
+      }
+    },
+    {
+      "family": "supplier_oem",
+      "n": 8,
+      "archiveCode": "WG-OEM-OM-OM1-CSP-M8-25J-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-M8-20J",
+        "DY": "ZH-DY-CSP-M8-20J"
+      }
+    },
+    {
+      "family": "supplier_oem",
+      "n": 9,
+      "archiveCode": "WG-OEM-OM-OM1-CSP-M9-125G-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-M9-1125G",
+        "DY": "ZH-DY-CSP-M9-1125G"
+      }
+    },
+    {
+      "family": "supplier_oem",
+      "n": 10,
+      "archiveCode": "WG-OEM-OM-OM1-CSP-M10-05KG-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-M10-5KG",
+        "DY": "ZH-DY-CSP-M10-5KG"
+      }
+    },
+    {
+      "family": "supplier_oem",
+      "n": 11,
+      "archiveCode": "WG-OEM-OM-OM1-CSP-M11-25J-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-M11-27P5J",
+        "DY": "ZH-DY-CSP-M11-27P5J"
+      }
+    },
+    {
+      "family": "supplier_oem",
+      "n": 12,
+      "archiveCode": "WG-OEM-OM-OM1-CSP-M12-125G-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-M12-1500G",
+        "DY": "ZH-DY-CSP-M12-1500G"
+      }
+    },
+    {
+      "family": "supplier_oem",
+      "n": 13,
+      "archiveCode": "WG-OEM-OM-OM1-CSP-M13-05KG-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-M13-6P5KG",
+        "DY": "ZH-DY-CSP-M13-6P5KG"
+      }
+    },
+    {
+      "family": "supplier_oem",
+      "n": 14,
+      "archiveCode": "WG-OEM-OM-OM1-CSP-M14-25J-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-M14-35J",
+        "DY": "ZH-DY-CSP-M14-35J"
+      }
+    },
+    {
+      "family": "supplier_oem",
+      "n": 15,
+      "archiveCode": "WG-OEM-OM-OM1-CSP-M15-125G-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-M15-1875G",
+        "DY": "ZH-DY-CSP-M15-1875G"
+      }
+    },
+    {
+      "family": "supplier_oem",
+      "n": 16,
+      "archiveCode": "WG-OEM-OM-OM1-CSP-M16-05KG-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-M16-8KG",
+        "DY": "ZH-DY-CSP-M16-8KG"
+      }
+    },
+    {
+      "family": "supplier_oem",
+      "n": 17,
+      "archiveCode": "WG-OEM-OM-OM1-CSP-M17-25J-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-M17-42P5J",
+        "DY": "ZH-DY-CSP-M17-42P5J"
+      }
+    },
+    {
+      "family": "supplier_oem",
+      "n": 18,
+      "archiveCode": "WG-OEM-OM-OM1-CSP-M18-125G-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-M18-2250G",
+        "DY": "ZH-DY-CSP-M18-2250G"
+      }
+    },
+    {
+      "family": "supplier_oem",
+      "n": 19,
+      "archiveCode": "WG-OEM-OM-OM1-CSP-M19-05KG-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-M19-9P5KG",
+        "DY": "ZH-DY-CSP-M19-9P5KG"
+      }
+    },
+    {
+      "family": "supplier_oem",
+      "n": 20,
+      "archiveCode": "WG-OEM-OM-OM1-CSP-M20-25J-J",
+      "skuMainCodes": {
+        "TB": "ZH-TB-CSP-M20-50J",
+        "DY": "ZH-DY-CSP-M20-50J"
+      }
+    }
+  ],
+  "namingSources": [
+    {
+      "file": "bundle-composition.mjs",
+      "sha256": "f87e647f2fee01ae5f8991ed783cf40e278148525fc071695e9b025f66cdcffb"
+    },
+    {
+      "file": "bundle-naming-rules.mjs",
+      "sha256": "6197a75c50f869fb52a1a66d17f8fc6a24c7471359b8977c9c9b43c0e04aedb0"
+    }
+  ]
+}

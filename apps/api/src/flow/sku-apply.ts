@@ -4,7 +4,7 @@ import {confirmSkuDuplicates} from './sku-duplicate-confirmation';
 import {skuReuseLibrary} from './sku-reuse';
 import {costCompositionFacts} from '../resources/cost-components';
 import {captureSkuInspection,publicSkuInspection} from './sku-inspection';
-import {skuCodeFamily,skuLaborIsCurrent} from './sku-catalog';
+import {SKU_ROLE_ARCHIVES,skuCodeFamily,skuLaborIsCurrent} from './sku-catalog';
 import {resolveSkuBrandId} from './sku-brand';
 import { writeNotification } from '../outbox/write-notification';
 import { BadRequestException } from '@nestjs/common';
@@ -28,14 +28,8 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 const asEngine = (user: AuthUser): AuthUser => ({ ...user, permissions: { isCompanyAdmin: true, allow: [], deny: [] } });
 
 /** 各用途允许的商品档案类型（沿用旧系统：主品=原料/采购成品；赠品另加发货物料；包装=产品包装；标签/说明书/其他=发货物料） */
-const ALLOWED_ARCHIVE: Record<string, string[]> = {
-  main: ['raw', 'purchased'],
-  gift: ['raw', 'purchased', 'shipping_material'],
-  package: ['package', 'oem_package'],
-  label: ['shipping_material'],
-  instruction: ['shipping_material'],
-  other: ['shipping_material'],
-};
+const ALLOWED_ARCHIVE: Record<string, readonly string[]> = {...SKU_ROLE_ARCHIVES,instruction:SKU_ROLE_ARCHIVES.label};
+
 const ROLE_LABEL: Record<string, string> = { main: '主商品', gift: '赠品', package: '包装', label: '标签', instruction: '说明书', other: '其他物料' };
 
 export const platformIdsOf = (p: Record<string, unknown>): number[] => (Array.isArray(p.platformIds) ? p.platformIds.map(Number).filter((n) => Number.isInteger(n) && n > 0) : []);
