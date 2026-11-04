@@ -54,6 +54,74 @@ describe('明细网格键盘录入', () => {
   });
 });
 
+describe('商品名称单位的原版联动', () => {
+  it('选择时同步带出名称单位；没有设置时保留行内单位或回退为件，不再异步清空或覆盖手填', async () => {
+    vi.mocked(resourceApi.list).mockResolvedValue({items:[
+      {...item(3,'小油菜','finance-products'),data:{specUnit:'包',purchaseSpec:'kg'}},
+      {...item(4,'无名称单位','finance-products'),data:{purchaseSpec:'kg'}},
+    ],total:2,page:1,pageSize:80} as never);
+    render(<DocForm type="sale" inline onSaved={vi.fn()}/>);
+    const unit=()=>screen.getByLabelText('第1行单位') as HTMLInputElement;
+    fireEvent.change(unit(),{target:{value:'原行单位'}});
+    await pickProduct();
+    expect(unit().value).toBe('包');
+    fireEvent.change(unit(),{target:{value:'用户改箱'}});
+    fireEvent.click(screen.getByLabelText('第1行商品'));
+    fireEvent.click(await screen.findByRole('option',{name:'无名称单位'}));
+    expect(unit().value).toBe('用户改箱');
+    fireEvent.click(screen.getByLabelText('第1行商品'));
+    fireEvent.click(await screen.findByRole('option',{name:'清空选择'}));
+    expect(unit().value).toBe('用户改箱');
+    fireEvent.change(unit(),{target:{value:''}});
+    fireEvent.click(screen.getByLabelText('第1行商品'));
+    fireEvent.click(await screen.findByRole('option',{name:'无名称单位'}));
+    expect(unit().value).toBe('件');
+    fireEvent.click(screen.getByRole('button',{name:'保存草稿'}));
+    await waitFor(()=>expect(fa.create).toHaveBeenCalledWith(expect.objectContaining({lines:[expect.objectContaining({productId:4,unit:'件'})]})));
+    expect(resourceApi.get).not.toHaveBeenCalledWith('finance-products',expect.anything());
+  });
+  it('前一行删除后选择另一商品，单位取本次选中资料；不发起可能错配行号的资料读取', async () => {
+    vi.mocked(resourceApi.list).mockResolvedValue({items:[
+      {...item(3,'小油菜','finance-products'),data:{specUnit:'包'}},
+      {...item(4,'合成箱装','finance-products'),data:{specUnit:'箱'}},
+    ],total:2,page:1,pageSize:80} as never);
+    render(<DocForm type="sale" inline onSaved={vi.fn()}/>);
+    await pickProduct();
+    fireEvent.click(screen.getByRole('button',{name:'+ 加一行'}));
+    await pickProduct(2);
+    fireEvent.click(screen.getByRole('button',{name:'删除第1行'}));
+    fireEvent.click(screen.getByLabelText('第1行商品'));
+    fireEvent.click(await screen.findByRole('option',{name:'合成箱装'}));
+    expect((screen.getByLabelText('第1行单位') as HTMLInputElement).value).toBe('箱');
+    expect(resourceApi.get).not.toHaveBeenCalledWith('finance-products',expect.anything());
+  });
+});
+
+describe('费用档案的选择约束', () => {
+  it('选中即带出默认节点和必填约束，切换档案保留用户节点并更新约束，清空后不保留旧必填', async () => {
+    vi.mocked(resourceApi.list).mockResolvedValue({items:[
+      {...item(7,'合成店铺费','finance-fee-items'),data:{defaultObject:'不固定、店铺',requiredObject:'yes'}},
+      {...item(8,'合成普通费','finance-fee-items'),data:{defaultObject:'供应商',requiredObject:'no'}},
+    ],total:2,page:1,pageSize:80} as never);
+    render(<DocForm type="expense" inline onSaved={vi.fn()}/>);
+    fireEvent.click(screen.getByLabelText('第1行费用项目'));
+    fireEvent.click(await screen.findByRole('option',{name:'合成店铺费'}));
+    expect((screen.getByLabelText('第1行挂账节点') as HTMLSelectElement).value).toBe('店铺');
+    expect(screen.getByText('必须挂对象')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('第1行挂账节点'),{target:{value:'公司'}});
+    fireEvent.change(screen.getByLabelText('第1行挂账对象'),{target:{value:'合成公司'}});
+    fireEvent.click(screen.getByLabelText('第1行费用项目'));
+    fireEvent.click(await screen.findByRole('option',{name:'合成普通费'}));
+    expect((screen.getByLabelText('第1行挂账节点') as HTMLSelectElement).value).toBe('公司');
+    expect((screen.getByLabelText('第1行挂账对象') as HTMLInputElement).value).toBe('合成公司');
+    expect(screen.queryByText('必须挂对象')).toBeNull();
+    fireEvent.click(screen.getByLabelText('第1行费用项目'));
+    fireEvent.click(await screen.findByRole('option',{name:'清空选择'}));
+    expect(screen.queryByText('必须挂对象')).toBeNull();
+    expect(resourceApi.get).not.toHaveBeenCalledWith('finance-fee-items',expect.anything());
+  });
+});
+
 describe('赠品与整单优惠', () => {
   it('勾选赠品后单价锁成 0、金额为 0；优惠金额进合计并随单据提交', async () => {
     render(<DocForm type="sale" inline onSaved={vi.fn()} />);

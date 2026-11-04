@@ -19,7 +19,7 @@ it('点击展开搜索，旧搜索晚返回不能覆盖新结果；选择后保�
   await act(async()=>{resolveOld({items:[{id:1,title:'旧商品',status:'active',data:{}}],total:1});});
   expect(screen.queryByRole('option',{name:'旧商品'})).toBeNull();
   fireEvent.click(screen.getByRole('option',{name:'新商品 · NEW'}));
-  expect(change).toHaveBeenCalledWith(2,'新商品');
+  expect(change).toHaveBeenCalledWith(2,'新商品',{code:'NEW'});
   expect(screen.queryByRole('listbox')).toBeNull();
 });
 it('读取失败保留选中的账户，重试与关闭不会清空账户',async()=>{

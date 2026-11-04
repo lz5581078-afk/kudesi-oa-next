@@ -3,6 +3,7 @@ import { resourceApi } from '../../resources/api';
 import './referenceDocumentPicker.css';
 
 export const ReferencePickContext = createContext(false);
+export interface PickOption { id: number; title: string; detail?: string; data?: Record<string, unknown> }
 
 /** 元（文本）→ 分；空串 → null；非法 → NaN */
 export function yuanToCents(text: string): number | null {
@@ -19,13 +20,13 @@ export const DOC_STATUS_TONE: Record<string, string> = { draft: 'muted', issued:
 
 /** 搜索式选择：输入关键字，从资料里找；用于商品、客户、费用项目等可能很多的资料。 */
 export function SearchPick({ type, value, label, onChange, placeholder, fieldKey, fieldValue, ariaLabel, options }: {
-  type: string; value: number | null | undefined; label?: string; onChange: (id: number | null, label: string) => void;
+  type: string; value: number | null | undefined; label?: string; onChange: (id: number | null, label: string, data?: Record<string, unknown>) => void;
   placeholder?: string; fieldKey?: string; fieldValue?: string; ariaLabel?: string;
-  options?: Array<{ id: number; title: string }>;
+  options?: PickOption[];
 }) {
   const reference = useContext(ReferencePickContext);
   const [text, setText] = useState(label ?? '');
-  const [items, setItems] = useState<Array<{ id: number; title: string; detail?: string }>>([]);
+  const [items, setItems] = useState<PickOption[]>([]);
   const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>();
   const request = useRef(0);
@@ -48,7 +49,7 @@ export function SearchPick({ type, value, label, onChange, placeholder, fieldKey
     if (options) { setItems(options.filter(option => option.title.toLocaleLowerCase().includes(kw.trim().toLocaleLowerCase())).slice(0,80)); setLoading(false); return; }
     timer.current = setTimeout(() => {
       resourceApi.list(type, { keyword: kw, pageSize: reference ? 80 : 15, fieldKey, fieldValue })
-        .then((r) => { if (request.current === version) setItems(r.items.filter((i) => i.status !== 'inactive' && i.status !== 'deleted').map((i) => ({ id: i.id, title: reference && type === 'finance-products' ? String(i.data?.basicInfoFullName || i.title) : i.title, ...(reference && i.data?.code ? { detail: String(i.data.code) } : {}) }))); })
+        .then((r) => { if (request.current === version) setItems(r.items.filter((i) => i.status !== 'inactive' && i.status !== 'deleted').map((i) => ({ id: i.id, data: i.data, title: reference && type === 'finance-products' ? String(i.data?.basicInfoFullName || i.title) : i.title, ...(reference && i.data?.code ? { detail: String(i.data.code) } : {}) }))); })
         .catch(() => { if (request.current === version) { setItems([]); setError('资料读取失败，请重试'); } })
         .finally(() => { if (request.current === version) setLoading(false); });
     }, 200);
@@ -59,7 +60,7 @@ export function SearchPick({ type, value, label, onChange, placeholder, fieldKey
     <button type="button" data-grid-picker className="reference-document-picker-trigger" aria-label={ariaLabel} aria-haspopup="listbox" aria-expanded={open} onClick={() => { setOpen(!open); if (!open) { setKeyword(''); search(''); } }}><span className={!value ? 'placeholder' : ''}>{label || placeholder || '请选择资料'}</span><b aria-hidden="true">{open ? '▲' : '▼'}</b></button>
     {open && <div className="reference-document-picker-menu" data-picker-menu><input autoFocus aria-label={`搜索${ariaLabel || '资料'}`} placeholder={`搜索${placeholder || ariaLabel || '资料'}`} value={keyword} onChange={event => { setKeyword(event.target.value); search(event.target.value); }}/><ul role="listbox" className="pick-list">
       {value && <li><button type="button" role="option" aria-selected={false} onClick={() => { onChange(null,''); setOpen(false); }}>清空选择</button></li>}
-      {loading ? <li role="status">正在加载资料…</li> : error ? <li role="alert">{error}<button type="button" onClick={() => search(keyword)}>重试</button></li> : !items.length ? <li className="muted">没有找到</li> : items.map(item => <li key={item.id}><button type="button" role="option" aria-selected={item.id === value} onClick={() => { onChange(item.id,item.title); setOpen(false); }}>{item.title}{item.detail ? ` · ${item.detail}` : ''}</button></li>)}
+      {loading ? <li role="status">正在加载资料…</li> : error ? <li role="alert">{error}<button type="button" onClick={() => search(keyword)}>重试</button></li> : !items.length ? <li className="muted">没有找到</li> : items.map(item => <li key={item.id}><button type="button" role="option" aria-selected={item.id === value} onClick={() => { onChange(item.id,item.title,item.data); setOpen(false); }}>{item.title}{item.detail ? ` · ${item.detail}` : ''}</button></li>)}
     </ul></div>}
   </div>;
   return (
@@ -74,7 +75,7 @@ export function SearchPick({ type, value, label, onChange, placeholder, fieldKey
         <ul className="pick-list" role="listbox">
           {items.length === 0 && <li className="muted">没有找到</li>}
           {items.map((i) => (
-            <li key={i.id}><button type="button" role="option" aria-selected={i.id === value} onMouseDown={(e) => e.preventDefault()} onClick={() => { setText(i.title); onChange(i.id, i.title); setOpen(false); }}>{i.title}</button></li>
+            <li key={i.id}><button type="button" role="option" aria-selected={i.id === value} onMouseDown={(e) => e.preventDefault()} onClick={() => { setText(i.title); onChange(i.id, i.title,i.data); setOpen(false); }}>{i.title}</button></li>
           ))}
         </ul>
       )}

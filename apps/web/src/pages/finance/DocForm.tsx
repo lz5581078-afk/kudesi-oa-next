@@ -283,25 +283,17 @@ export function DocForm({ type, doc, preset, inline, onClose, onSaved, onPickDra
 
   const addLine = () => setLines((ls) => [...ls, freshLines()[0]]);
   const setLine = (i: number, patch: Partial<LineState>) => setLines((ls) => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
-  /** 选了费用项目：按费用档案里的默认挂账节点预选，并记下是否必须挂对象 */
-  const pickFee = async (i: number, id: number | null, name: string) => {
-    setLine(i, { feeItemId: id, feeItemName: name, ...(id ? {} : { needObject: false }) });
-    if (!id) return;
-    try {
-      const r = await resourceApi.get('finance-fee-items', id);
-      const first = String(r.data.defaultObject ?? '').split(/[、,，]/).map((x) => x.trim()).find((x) => FEE_BOOKING_NODE_MAP.has(x) && x !== '不固定');
-      setLines((ls) => ls.map((l, k) => (k === i && l.feeItemId === id ? { ...l, needObject: r.data.requiredObject === 'yes', node: l.node || first || '' } : l)));
-    } catch { /* 取不到默认值不影响开单 */ }
+  /** 费用约束随已选资料同步带入，避免晚返回把新行或用户选择的节点覆盖。 */
+  const pickFee = (i: number, id: number | null, name: string, data?: Record<string, unknown>) => {
+    const first = id ? String(data?.defaultObject ?? '').split(/[、,，]/).map(value => value.trim()).find(value => FEE_BOOKING_NODE_MAP.has(value) && value !== '不固定') : '';
+    setLines(current => current.map((line, index) => index === i ? { ...line, feeItemId: id, feeItemName: name, needObject: !!id && data?.requiredObject === 'yes', node: line.node || first || '' } : line));
   };
-  /** 选了商品：单位按商品档案的规格单位带出（可再改） */
-  const pickUnit = async (i: number, id: number) => {
-    try {
-      const r = await resourceApi.get('finance-products', id);
-      const u = String(r?.data?.specUnit ?? '').trim();
-      if (u) setLines((ls) => ls.map((l, k) => (k === i && l.productId === id && !l.unit ? { ...l, unit: unitOptionFromText(u)?.label || u } : l)));
-    } catch { /* 取不到单位不影响开单 */ }
+  /** 名称单位与选中商品一起带入；未设置则保留行内单位，最后回退为件。 */
+  const pickProduct = (i: number, id: number | null, name: string, data?: Record<string, unknown>) => {
+    const rawUnit = id ? String(data?.specUnit ?? '').trim() : '';
+    const unit = unitOptionFromText(rawUnit)?.label || rawUnit;
+    setLines(current => current.map((line, index) => index === i ? { ...line, productId: id, productName: name, unit: unit || line.unit || '件' } : line));
   };
-  const pickProduct = (i: number, id: number | null, name: string) => { setLine(i, { productId: id, productName: name, unit: '' }); if (id) void pickUnit(i, id); };
   const moneyItem = ui.moneyItemLabel ?? '项目';
   const parsedCount = structuredLines ? lines.filter((l) => l.productId || l.feeItemId || l.price).length : moneyLines.filter(l => l.item || l.amount).length;
   const settleTitle = type === 'receipt' ? '到账情况' : def.settle === 'in' && type !== 'purchase-return' ? '收款情况' : def.settle === 'out' && type !== 'sale-return' ? '付款情况' : def.settle ? '退款情况' : def.bank === 'in' ? '收款情况' : def.bank === 'out' ? '付款情况' : '转款情况';
