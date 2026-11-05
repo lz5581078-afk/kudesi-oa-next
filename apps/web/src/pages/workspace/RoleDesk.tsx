@@ -9,6 +9,8 @@ export interface DeskView {
   title: string;
   subtitle: string;
   links: NavPage[];
+  /** 常用流程快捷入口：点进申请中心并选好这条流程 */
+  flows?: Array<{ key: string; label: string; path: string }>;
   linksHint?: string;
   cards: SummaryCard[];
   pending: string[];
@@ -36,12 +38,13 @@ export function RoleDesk({ view }: { view: DeskView }) {
       <SummaryCards label="今日待办概览" cards={[...base, ...view.cards]} />
       {typeof view.top==='function'?view.top(tick):view.top}
       {view.blank && <section className="card ws-section"><div className="ws-head"><h2>专属业务</h2></div><p className="muted ws-pad">这个岗位还没有配置专属业务；常用的流程与任务在下面。</p></section>}
-      {(view.links.length > 0 || view.pending.length > 0) && (
+      {(view.links.length > 0 || view.pending.length > 0 || (view.flows?.length ?? 0) > 0) && (
         <section className="card ws-section" aria-label="岗位常用业务">
           <div className="ws-head"><h2>常用业务</h2>{view.linksHint && <span className="muted">{view.linksHint}</span>}</div>
           <div className="ws-links">
             {view.links.map((l) => <Link key={l.path} to={l.path} className="ws-link"><span>{l.label}</span><small>{l.group ?? ''}</small></Link>)}
-            {view.links.length === 0 && <span className="muted">暂无已授权的业务入口</span>}
+            {view.flows?.map((f) => <Link key={f.key} to={f.path} className="ws-link"><span>发起：{f.label}</span><small>流程</small></Link>)}
+            {view.links.length === 0 && !view.flows?.length && <span className="muted">暂无已授权的业务入口</span>}
           </div>
           {view.pending.length > 0 && <p className="muted ws-pad">待接入业务：{view.pending.join('、')}（新系统暂未提供）</p>}
         </section>

@@ -4,6 +4,7 @@
  * 菜单、权限、路径都不在这里重复定义。
  */
 import { NAV_SECTIONS, type NavPage } from './navigation';
+import { getFlowTemplate } from './flow';
 import type { PositionWorkspaceType } from './position-templates';
 
 /** 个人任务的四个分类（旧系统：新任务 / 进行中 / 待我复核 / 已完成）。 */
@@ -69,21 +70,23 @@ export interface DeskDef {
   managerLinks?: string[];
   /** 旧系统标为“待接入”的专属业务，新系统也还没有 */
   pending?: string[];
+  /** 常用流程快捷入口：流程模板键，点击直接进入申请中心并选好这条流程（只显示有申请中心权限的人） */
+  flows?: string[];
   /** 这类岗位关心的依赖模块，没有接入时显示“暂无该模块” */
   modules?: WorkspaceModuleKey[];
 }
 
 export const DESK_DEFS: Readonly<Record<PositionWorkspaceType, DeskDef>> = {
-  boss: { type: 'boss', title: '老板工作台', focus: '经营总览 · 异常跟进', links: ['workbench.boss', 'finance.overview', 'finance.history', 'flow.overview', 'resource.org-tree'], modules: ['supervision'] },
-  general: { type: 'general', title: '综合事务工作台', focus: '经营资料 · 账号与资产', links: ['resource.stores', 'resource.licenses', 'resource.phones', 'resource.qualifications', 'resource.memos', 'resource.fixed-assets', 'resource.employees', 'resource.org-tree'], managerLinks: ['flow.overview', 'resource.position-profiles'] },
-  operations: { type: 'operations', title: '运营工作台', focus: '店铺经营 · SKU申请', links: ['flow.apply', 'resource.stores', 'finance.finance-products', 'finance.finance-bundles', 'finance.pricing-debug', 'resource.phones'], managerLinks: ['flow.overview', 'finance.overview', 'features.live'], modules: ['live'] },
+  boss: { type: 'boss', title: '老板工作台', focus: '经营总览 · 异常跟进', links: ['workbench.boss', 'finance.overview', 'finance.history', 'flow.overview', 'resource.org-tree'], modules: ['supervision'], flows: ['account-rename'] },
+  general: { type: 'general', title: '综合事务工作台', focus: '经营资料 · 账号与资产', links: ['resource.stores', 'resource.licenses', 'resource.phones', 'resource.qualifications', 'resource.memos', 'resource.fixed-assets', 'resource.employees', 'resource.org-tree'], managerLinks: ['flow.overview', 'resource.position-profiles'], flows: ['account-rename'] },
+  operations: { type: 'operations', title: '运营工作台', focus: '店铺经营 · SKU申请', links: ['flow.apply', 'resource.stores', 'finance.finance-products', 'finance.finance-bundles', 'finance.pricing-debug', 'resource.phones'], managerLinks: ['flow.overview', 'finance.overview', 'features.live'], modules: ['live'], flows: ['account-rename'] },
   finance: { type: 'finance', title: '财务工作台', focus: 'SKU成本审核 · 财务单据', links: ['finance.cost-table', 'finance.history', 'finance.drafts', 'finance.finance-express-prices', 'finance.cash-bank', 'finance.finance-products'], managerLinks: ['finance.overview', 'flow.overview'] },
   cashier: { type: 'cashier', title: '出纳工作台', focus: '收付款资料 · 资金核对', links: ['finance.doc-withdrawal', 'finance.cash-bank', 'finance.doc-receipt', 'finance.doc-payment', 'finance.doc-transfer', 'finance.drafts'], managerLinks: ['finance.overview'] },
   warehouse: { type: 'warehouse', title: '仓库工作台', focus: '发货组成 · 库存与收货', links: ['finance.inventory', 'finance.finance-bundles', 'finance.doc-purchase-in', 'finance.finance-products'], managerLinks: ['flow.overview'], pending: ['仓库收发货汇总'], modules: ['after-sales'] },
   purchasing: { type: 'purchasing', title: '采购供应链工作台', focus: '供应商资料 · 到货跟进', links: ['finance.finance-suppliers', 'finance.finance-products', 'finance.doc-purchase-in', 'finance.history'], managerLinks: ['flow.overview'], pending: ['采购到货汇总'] },
   support: { type: 'support', title: '客服工作台', focus: '售后处理 · 订单申诉', links: ['resource.stores'], managerLinks: ['flow.overview'], modules: ['after-sales', 'supervision'] },
-  live_anchor: { type: 'live_anchor', title: '主播工作台', focus: '我的直播 · 排场与提成', links: ['features.live-desk', 'flow.apply'], modules: ['live'] },
-  live_control: { type: 'live_control', title: '中控工作台', focus: '我的直播 · 排场与提成', links: ['features.live-desk', 'flow.apply'], modules: ['live'] },
+  live_anchor: { type: 'live_anchor', title: '主播工作台', focus: '我的直播 · 排场与提成', links: ['features.live-desk', 'flow.apply'], modules: ['live'], flows: ['account-rename'] },
+  live_control: { type: 'live_control', title: '中控工作台', focus: '我的直播 · 排场与提成', links: ['features.live-desk', 'flow.apply'], modules: ['live'], flows: ['account-rename'] },
   blank: { type: 'blank', title: '空白工作台', focus: '', links: [] },
 };
 
@@ -96,6 +99,15 @@ export function navPageByKey(key: string): (NavPage & { sectionId: string; secti
   const section = NAV_SECTIONS.find((s) => s.id === sectionId);
   const page = section?.pages.find((p) => p.id === id && p.ready);
   return section && page ? { ...page, sectionId: section.id, sectionLabel: section.label } : null;
+}
+
+/** 岗位工作台的常用流程快捷入口：模板必须存在；没有申请中心权限就不显示。 */
+export function deskFlows(def: DeskDef, can: (permission: string) => boolean): Array<{ key: string; label: string; path: string }> {
+  if (!can('flow.apply.view')) return [];
+  return (def.flows ?? []).flatMap((key) => {
+    const t = getFlowTemplate(key);
+    return t ? [{ key, label: t.label, path: `/flow/apply?template=${encodeURIComponent(key)}` }] : [];
+  });
 }
 
 /** 岗位工作台的常用业务入口：只留当前账号有权限、且页面已做完的。 */

@@ -4,7 +4,7 @@ import { LiveCheckinPanel } from '../live/LiveCheckinPanel';
 import { PersonalLiveIncome } from './PersonalLiveIncome';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { deskFor, deskLinks, groupDeskPositions, type DeskCatalog } from '@kudesi/shared';
+import { deskFlows, deskFor, deskLinks, groupDeskPositions, type DeskCatalog } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { DailyBusinessPanel } from './DailyBusinessPanel';
@@ -44,6 +44,7 @@ export function DeskPage() {
     title: desk.title,
     subtitle: [current.departmentPath, def.focus].filter(Boolean).join(' · '),
     links: deskLinks(def, isAdmin ? 'boss' : current.level, can),
+    flows: deskFlows(def, can),
     linksHint: def.focus,
     cards: desk.cards,
     pending: desk.pending,
