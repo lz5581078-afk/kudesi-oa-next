@@ -907,8 +907,14 @@ export class ResourcesService implements RuleHost {
         if (clash && clash.id !== id) throw new ConflictException(`「${String(data[def.uniqueField])}」已存在，请先处理重复的编码`);
       }
     }
-    Object.assign(record, { data, title, uniqueKey, searchText: this.buildSearchText(def, data, title), updatedBy: user.id });
-    await em.save(ResourceRecord, record);
+    const values={ data, title, uniqueKey, searchText: this.buildSearchText(def, data, title), updatedBy: user.id };
+    Object.assign(record,values);
+    if(currentRead){
+      // 当前读可能看见旧快照里不存在的并发新行；save 的存在性查询会误判为新增。
+      const updated=await em.update(ResourceRecord,{id,companyId:user.companyId,type},{...values,data:values.data as never});
+      if(!updated.affected)throw new ConflictException('资料已变化，请刷新后重试');
+      Object.assign(record,await em.findOneOrFail(ResourceRecord,{where:{id,companyId:user.companyId,type},lock:{mode:'pessimistic_write'}}));
+    }else await em.save(ResourceRecord, record);
     if (syncRefs && def.fields.some((f) => f.type === 'ref' && f.key in patch)) await this.syncLinks(em, user, def, record);
     await this.writeLog(em, user, def, id, 'update', before, record, note);
   }
