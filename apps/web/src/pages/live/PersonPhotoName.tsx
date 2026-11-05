@@ -30,60 +30,14 @@ export function PersonPhotoName({
     panel = useRef<HTMLDivElement>(null);
   const [cropOpen, setCropOpen] = useState(false);
   const [detailOpen,setDetailOpen]=useState(false);
-  const [position, setPosition] = useState({
-    left: 8,
-    top: 8,
-    maxHeight: 400,
-    below: false,
-    arrow: 24,
-  });
   const close = () => {
     setOpen(false);
     trigger.current?.focus();
   };
   useLayoutEffect(() => {
     if (!open) return;
-    const place = () => {
-      const a = trigger.current?.getBoundingClientRect(),
-        p = panel.current;
-      if (!a || !p) return;
-      const v = window.visualViewport;
-      const width = v?.width ?? window.innerWidth,
-        height = v?.height ?? window.innerHeight;
-      const ox = v?.offsetLeft ?? 0,
-        oy = v?.offsetTop ?? 0;
-      const left = Math.max(
-        ox + 8,
-        Math.min(
-          a.left + a.width / 2 - p.offsetWidth / 2,
-          ox + width - p.offsetWidth - 8,
-        ),
-      );
-      const above = a.top - oy - 16,
-        belowSpace = oy + height - a.bottom - 16;
-      const below = belowSpace > above;
-      const maxHeight = Math.max(80, below ? belowSpace : above);
-      const top = below
-        ? a.bottom + 8
-        : Math.max(oy + 8, a.top - Math.min(p.scrollHeight, maxHeight) - 8);
-      setPosition({
-        left,
-        top,
-        maxHeight,
-        below,
-        arrow: Math.max(
-          14,
-          Math.min(p.offsetWidth - 14, a.left + a.width / 2 - left),
-        ),
-      });
-    };
-    place();
-    const ro =
-      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place);
-    if (panel.current) ro?.observe(panel.current);
-    window.addEventListener('resize', place);
-    window.addEventListener('scroll', place, true);
-    window.visualViewport?.addEventListener('resize', place);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const outside = (e: PointerEvent) => {
       if (
         !cropOpen && !detailOpen &&
@@ -101,10 +55,7 @@ export function PersonPhotoName({
     };
     document.addEventListener('keydown', escape);
     return () => {
-      ro?.disconnect();
-      window.removeEventListener('resize', place);
-      window.removeEventListener('scroll', place, true);
-      window.visualViewport?.removeEventListener('resize', place);
+      document.body.style.overflow = previousOverflow;
       document.removeEventListener('pointerdown', outside);
       document.removeEventListener('keydown', escape);
     };
@@ -159,19 +110,13 @@ export function PersonPhotoName({
       </button>
       {open &&
         createPortal(
+          <div className="live-person-profile-overlay">
           <div
             ref={panel}
-            className={`live-person-photo-popover${position.below ? ' is-below' : ''}`}
+            className="live-person-photo-popover"
             role="dialog"
+            aria-modal="true"
             aria-label={`${name} · 主播资料`}
-            style={
-              {
-                left: position.left,
-                top: position.top,
-                maxHeight: position.maxHeight,
-                '--photo-arrow': `${position.arrow}px`,
-              } as React.CSSProperties
-            }
             onKeyDown={(e) => {
               if(e.key==='Tab'&&!cropOpen&&!detailOpen){
                 const controls=[...(panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), [tabindex="0"]')??[])].filter(el=>el.getClientRects().length);
@@ -236,6 +181,7 @@ export function PersonPhotoName({
               )}
               <AnchorMonthPanel userId={personId!} onOverlayChange={setDetailOpen}/>
             </div>
+          </div>
           </div>,
           document.body,
         )}

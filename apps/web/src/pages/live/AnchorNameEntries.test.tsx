@@ -10,7 +10,7 @@ import { CheckoutFeedbackRecords } from './CheckoutFeedback';
 vi.mock('./liveApi',()=>({liveApi:{options:vi.fn(),sessions:vi.fn(),feedbackImageUrl:vi.fn(),checkinContext:vi.fn(),start:vi.fn()}}));
 beforeEach(()=>{
  vi.spyOn(personPhotoApi,'read').mockImplementation(async id=>({userId:id,name:'主播甲',photo:null}));
- vi.spyOn(anchorMonthApi,'read').mockImplementation(async id=>({month:'2026-11',asOf:'2026-11-04 12:00:00',canViewCommission:true,canOpenSession:true,items:[{userId:id,name:'主播甲',employmentType:'part_time',summary:{sessionCount:2,minutes:180,turnoverCents:100000,commissionCents:5000,missingTimeSessions:0,missingSalesSessions:0,missingCommissionSessions:0,estimatedSessions:1},sessions:[]}]}));
+ vi.spyOn(anchorMonthApi,'read').mockImplementation(async id=>({month:'2026-11',asOf:'2026-11-04 12:00:00',canViewCommission:true,canOpenSession:true,items:[{userId:id,name:'主播甲',employmentType:'part_time',summary:{wageCents:10000,pendingWageSessions:1,sessionCount:2,minutes:180,turnoverCents:100000,commissionCents:5000,missingTimeSessions:0,missingSalesSessions:0,missingCommissionSessions:0,estimatedSessions:1},sessions:[]}]}));
 });
 afterEach(()=>{cleanup();vi.restoreAllMocks();vi.resetAllMocks();});
 it('审核/详情里的姓名打开同一份月资料；Esc只关闭资料，不关闭外层业务弹窗',async()=>{

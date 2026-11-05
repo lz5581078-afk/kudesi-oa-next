@@ -1,3 +1,5 @@
+import { ScriptMobileUpload } from './ScriptAssetLibrary';
+import { ScriptCenter } from './ScriptCenter';
 import { DailyWorkPanel } from './DailyWorkPanel';
 import { LiveQr } from './LiveQr';
 import { NotificationsTab } from './NotificationsTab';
@@ -18,7 +20,7 @@ import { SettlementsTab } from './SettlementsTab';
 
 const TAB_KEY = 'kudesi.live.tab';
 const TABS = [
-  ['overview', '全览'], ['schedules', '排场'], ['daily','日常工作'], ['sessions', '场次记录'], ['review', '待审核'], ['wages', '主播工资'], ['control', '中控工资'], ['operator', '运营提成'], ['settlements', '工资结算'], ['manual', '人事补报'], ['rules', '提成规则'], ['notifications', '通知设置'], ['qr', '上下播二维码'],
+  ['overview', '全览'], ['schedules', '排场'], ['daily','日常工作'], ['sessions', '场次记录'], ['review', '待审核'], ['wages', '主播工资'], ['control', '中控工资'], ['operator', '运营提成'], ['settlements', '工资结算'], ['manual', '人事补报'], ['rules', '提成规则'], ['notifications', '通知设置'], ['qr', '上下播二维码'], ['scripts','话术中心'],
 ] as const;
 type TabKey = (typeof TABS)[number][0];
 
@@ -40,6 +42,10 @@ export function LiveManagePage() {
     try { localStorage.setItem(TAB_KEY, k); } catch { /* 本机存不了就不记 */ }
     setParams(k === visible[0]?.[0] ? {} : { tab: k }, { replace: true });
   };
+  const upload = Number(params.get('upload')), section = params.get('section');
+  if (current==='scripts' && upload>0 && Number.isSafeInteger(upload) && (section==='background'||section==='image'||section==='video')) {
+    return <div className="live-page">{can('live.manage') ? <ScriptMobileUpload version={upload} category={section}/> : <p role="alert">需要直播管理权限才能上传素材。</p>}</div>;
+  }
   return (
     <div className="live-page">
       <AppbarHint><span className="live-header-summary" title="房间排场、业绩审核、工资及售后结算；主播、中控日常操作请到「我的直播」。">排场 · 审核 · 工资结算<span className="live-header-guide">；主播、中控请到「我的直播」</span></span></AppbarHint>
@@ -49,6 +55,7 @@ export function LiveManagePage() {
         {visible.map(([k, label]) => <button key={k} type="button" role="tab" aria-selected={k === current} className={k === current ? 'chip active' : 'chip'} onClick={() => pick(k)}>{label}</button>)}
       </div>
       {current === 'overview' && <OverviewTab onOpenSession={setOpenId} />}
+      {current === 'scripts' && <ScriptCenter manage={can('live.manage')} />}
       {current === 'daily' && <DailyWorkPanel date={params.get('date')??undefined}/>}
       {current === 'schedules' && <SchedulesTab />}
       {current === 'sessions' && <SessionsTab onOpen={setOpenId} refreshKey={tick} />}
