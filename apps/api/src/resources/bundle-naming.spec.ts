@@ -44,6 +44,14 @@ describe('组合命名（旧系统规则）', () => {
 });
 
 describe('独立编码来源逐商品命名（默认旧分支不变）',()=>{
+ it('已填写的赠品简称优先于来源规则，数量和多个不同赠品不被同规格合并',()=>{
+  const main=item({id:401,identity:'main'}),a=item({id:402,identity:'same-spec',giftName:'农管家拌种剂',giftCode:'NGJBZJ',qty:2}),b=item({id:403,identity:'same-spec',giftName:'花生合同',giftCode:'HSHT',qty:1});
+  const own={...DEFAULT_RULE,codeFields:['baseCode','quantity'],nameFields:['name','quantity']};
+  const result=composeBundle(null,{...input([main],[a,b]),itemRules:{401:DEFAULT_RULE,402:own,403:own}});
+  expect(result.errors).toEqual([]);expect(result.code).toBe('ZH-TB-KDS-HFS-5J+ZP-NGJBZJ*2+HSHT*1');
+  expect(result.styleCode).toBe('ZH-KDS-HFS+ZP-NGJBZJ*2+HSHT*1');expect(result.mainStyleCode).toBe('ZH-KDS-HFS');
+  expect(result.name).toContain('+赠:农管家拌种剂×2+花生合同×1');expect(result.shortName).toContain('+赠:农管家拌种剂×2+花生合同×1');
+ });
  it('主品各用自己的字段规则，赠品可信配置不用虚构赠品简称，缺字段仍给真实问题',()=>{
   const first=item({id:101,identity:'main-a',code:'MAIN-A'}),second=item({id:102,identity:'main-b',varietyInitials:'SECOND',varietyName:'第二主品'}),gift=item({id:103,identity:'gift-a',code:'GIFT-CODE',giftName:undefined,giftCode:undefined});
   const rules={101:{...DEFAULT_RULE,codeFields:['baseCode'],nameFields:['name']},102:{...DEFAULT_RULE,codeFields:['variety'],nameFields:['variety']},103:{...DEFAULT_RULE,codeFields:['baseCode','quantity'],nameFields:['name','quantity']}};
