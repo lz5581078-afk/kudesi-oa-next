@@ -42,12 +42,14 @@ function AssetZone({
   version,
   assets,
   onAdded,
+  canUpload,
   mobile = false,
 }: {
   category: Category;
   version: number;
   assets: Asset[];
   onAdded: (items: Asset[]) => void;
+  canUpload: boolean;
   mobile?: boolean;
 }) {
   const [file, setFile] = useState<File | null>(null),
@@ -61,7 +63,7 @@ function AssetZone({
     Icon = video ? Film : category === 'background' ? Images : Image;
   const path = '/live/scripts/versions/' + version;
   useEffect(() => {
-    if (!qr) return;
+    if (!canUpload || !qr) return;
     let live = true;
     const poll = async () => {
       try {
@@ -76,7 +78,7 @@ function AssetZone({
       live = false;
       window.clearInterval(timer);
     };
-  }, [qr, path, onAdded]);
+  }, [canUpload, qr, path, onAdded]);
   function choose(f?: File) {
     if (!f) return;
     if (f.size > 10 * 1024 * 1024 || !f.size) {
@@ -88,7 +90,7 @@ function AssetZone({
     setMsg('');
   }
   async function upload() {
-    if (!file || !name.trim() || busy) return;
+    if (!canUpload || !file || !name.trim() || busy) return;
     setBusy(true);
     setMsg('');
     try {
@@ -107,7 +109,7 @@ function AssetZone({
       setBusy(false);
     }
   }
-  const graphic = qr
+  const graphic = canUpload && qr
     ? qrSvgPath(
         qrMatrix(location.origin + '/features/live?tab=scripts&upload=' + version + '&section=' + category),
       )
@@ -119,54 +121,56 @@ function AssetZone({
         <h4>{kind}</h4>
         <small>{assets.length} 个素材</small>
       </header>
-      <fieldset disabled={busy}>
-        <label
-          className={'sc-drop' + (drag ? ' dragging' : '')}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDrag(true);
-          }}
-          onDragLeave={() => setDrag(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDrag(false);
-            if (!busy) {
-              if (e.dataTransfer.files.length === 1) choose(e.dataTransfer.files[0]);
-              else setMsg('请一次选择一个素材，命名后上传');
-            }
-          }}
-        >
-          <Upload size={19} />
-          <strong>{file ? file.name : '选择或拖入' + kind}</strong>
-          <small>{video ? 'MP4' : 'PNG / JPG / GIF / WebP'} · 最大 10 MB</small>
-          <input
-            type="file"
-            aria-label={'选择' + kind}
-            accept={video ? 'video/mp4' : 'image/png,image/jpeg,image/gif,image/webp'}
-            onChange={(e) => {
-              choose(e.target.files?.[0]);
-              e.target.value = '';
-            }}
-          />
-        </label>
-        {file && (
-          <form
-            onSubmit={(e) => {
+      {canUpload && (
+        <fieldset disabled={busy}>
+          <label
+            className={'sc-drop' + (drag ? ' dragging' : '')}
+            onDragOver={(e) => {
               e.preventDefault();
-              void upload();
+              setDrag(true);
+            }}
+            onDragLeave={() => setDrag(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDrag(false);
+              if (!busy) {
+                if (e.dataTransfer.files.length === 1) choose(e.dataTransfer.files[0]);
+                else setMsg('请一次选择一个素材，命名后上传');
+              }
             }}
           >
-            <label>
-              素材名称
-              <input required maxLength={100} value={name} onChange={(e) => setName(e.target.value)} />
-            </label>
-            <button className="primary-button" disabled={!name.trim() || busy}>
-              {busy ? '上传中…' : '确认上传'}
-            </button>
-          </form>
-        )}
-      </fieldset>
-      {!mobile && (
+            <Upload size={19} />
+            <strong>{file ? file.name : '选择或拖入' + kind}</strong>
+            <small>{video ? 'MP4' : 'PNG / JPG / GIF / WebP'} · 最大 10 MB</small>
+            <input
+              type="file"
+              aria-label={'选择' + kind}
+              accept={video ? 'video/mp4' : 'image/png,image/jpeg,image/gif,image/webp'}
+              onChange={(e) => {
+                choose(e.target.files?.[0]);
+                e.target.value = '';
+              }}
+            />
+          </label>
+          {file && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void upload();
+              }}
+            >
+              <label>
+                素材名称
+                <input required maxLength={100} value={name} onChange={(e) => setName(e.target.value)} />
+              </label>
+              <button className="primary-button" disabled={!name.trim() || busy}>
+                {busy ? '上传中…' : '确认上传'}
+              </button>
+            </form>
+          )}
+        </fieldset>
+      )}
+      {canUpload && !mobile && (
         <button
           type="button"
           className="link-button sc-download"
@@ -208,11 +212,13 @@ export function ScriptAssetLibrary({
   version,
   assets,
   onAdded,
+  canUpload,
   only,
 }: {
   version: number;
   assets: Asset[];
   onAdded: (items: Asset[]) => void;
+  canUpload: boolean;
   only?: Category;
 }) {
   return (
@@ -226,6 +232,7 @@ export function ScriptAssetLibrary({
             version={version}
             assets={assets.filter((a) => a.category === k)}
             onAdded={onAdded}
+            canUpload={canUpload}
             mobile={!!only}
           />
         ))}
@@ -262,6 +269,7 @@ export function ScriptMobileUpload({ version, category }: { version: number; cat
           version={version}
           assets={detail.assets}
           only={category}
+          canUpload
           onAdded={(items) => setDetail((d) => d && { ...d, assets: [...d.assets, ...items] })}
         />
       )}
