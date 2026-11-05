@@ -19,6 +19,7 @@ describe('排场产品与上次配置', () => {
     fireEvent.change(screen.getByLabelText('开始时间'),{target:{value:'15:00'}});
     fireEvent.change(screen.getByLabelText('结束时间'),{target:{value:'18:00'}});
     fireEvent.change(screen.getByLabelText('主播'),{target:{value:'3'}});
+    fireEvent.change(screen.getByLabelText('中控'),{target:{value:'4'}});
     fireEvent.click(screen.getByRole('checkbox',{name:'抖音号'}));
     expect(screen.queryByRole('checkbox',{name:'抖音号关联店铺'})).toBeNull();
     fireEvent.click(screen.getByRole('button',{name:'保存'}));
@@ -148,4 +149,29 @@ describe('排场产品与上次配置', () => {
     expect(l.products).not.toHaveBeenCalled();
   });
 
+});
+
+it('缺中控时二次确认，返回不保存，确认后只提交一次',async()=>{
+ render(<ScheduleDialog initial={{...previous,control:null}} days={[previous.date]} onClose={vi.fn()} onDone={vi.fn()}/>);
+ await screen.findByRole('option',{name:/^主播甲/});
+ fireEvent.click(screen.getByRole('button',{name:'保存'}));
+ expect(screen.getByRole('dialog',{name:'确认未安排中控'})).toBeTruthy();
+ expect(l.updateSchedule).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'返回补选'}));
+ expect(l.updateSchedule).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'保存'}));
+ fireEvent.click(screen.getByRole('button',{name:'确认无中控并保存'}));
+ await waitFor(()=>expect(l.updateSchedule).toHaveBeenCalledWith(previous.id,expect.objectContaining({controlId:null,anchorId:3})));
+ expect(l.updateSchedule).toHaveBeenCalledTimes(1);
+});
+
+it('主播未选时提示返回补选，即使中控也未选也不能确认保存',async()=>{
+ open();await screen.findByRole('option',{name:/^主播甲/});
+ fireEvent.click(screen.getByRole('button',{name:'保存'}));
+ expect(screen.getByRole('dialog',{name:'请选择本场主播'})).toBeTruthy();
+ expect(screen.getByText('中控也尚未选择，请一并核对。')).toBeTruthy();
+ expect(screen.queryByRole('button',{name:'确认无中控并保存'})).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'返回补选主播'}));
+ expect(screen.queryByRole('dialog',{name:'请选择本场主播'})).toBeNull();
+ expect(l.createSchedule).not.toHaveBeenCalled();
 });

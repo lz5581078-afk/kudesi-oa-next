@@ -27,20 +27,31 @@ export function ScheduleDialog({ initial, days, defaultRoom, defaultDay,onClose,
   useEffect(() => { request.current++; setImporting(false); setImportNote(''); return () => { request.current++; }; }, [f.roomId, f.date, f.startTime]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [missingAnchor, setMissingAnchor] = useState(false);
+  const [pending, setPending] = useState<ScheduleBody | null>(null);
+  const saving = useRef(false);
   const [trial,setTrial]=useState(false);
   useEffect(() => { liveApi.options().then(setOpts).catch((e) => setError(errText(e, '加载选项失败'))); }, []);
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((cur) => ({ ...cur, [k]: e.target.value }));
   async function save() {
     setError('');
-    if (!f.roomId || !f.startTime || !f.endTime || !f.anchorId) return setError('请填写直播间、开始结束时间和主播');
+    if (!f.anchorId) { setMissingAnchor(true); return; }
+    if (!f.roomId || !f.startTime || !f.endTime) return setError('请填写直播间、开始结束时间');
     if (!channels.length) return setError('请勾选本场使用的直播账号');
     const missingStore = channels.find(c => !c.storeIds.length);
     if (missingStore) return setError(`请为「${opts?.douyinAccounts.find(a => a.id === missingStore.accountId)?.name ?? '已选账号'}」选择至少一个本场店铺；没有关联店铺时，请先维护自媒体账号档案。`);
     const cents=yuanCents(rate);
     if(isTrial && (!cents || !Number.isSafeInteger(cents) || cents<=0 || cents>2147483647)) return setError('请填写本场试播主播时薪');
     const body: ScheduleBody = { ...(isTrial ? {trialHourlyRateCents:cents!} : {}), channels,date: f.date, roomId: Number(f.roomId), startTime: f.startTime, endTime: f.endTime, anchorId: Number(f.anchorId), controlId: f.controlId ? Number(f.controlId) : null, operatorId: f.operatorId ? Number(f.operatorId) : null, douyinAccountId: channels[0].accountId, storeId: channels[0].storeIds[0], note: f.note.trim() || undefined, productEntries: productEntries(picked) };
+    if (!f.controlId) { setPending(body); return; }
+    await persist(body);
+  }
+  async function persist(body: ScheduleBody) {
+    if (saving.current) return;
+    saving.current = true;
+    setPending(null);
     setBusy(true);
-    try { if (initial) await liveApi.updateSchedule(initial.id, body); else await liveApi.createSchedule(body); onDone(); } catch (e) { setError(errText(e)); } finally { setBusy(false); }
+    try { if (initial) await liveApi.updateSchedule(initial.id, body); else await liveApi.createSchedule(body); onDone(); } catch (e) { setError(errText(e)); } finally { saving.current = false; setBusy(false); }
   }
   async function importPrevious() {
     if (!opts || !f.roomId) return;
@@ -88,7 +99,11 @@ export function ScheduleDialog({ initial, days, defaultRoom, defaultDay,onClose,
           <label className="live-field wide">备注（可选）<input aria-label="备注" maxLength={500} value={f.note} onChange={set('note')} /></label></section>
         </div>
       )}
-    </Modal>{trial&&<TrialPersonDialog onClose={()=>setTrial(false)} onDone={(p,cents)=>{setTrial(false);setRate(yuanText(cents));setF(f=>({...f,anchorId:String(p.id)}));liveApi.options().then(setOpts).catch(e=>setError(errText(e)));}}/>}</>
+    </Modal>{missingAnchor&&<Modal title="请选择本场主播" onClose={()=>setMissingAnchor(false)} foot={<button type="button" className="primary-button" onClick={()=>{setMissingAnchor(false);requestAnimationFrame(()=>document.querySelector<HTMLSelectElement>('select[aria-label="主播"]')?.focus());}}>返回补选主播</button>}><p className="notice">本场尚未选择主播，不能保存排班。请返回选择主播后再保存。</p>{!f.controlId&&<p>中控也尚未选择，请一并核对。</p>}</Modal>}{pending&&<Modal title="确认未安排中控" onClose={()=>setPending(null)} foot={<><button type="button" className="secondary-button" onClick={()=>setPending(null)}>返回补选</button><button type="button" className="primary-button" disabled={busy} onClick={()=>void persist(pending)}>确认无中控并保存</button></>}>
+      <p className="notice">本场尚未选择中控，请确认是否继续保存。</p>
+      <p>{pending.date} · {pending.startTime}–{pending.endTime} · {opts?.rooms.find(r=>r.id===pending.roomId)?.name}</p>
+      <p>主播：{opts?.anchors.find(p=>p.id===pending.anchorId)?.name}　中控：未安排</p>
+    </Modal>}{trial&&<TrialPersonDialog onClose={()=>setTrial(false)} onDone={(p,cents)=>{setTrial(false);setRate(yuanText(cents));setF(f=>({...f,anchorId:String(p.id)}));liveApi.options().then(setOpts).catch(e=>setError(errText(e)));}}/>}</>
   );
 }
 
