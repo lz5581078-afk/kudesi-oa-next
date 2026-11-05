@@ -9,6 +9,10 @@ import { DocCounterpartySummary1783000000000 } from './migrations/1783000000000-
 import { LiveSplitSettlement1794000000000 } from './migrations/1794000000000-LiveSplitSettlement';
 import { DesktopAfterSalesWorkspace1793000000000 } from './migrations/1793000000000-DesktopAfterSalesWorkspace';
 import { DesktopAfterSales1791000000000 } from './migrations/1791000000000-DesktopAfterSales';
+import { ProductQuestionArticle1792000000000 } from './migrations/1792000000000-ProductQuestionArticle';
+import { LiveScriptOutline1790000000000 } from './migrations/1790000000000-LiveScriptOutline';
+import { LiveScriptFolderCategory1789000000000 } from './migrations/1789000000000-LiveScriptFolderCategory';
+import { LiveScriptCenter1788000000000 } from './migrations/1788000000000-LiveScriptCenter';
 import { LiveDailyWork1780000000000 } from './migrations/1780000000000-LiveDailyWork';
 import { LiveTurnoverSnapshots1779000000000 } from './migrations/1779000000000-LiveTurnoverSnapshots';
 import { EnrollmentPermanent1775000000000 } from './migrations/1775000000000-EnrollmentPermanent';
@@ -91,6 +95,8 @@ export const MIGRATIONS = [InitialSchema1730000000000, ResourceTables17300001000
 
 MIGRATIONS.push(DesktopAfterSalesWorkspace1793000000000);
 MIGRATIONS.push(DesktopAfterSales1791000000000);
+MIGRATIONS.push(LiveScriptCenter1788000000000);
+MIGRATIONS.push(LiveScriptFolderCategory1789000000000, LiveScriptOutline1790000000000, ProductQuestionArticle1792000000000);
 MIGRATIONS.push(LiveDailyWork1780000000000);
 MIGRATIONS.push(DocSettlementMode1781000000000);
 MIGRATIONS.push(ResourceFormMutation1782000000000);
