@@ -164,7 +164,7 @@ for (const [hostKey, tabs] of Object.entries(PAGE_TABS)) {
     return { ...t, Component };
   });
   const basicFinance = section === 'finance' && NAV_SECTIONS.find(s => s.id === section)?.pages.find(p => p.id === hostId)?.group === '基础资料';
-  const Host = () => hostKey === 'finance/finance-express-prices' ? <ExpressWorkspace tabs={hostTabs} /> : <TabHost tabs={hostTabs} hideNavigation={basicFinance||(section==='finance'&&['master-import','jst-maintenance'].includes(hostId))} />;
+  const Host = () => hostKey === 'finance/finance-express-prices' ? <ExpressWorkspace tabs={hostTabs} /> : <TabHost tabs={hostTabs} primaryCount={section === 'finance' && ['finance-base-codes', 'finance-bundles', 'inventory'].includes(hostId) ? 1 : undefined} hideNavigation={basicFinance||(section==='finance'&&['master-import','jst-maintenance'].includes(hostId))} />;
   Host.displayName = `Host(${hostKey})`;
   PAGE_COMPONENTS[`${section}.${hostId}`] = Host;
 }

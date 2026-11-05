@@ -190,7 +190,7 @@ describe('登录与菜单', () => {
     const hit = within(screen.getByRole('navigation', { name: '二级导航' })).getByRole('link', { name: /定价调试表/ });
     fireEvent.click(hit);
     expect(screen.queryByRole('dialog', { name: /菜单/ })).toBeNull();
-    expect(screen.getByRole('heading', { name: '定价调试表' })).toBeTruthy();
+    expect(within(screen.getByLabelText('当前位置')).getByRole('heading', { name: '定价调试表' })).toBeTruthy();
     // 顶部栏显示当前位置
     expect(within(screen.getByLabelText('当前位置')).getByText('财务')).toBeTruthy();
   });
@@ -283,7 +283,7 @@ describe('财务 · 成本表与定价调试', () => {
     currentUser = userWith({ isCompanyAdmin: true, allow: [], deny: [] });
     apiMock.mockResolvedValue({ rows: [{ id: 1, skuCode: 'ZH-TB-1', skuName: '红富士苹果×2', categoryId: 3, categoryName: '苹果类', ready: true, weightG: 5000, minPriceCents: 1600 }], total: 1, page: 1, pageSize: 30, canViewInternals: true });
     renderAt('/finance/pricing-debug');
-    expect(screen.getByRole('heading', { name: '定价调试表' })).toBeTruthy();
+    expect(within(screen.getByLabelText('当前位置')).getByRole('heading', { name: '定价调试表' })).toBeTruthy();
     expect(await screen.findByText('红富士苹果×2')).toBeTruthy();
     expect(screen.getByText('公司低价 ¥16.00')).toBeTruthy();
     expect(screen.getByText('尚未选择商品')).toBeTruthy();
