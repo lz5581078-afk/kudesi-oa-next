@@ -19,6 +19,13 @@ async function guardScripts(em:EntityManager,lock:boolean){
     if(occupied)throw new MigrationError('话术中心已有资料，禁止整库重新迁入；需先单独保留话术及关联素材');
   }
 }
+const recruitTables = ['recruit_invites', 'recruit_applications', 'recruit_events'];
+async function guardRecruitment(em: EntityManager, lock: boolean) {
+  for (const table of recruitTables) {
+    const [row] = await em.query(`SELECT 1 occupied FROM ${qi(table)} LIMIT 1${lock ? ' FOR UPDATE' : ''}`);
+    if (row) throw new MigrationError('招聘模块已有资料，禁止整库重新迁入；需先单独保留招聘资料');
+  }
+}
 // User-specific preference rows are cleared only through the existing cutover transaction.
 known.add('user_preferences');
 const technical=new Set(['companies','migrations','platform_admins','platform_integration_apps','agent_releases','integration_settings','ai_company_settings','ai_models','ai_providers','outbox_switches']);
@@ -31,13 +38,14 @@ export interface CutoverOptions {apply:boolean;softwareFingerprint:string;backup
 
 export async function cutoverTables(ds:DataSource){
   const rows:Array<{name:string}>=await ds.query("SELECT TABLE_NAME name FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_TYPE='BASE TABLE' ORDER BY TABLE_NAME");
-  const compatibleKnown=new Set([...known,...LEGACY_SESSION_TABLES,...scriptTables]);
+  const compatibleKnown=new Set([...known,...LEGACY_SESSION_TABLES,...scriptTables,...recruitTables]);
   if(rows.some(r=>!compatibleKnown.has(r.name))||rows.length!==compatibleKnown.size)throw new MigrationError('目标结构与切换清单不同，禁止清理未知表');
   // A newly migrated empty session schema must not disable the existing importer.
   // Once these two modules have data, refuse destructive full remigration rather
   // than silently deleting or orphaning their devices, mappings and credentials.
   for(const table of LEGACY_SESSION_TABLES){const [row]=await ds.query(`SELECT 1 occupied FROM ${qi(table)} LIMIT 1`);if(row)throw new MigrationError('店铺登录兼容模块已有数据，禁止整库重新迁入；需先单独核对这两个模块');}
   await guardScripts(ds.manager,false);
+  await guardRecruitment(ds.manager,false);
   return rows.map(r=>r.name);
 }
 /** Sequence DDL is deliberately outside the business transaction. It never
@@ -64,6 +72,7 @@ export async function runCutover(ds:DataSource,resources:ResourcesService,files:
     // Recheck under current locks before any deletion. Empty-table supremum
     // locks also prevent adoption/candidate inserts racing this full cutover.
     await guardScripts(em,true);
+    await guardRecruitment(em,true);
     for(const table of LEGACY_SESSION_TABLES){const [row]=await em.query(`SELECT 1 occupied FROM ${qi(table)} LIMIT 1 FOR UPDATE`);if(row)throw new MigrationError('店铺登录兼容模块已有数据，禁止整库重新迁入；需先单独核对这两个模块');}
     const companies=await em.find(Company),oldUsers=await em.find(User);
     const oldUserLinks:Array<{companyId:number;sourceCompanyId:number;sourceKey:string;targetId:number}>=await em.query("SELECT company_id companyId,source_company_id sourceCompanyId,source_key sourceKey,target_id targetId FROM legacy_import_links WHERE source_system='legacy-oa' AND target_type='user'");
