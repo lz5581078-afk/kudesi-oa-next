@@ -1,5 +1,5 @@
 import { LIVE_DEFAULT_RULES,livePlatformCommissions } from '@kudesi/shared';
-import { anchorWorkedTime,computeAnchorMonth,currentAnchorMonth } from './anchor-month.controller';
+import { anchorPeriodBounds,anchorWorkedTime,computeAnchorMonth,currentAnchorMonth } from './anchor-month.controller';
 import type { Inputs } from './live-day-estimate';
 const input=():Inputs=>({snapshots:[],reports:[],checkins:[],profiles:[],wages:[],commissions:[],versions:[{id:1,effectiveFrom:'2026-01-01',rules:LIVE_DEFAULT_RULES}],commissionOnly:new Set()});
 const session=(id=1)=>({id,anchor_user_id:7,control_user_id:8,operator_user_id:9,room_id:1,room_name:'南7',session_day:'2026-11-03',start_text:'2026-11-03 10:00:00',end_text:'2026-11-03 11:00:00',status:'submitted',checkin_mode:0});
@@ -34,4 +34,10 @@ it('不同人员不能串场；同场多岗位报告只取一个营业额，不�
  const x=input();x.reports=[{session_id:1,role:'anchor',sales_cents:5000},{session_id:1,role:'control',sales_cents:99000}];
  const r=computeAnchorMonth([session(),{...session(2),anchor_user_id:77}],x,7,now,true);
  expect(r.summary).toMatchObject({sessionCount:1,turnoverCents:5000});
+});
+
+it('近期范围按北京日期含今天，跨月、跨年和闰年都精确取天数',()=>{
+ expect(anchorPeriodBounds(new Date('2026-11-03T16:00:00Z'),'3d')).toMatchObject({from:'2026-11-02',until:'2026-11-05',through:'2026-11-04'});
+ expect(anchorPeriodBounds(new Date('2026-01-01T04:00:00Z'),'7d')).toMatchObject({from:'2025-12-26',until:'2026-01-02'});
+ expect(anchorPeriodBounds(new Date('2024-03-01T04:00:00Z'),'30d')).toMatchObject({from:'2024-02-01',until:'2024-03-02'});
 });

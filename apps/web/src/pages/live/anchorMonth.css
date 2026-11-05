@@ -27,3 +27,7 @@
  .live-person-photo-popover .live-person-photo-view > .anchor-month-panel { grid-column:2; grid-row:1 / span 4; }
  .live-person-photo-popover .live-person-photo-view > .live-person-photo-upload { grid-column:1; }
 }
+
+.anchor-period-picker { display:flex; flex-wrap:wrap; gap:6px; margin:12px 0; }
+.anchor-period-picker button { border:1px solid var(--border); background:white; color:var(--muted); padding:7px 12px; border-radius:7px; cursor:pointer; }
+.anchor-period-picker button[aria-pressed="true"] { color:#08676a; background:#e3f2ef; border-color:#8dbeb6; font-weight:600; }
