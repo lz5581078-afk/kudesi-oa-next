@@ -51,7 +51,7 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
   });
   afterAll(async () => { await ds?.destroy(); });
 
-  it('基础编码：款式编码和编码用横线连接，相邻重复的分类码去掉；旧格式的编码自动换成新格式', async () => {
+  it('基础编码：款式编码和编码用横线连接，相邻重复的分类码去掉；已存编码不再重编', async () => {
     const p = await mkProduct({ name: '红富士', rawFinishedNames: '精品红富士\n礼盒红富士', materialCode: 'SC01' });
     ids.p1 = p.id;
     const c1 = await svc.create(boss, 'finance-base-codes', { productId: p.id });
@@ -60,9 +60,9 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
     expect(c1.data.code).toBe('SG-PG-HFS-1KG');
     expect(c1.data.spec).toBe('1KG');
     // 旧格式编码（连在一起）当作自动生成，重新生成成新格式，不要求写原因
-    const old = await svc.update(boss, 'finance-base-codes', c1.id, { code: 'SGPGHFS-1KG' });
-    expect(old.data.code).toBe('SG-PG-HFS-1KG');
-    await expect(svc.update(boss, 'finance-base-codes', c1.id, { styleCode: 'MYSTYLE' })).rejects.toThrow(/原因/);
+    await expect(svc.update(boss,'finance-base-codes',c1.id,{code:'SGPGHFS-1KG'})).rejects.toThrow(/固定/);
+    expect((await svc.get(boss,'finance-base-codes',c1.id)).data.code).toBe('SG-PG-HFS-1KG');
+    await expect(svc.update(boss, 'finance-base-codes', c1.id, { styleCode: 'MYSTYLE' })).rejects.toThrow(/固定/);
   });
 
   it('马甲：原料的成品名自动生成别名编码，别名不能手工新增，被引用或同步过的别名不能去掉', async () => {

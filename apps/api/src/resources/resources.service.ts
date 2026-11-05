@@ -1,5 +1,6 @@
 import {beginSourceProductQuality,sourceQualitySavedRows,endSourceProductQuality,sourceProductQualityActive,sourceQualityValues} from './source-product-quality';
 import {deriveBaseCodeListFacts,type BaseCodeListFacts} from './base-code-list-facts';
+import {changedFinanceCodeFields,retainFinanceCodeIdentity} from '@kudesi/shared';
 import {deriveBaseCodeSourceStatuses} from './base-code-source-statuses';
 import {extractProductBomCostFacts} from './product-bom-cost-facts';
 import {recordVersion} from './resource-record-version';
@@ -642,8 +643,12 @@ export class ResourcesService implements RuleHost {
     }
 
     const rule = { em, host: this, user, input, data, existing, copySource:options.copySource, status, hasSensitive: (key: string) => Boolean(secrets[key]) };
+    if(['finance-products','finance-base-codes','finance-bundles'].includes(def.key)&&Object.hasOwn(input,'_financeCodeFrozen'))throw new BadRequestException('不能手工修改编码锁定标识');
+    if(changedFinanceCodeFields(def.key,existing,input).length)throw new BadRequestException('已有商品编码已固定，不能修改或清空；资料更新沿用原编码');
     if (def.key === 'stores') await validateStoreJst(data, existing?.data, () => this.jushuitanShops(user, def.key));
     await beforeSaveRule(def.key, rule);
+    retainFinanceCodeIdentity(def.key,existing,data);
+    if(def.key==='finance-bundles'&&rule.status==='verified')data._financeCodeFrozen=true;
     status = rule.status;
     for (const k of Object.keys(data)) if (data[k] === null || data[k] === undefined) delete data[k];
 
@@ -881,11 +886,13 @@ export class ResourcesService implements RuleHost {
     const def = this.def(type);
     const record = await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type }, ...(currentRead ? { lock: { mode: 'pessimistic_write' as const } } : {}) });
     if (!record) return;
+    if(changedFinanceCodeFields(type,record,patch).length)throw new BadRequestException('已有商品编码已固定，不能在资料联动中重编');
     if(isRegistrationType(type)&&def.uniqueField&&Object.hasOwn(patch,def.uniqueField)){
       await this.saveRecord(em,user,def,record,patch,{note});return;
     }
     const before = { ...record, data: { ...record.data } } as ResourceRecord;
     const data: Record<string, unknown> = { ...record.data, ...patch };
+    retainFinanceCodeIdentity(type,record,data);
     for (const k of Object.keys(data)) if (data[k] === null || data[k] === undefined) delete data[k];
     const title = String(data[def.titleField] ?? record.title).slice(0, 200);
     if (JSON.stringify(data) === JSON.stringify(record.data) && title === record.title) return;

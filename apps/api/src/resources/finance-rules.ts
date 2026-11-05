@@ -3,6 +3,7 @@ import {beginSourceBomCopy,bindSourceBomCopy,applySourceBomCopy,finishSourceBomC
 import {assertSourceFinishedProductInput,beginSourceFinishedNameForm,endSourceFinishedNameForm,finishSourceFinishedNameForm,sourceFinishedAliasPlans,trustedSourceFinishedAlias,withSourceFinishedAliasWrite} from './source-product-finished-names';
 import {beginSourceUnitForm,finishSourceUnitForm,beginSourceProductForm,sourceProductFormKind,endSourceProductForm} from './source-unit-form';
 import type {ResourceFormInput} from '@kudesi/shared';
+import {frozenBundleCode} from '@kudesi/shared';
 import {sourceBrandCode} from './finance-dictionary-codes';
 import {assertBrandReferenceChanges} from './brand-references';
 import {beforeIndependentBaseCode,beginIndependentBaseForm,finishIndependentBaseForm} from './independent-base-code';
@@ -1305,7 +1306,7 @@ async function syncProductBaseCode(host: RuleHost, em: EntityManager, user: Auth
     if(bc.data.origin==='archive_sync'&&bc.data.profileManual!==true&&!['disabled'].includes(bc.status))Object.assign(patch,{
       name:full,shortName:full,varietyName:str(p.data.name),
       spec:`${p.data.specQty??''}${str(p.data.specUnit)}`,
-      categoryId:bc.data.profileCategoryOverride??p.data.categoryId,...archiveIdentity,
+      categoryId:bc.data.profileCategoryOverride??p.data.categoryId,
     });
     if (Object.entries(patch).some(([key, value]) => bc.data[key] !== value)) {
       await host.patchData(em, user, 'finance-base-codes', bc.id, patch, '商品档案变化，同步基础编码资料');
@@ -1516,17 +1517,18 @@ export async function composeBundleFor(host: RuleHost, em: EntityManager, user: 
   const composed = composeBundle(rule, input);
   const manualCode = bundle.data.recordOrigin==='external_import' ? str(bundle.data.manualCode).trim() : str(bundle.data.manualCode).trim().toUpperCase();
   // 手改了编码，其余自动生成的部分信息不全也不拦（旧系统同样允许人工覆盖）
-  if (composed.errors.length && !(manualCode && str(bundle.data.manualName).trim())) throw new BadRequestException(composed.errors.join('；'));
-  const code = manualCode || composed.code;
+  const fixed=frozenBundleCode(bundle);
+  if (composed.errors.length && !fixed && !(manualCode && str(bundle.data.manualName).trim())) throw new BadRequestException(composed.errors.join('；'));
+  const code = fixed ? str(bundle.data.code) : manualCode || composed.code;
   if (code.length > 120) throw new BadRequestException('组合编码太长了（超过 120 位），请减少主品或赠品');
-  const name = str(bundle.data.manualName).trim() || composed.name;
+  const name = str(bundle.data.manualName).trim() || (composed.errors.length ? str(bundle.data.name) : composed.name);
   if (await em.findOne(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-base-codes', uniqueKey: code.toLowerCase() } })) {
     throw new BadRequestException(`组合编码「${code}」和某个基础编码重复`);
   }
   const first = input.mains[0];
   return {
     patch: {
-      mainStyleCode: resolvedMainStyleCode(composed,str(bundle.data.manualStyleCode)), code, name, styleCode: str(bundle.data.manualStyleCode).trim() || composed.styleCode || undefined, shortName: str(bundle.data.manualShortName).trim() || composed.shortName,
+      mainStyleCode: fixed ? bundle.data.mainStyleCode : resolvedMainStyleCode(composed,str(bundle.data.manualStyleCode)), code, name, styleCode: fixed ? bundle.data.styleCode : str(bundle.data.manualStyleCode).trim() || composed.styleCode || undefined, shortName: str(bundle.data.manualShortName).trim() || (composed.errors.length ? bundle.data.shortName : composed.shortName),
       propertiesValue: str(bundle.data.manualPropertiesValue).trim() || composed.propertiesValue,
       // 品牌、品种、计量单位没填时取第一个主品的
       varietyName: str(bundle.data.varietyName).trim() || first.varietyName || undefined,

@@ -131,15 +131,25 @@ suite('SKU全链路60规格矩阵（隔离MySQL、真实服务、无外部发送
   for(const user of [ops,wh]){const hidden=await svc.update(user,'finance-products',raw.productId,{purchasePrice:999});expect(hidden.data).not.toHaveProperty('purchasePrice');expect((await svc.get(boss,'finance-products',raw.productId)).data.purchasePrice).toBe(before);}
  });
 
- it('商品改价/改重量/改编码联动已有基础与两个SKU，成本和调试刷新、历史不倒写',async()=>{
+ it('资料变更联动成本与重量；商品/基础/已上传SKU编码和历史身份保持不变',async()=>{
   const c=cases[0],bundleIds=made.get(c.baseId)!;expect(bundleIds).toHaveLength(2);
   const before=await ds.manager.find(FinanceCostSnapshot,{where:{companyId:boss.companyId,bundleId:bundleIds[0]},order:{id:'ASC'}});
   const product=await svc.get(boss,'finance-products',c.productId);
-  await svc.update(boss,'finance-products',c.productId,{purchasePrice:200,code:'MATRIX-UPDATED',weightManual:true,weightG:777});
-  const base=await svc.get(boss,'finance-base-codes',c.baseId);expect(base.status).toBe('reverify');expect(base.data).toMatchObject({code:'MATRIX-UPDATED',cost:200.12,weightG:777});expect(await baseFor(c.productId)).toHaveLength(1);
+  const identities=new Map<number,Record<string,unknown>>();for(const id of [c.baseId,...bundleIds]){const stored=await ds.manager.findOneByOrFail(ResourceRecord,{id,companyId:boss.companyId});stored.data={...stored.data,jstUploadedCode:stored.data.code};await ds.manager.save(ResourceRecord,stored);identities.set(id,{code:stored.data.code,styleCode:stored.data.styleCode,jstUploadedCode:stored.data.code});}
+  await expect(svc.update(boss,'finance-products',c.productId,{code:'MATRIX-UPDATED'})).rejects.toThrow(/固定/);
+  await svc.update(boss,'finance-products',c.productId,{purchasePrice:200,name:'RENAMED',specQty:250,specUnit:'G',weightManual:true,weightG:777});
+  const base=await svc.get(boss,'finance-base-codes',c.baseId);expect(base.status).toBe('reverify');expect(base.data).toMatchObject({...identities.get(c.baseId),cost:200.12,weightG:777,varietyName:'RENAMED',spec:'250G'});expect(await baseFor(c.productId)).toHaveLength(1);
   const table=await cost.table(boss,{page:1,pageSize:200}),pricing=await debug.list(boss,{page:1,pageSize:200});
   const updated=expected({...c,cost:200.12,weight:777});
-  for(const id of bundleIds){expect((await svc.get(boss,'finance-bundles',id)).status).toBe('reverify');expect(table.rows.find(r=>r.bundleId===id)).toMatchObject({preShipCostCents:updated.cost,weightG:updated.weight});expect(pricing.rows.find(r=>r.id===id)).toMatchObject({preShipCostCents:updated.cost,weightG:updated.weight});}
+  expect((await svc.get(boss,'finance-products',c.productId)).data.code).toBe(product.data.code);
+  for(const id of bundleIds){const skuRow=await svc.get(boss,'finance-bundles',id);expect(skuRow.data).toMatchObject(identities.get(id)!);expect(skuRow.status).toBe('reverify');expect(table.rows.find(r=>r.bundleId===id)).toMatchObject({preShipCostCents:updated.cost,weightG:updated.weight});expect(pricing.rows.find(r=>r.id===id)).toMatchObject({preShipCostCents:updated.cost,weightG:updated.weight});}
   expect(await ds.manager.findOneByOrFail(FinanceCostSnapshot,{id:before[0].id,companyId:boss.companyId})).toEqual(before[0]);expect(product.data.code).not.toBe('MATRIX-UPDATED');
+  const target=bundleIds[0];
+  for(const values of [{code:'WRONG-SKU'},{manualCode:'WRONG-SKU',manualReason:'有原因也不能改身份'},{styleCode:'WRONG-STYLE'},{manualStyleCode:'WRONG-STYLE',manualReason:'有原因也不能改身份'}])await expect(svc.update(boss,'finance-bundles',target,values)).rejects.toThrow(/固定/);
+  await svc.changeStatus(boss,'finance-bundles',target,'pending');
+  expect((await svc.get(boss,'finance-bundles',target)).data._financeCodeFrozen).toBe(true);
+  await expect(svc.update(boss,'finance-bundles',target,{_financeCodeFrozen:false})).rejects.toThrow();
+  await expect(ds.transaction(em=>svc.patchData(em,boss,'finance-bundles',target,{code:'INTERNAL-RECODE'}))).rejects.toThrow(/固定/);
+  expect((await svc.get(boss,'finance-bundles',target)).data).toMatchObject(identities.get(target)!);
  });
 });
