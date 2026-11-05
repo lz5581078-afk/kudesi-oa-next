@@ -44,3 +44,23 @@ it('周期切换更新汇总和场次，慢响应不能覆盖新周期',async()=
  await waitFor(()=>expect(screen.getByText('南7')).toBeTruthy());
  expect(screen.getByText('2026-10-06 至 2026-11-04')).toBeTruthy();
 });
+
+it('切换请求期间保留原汇总和表格，成功后一同切换标题，失败也不清空',async()=>{
+ let resolve!:(value:AnchorMonthData)=>void;
+ const read=vi.spyOn(anchorMonthApi,'read').mockResolvedValueOnce(data())
+  .mockImplementationOnce(()=>new Promise(r=>resolve=r)).mockRejectedValueOnce(new Error('读取失败'));
+ render(<AnchorMonthPanel userId={7}/>);
+ await screen.findByText('本月营业额');
+ const table=screen.getByRole('table');
+ fireEvent.click(screen.getByRole('button',{name:'近 3 天业绩'}));
+ expect(screen.getByText('本月营业额')).toBeTruthy();
+ expect(screen.getByRole('table')).toBe(table);
+ expect(screen.queryByText('近 3 天营业额')).toBeNull();
+ resolve({...data(),from:'2026-11-02',through:'2026-11-04'});
+ await screen.findByText('近 3 天营业额');
+ fireEvent.click(screen.getByRole('button',{name:'近一周业绩'}));
+ await screen.findByText('读取失败');
+ expect(screen.getByText('近 3 天营业额')).toBeTruthy();
+ expect(screen.getByRole('table')).toBe(table);
+ expect(read).toHaveBeenLastCalledWith(7,'7d');
+});
