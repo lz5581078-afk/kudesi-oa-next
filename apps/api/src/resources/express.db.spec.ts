@@ -10,6 +10,12 @@ import { buildServices } from '../test-support';
 import { ExpressService } from './express.service';
 import { GridSaveService } from './grid-save.service';
 import { ResourcesService } from './resources.service';
+import { runLegacyImport } from '../migration/runner';
+import type { LegacyArchive } from '../migration/protocol';
+
+const { recognitionHistory } = require('../../../../scripts/migration/express-recognition-history.cjs') as {
+  recognitionHistory(catalogs: unknown[]): Pick<LegacyArchive, 'records' | 'exclusions'>;
+};
 
 const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
 
@@ -65,6 +71,38 @@ d('快递价格表（真实数据库）', () => {
     const zv = await svc.create(boss, 'finance-express-versions', { branchId: zb.id, versionName: 'v1' });
     await expect(svc.update(boss, 'finance-express-branches', b1.id, { currentVersionId: zv.id })).rejects.toThrow(/下的版本/);
     Object.assign(ids, { jt: jt.id, b1: b1.id, b2: b2.id, zt: zt.id, zb: zb.id, initialId, v1: v1.id, v2: v2.id, zv: zv.id });
+  });
+
+  it('专项补迁保留全部旧识别记录、原状态与时间，按原版本可重跑且不改有效价格', async () => {
+    const version = await svc.create(boss, 'finance-express-versions', { branchId: ids.b1, versionName: '旧识别历史验证' });
+    await ex.replaceRules(boss, version.id, 'manual', [fixed(235)], '合成价格');
+    await ds.query("INSERT INTO legacy_import_links (source_system,source_company_id,company_id,source_key,target_type,target_id,source_hash) VALUES ('legacy-oa',7,?,?,?,?,?)",
+      [boss.companyId, 'finance-express-versions:old-v', 'finance-express-versions', version.id, 'a'.repeat(64)]);
+    await ds.query("INSERT INTO legacy_import_links (source_system,source_company_id,company_id,source_key,target_type,target_id,source_hash) VALUES ('legacy-oa',7,?,?,?,?,?)",
+      [boss.companyId, 'finance-products:removed', 'finance-products', 99999999, 'a'.repeat(64)]);
+    const rows = Array.from({ length: 23 }, (_, i) => ({
+      id: 'old-'+i, recognition_type: i === 0 ? '手工新增加收' : '价格表识别',
+      created_at: `2026-10-${String(23-i).padStart(2, '0')}T06:00:00.000Z`,
+      file_name: `通知-${i}.csv`, model_name: '合成识别模型', status: i === 0 ? '已生效' : '已确认导入', result_count: i,
+    }));
+    const history = recognitionHistory([{ carriers_json: [{ branches: [{ versions: [{ id: 'old-v', recognitions: rows }] }] }] }]);
+    const source: LegacyArchive = {
+      company: { id: 7, name: '快递测试' }, departments: [], positions: [], employees: [], employeePositions: [], positionPermissions: [],
+      ...history, loadFile: async () => { throw new Error('历史记录没有附件操作'); },
+    };
+    const options = { companyId: boss.companyId, actorId: boss.id, expectedName: '快递测试', expressRecognitionsOnly: true };
+    const trial = await runLegacyImport(ds, svc, files, source, { ...options, apply: false });
+    expect(trial.failures).toEqual([]);
+    expect(trial.created['finance-express-recognitions']).toBe(23);
+    expect((await ex.versionDetail(boss, version.id)).recognitions).toHaveLength(0);
+    await runLegacyImport(ds, svc, files, source, { ...options, apply: true, expectedReport: trial });
+    const detail = await ex.versionDetail(boss, version.id);
+    expect(detail.recognitions).toHaveLength(23);
+    expect(detail.recognitions[0]).toMatchObject({ recognitionType: 'manual_surcharge', resultStatus: '已生效', fileName: '通知-0.csv', modelName: '合成识别模型', resultCount: 0, createdAtKey: '2026-10-23T06:00:00.000Z' });
+    expect(detail.recognitions.at(-1)).toMatchObject({ fileName: '通知-22.csv', resultCount: 22 });
+    expect(detail.rules).toMatchObject([{ fixedPrice: 235 }]);
+    const repeated = await runLegacyImport(ds, svc, files, source, { ...options, apply: false });
+    expect(repeated.reused['finance-express-recognitions']).toBe(23);
   });
 
   it('价格规则：挂版本后快递公司/网点/可发货范围由层级带出；只有“当前版本 + 合作中”的规则才是启用状态', async () => {

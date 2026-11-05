@@ -50,6 +50,23 @@ describe('快递版本原布局与内层', () => {
     expect(screen.getByLabelText('基础价格规则搜索')).toBeTruthy();
   });
 
+  it('识别记录按旧版每页8条，可翻到较早记录并显示旧状态', async () => {
+    const recognitions = Array.from({ length: 23 }, (_, index) => ({
+      id: index + 100, recognitionType: 'price_table', fileName: `历史通知-${index}.csv`,
+      resultStatus: index === 22 ? '已生效' : '已确认导入',
+    }));
+    vi.mocked(expressApi.version).mockResolvedValue({ ...detail, recognitions });
+    render(<VersionPanel carrier={carrier} branch={branch} version={version} onChanged={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: '查看识别记录' }));
+    const dialog = within(screen.getByRole('dialog', { name: '快递价格历史记录' }));
+    const table = within(dialog.getByRole('table', { name: '快递价格历史记录' }));
+    expect(table.getAllByRole('row')).toHaveLength(9);
+    fireEvent.click(dialog.getByRole('button', { name: '下一页' }));
+    fireEvent.click(dialog.getByRole('button', { name: '下一页' }));
+    expect(table.getByText('历史通知-22.csv')).toBeTruthy();
+    expect(table.getByText('已生效')).toBeTruthy();
+  });
+
   it('备注在上一保存尚未完成时继续输入，后续值不会被旧响应覆盖', async () => {
     vi.mocked(expressApi.version).mockResolvedValue(detail);
     let finish!: () => void;

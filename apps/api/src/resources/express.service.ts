@@ -112,6 +112,10 @@ export class ExpressService {
     const rows = await this.all(em, user.companyId, ['finance-express-prices', 'finance-express-fee-batches', 'finance-express-surcharges', 'finance-express-recognitions']);
     const mine = rows.filter((r) => r.data.versionId === versionId);
     const pick = (t: string) => mine.filter((r) => r.type === t);
+    const recognitionTime = (record: ResourceRecord) => {
+      const parsed = Date.parse(str(record.data.createdAtKey));
+      return Number.isFinite(parsed) ? parsed : record.createdAt.getTime();
+    };
     return {
       version: { id: v.id, name: v.title, status: v.status, data: v.data },
       branch: { id: branch.id, name: branch.title, jstLogisticsName: str(branch.data.jstLogisticsName) },
@@ -120,7 +124,9 @@ export class ExpressService {
       rules: pick('finance-express-prices').map((r) => ({ ...r.data, id: r.id, source: str(r.data.source) || 'manual', version: recordVersion(r) })),
       batches: pick('finance-express-fee-batches').map((r) => ({ id: r.id, status: r.status, createdAtKey: r.createdAt, ...r.data })),
       surcharges: pick('finance-express-surcharges').map((r) => ({ id: r.id, status: r.status, ...r.data })),
-      recognitions: pick('finance-express-recognitions').sort((a, b) => b.id - a.id).slice(0, 20).map((r) => ({ id: r.id, status: r.status, ...r.data })),
+      recognitions: pick('finance-express-recognitions')
+        .sort((a, b) => recognitionTime(b) - recognitionTime(a) || b.id - a.id)
+        .map((r) => ({ id: r.id, status: r.status, ...r.data, createdAtKey: r.data.createdAtKey || r.createdAt.toISOString() })),
     };
   }
 

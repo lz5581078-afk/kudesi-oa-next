@@ -30,7 +30,7 @@ export interface VersionDetail {
   rules: Array<RuleRow & { id: number; source: string; version?: string }>;
   batches: BatchRow[];
   surcharges: SurchargeRow[];
-  recognitions: Array<{ id: number; recognitionType: string; status?: string; resultCount?: number; fileName?: string; modelName?: string; resultText?: string; createdAtKey?: string }>;
+  recognitions: Array<{ id: number; recognitionType: string; status?: string; resultStatus?: string; resultCount?: number; fileName?: string; modelName?: string; resultText?: string; createdAtKey?: string }>;
 }
 
 export interface RecognitionModels { providers: Array<{ id: number; name: string; status: string; models: string[] }>; current: { providerId: number; modelId: string } | null }
