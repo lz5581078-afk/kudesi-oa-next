@@ -1,11 +1,10 @@
-.content:has(.res-page.reference-product-page:not(.embedded)){padding:0}
+.content:has(.res-page.reference-product-page:not(.embedded)){padding:0;overflow-x:hidden;overflow-y:auto}
 .res-page.reference-product-page{padding:0 22px 22px;background:#f7f9fc;color:#172235}
 .reference-product-page .hier-bar{position:sticky;top:0;z-index:12;min-height:76px;margin:0 -22px;padding:0 22px}
 .reference-product-page .hier-bar>button{gap:7px;border-color:#d7e0e9;border-radius:8px;color:#526176;font-size:13px;font-weight:800}
 .reference-product-page .hier-bar>button svg{width:17px;height:17px}
 .reference-product-page .hier-bar-text{display:flex;flex-direction:row;align-items:baseline;gap:16px;min-width:0}
 .reference-product-page .hier-bar h2{letter-spacing:-.02em;white-space:nowrap}
-.reference-product-storage-status{margin:14px 0 -2px;font-size:16px;line-height:normal}
 .reference-product-page .res-body.with-tree{grid-template-columns:316px minmax(0,1fr);min-height:calc(100vh - 176px);margin-top:16px}
 .reference-product-directory .cat-body{padding:0 14px 16px}
 .reference-product-directory-body>header{min-height:72px;display:flex;align-items:center;justify-content:space-between;gap:12px}
@@ -148,3 +147,16 @@
 .reference-product-page .res-table td>.pill{display:inline-flex;border-radius:999px;padding:4px 9px;background:#e2e8f0;color:#334155;font-size:12px;font-weight:700;line-height:normal}
 .reference-product-page .res-table td>.pill.ok{background:#dcfce7;color:#166534}
 .reference-product-page .res-table td>.pill.warn{background:#fee2e2;color:#991b1b}
+
+@media(max-width:720px){.content:has(.res-page.reference-product-page:not(.embedded)){max-height:calc(100dvh - 118px - env(safe-area-inset-bottom, 0px))}}
+
+.res-page.reference-product-page .res-body.with-tree{overflow:visible}
+.res-page.reference-product-page .res-body.with-tree>.cat-tree{position:sticky;top:92px;align-self:start;height:auto;max-height:calc(100dvh - 168px);overflow-y:auto}
+@media(max-width:900px){.res-page.reference-product-page .res-body.with-tree>.cat-tree{position:static;max-height:46dvh}}
+.product-row-menu-trigger{display:inline-flex;align-items:center;gap:5px;min-height:32px;border:1px solid #cfd9e5;border-radius:6px;padding:4px 10px;background:#fff;color:#165c38;font:inherit;white-space:nowrap;cursor:pointer}
+.product-row-menu-trigger svg{width:14px;height:14px}
+.product-row-menu{position:fixed;z-index:100;display:grid;gap:3px;width:152px;max-height:calc(100dvh - 16px);overflow-y:auto;padding:6px;border:1px solid #d5dfe9;border-radius:8px;background:#fff;box-shadow:0 10px 28px #1b2c4330}
+.product-row-menu .row-act{display:flex;align-items:center;gap:7px;width:100%;min-height:34px;border:0;border-radius:4px;padding:6px 10px;background:#fff;color:#165c38;font:inherit;font-size:14px;text-align:left;cursor:pointer}
+.product-row-menu .row-act svg{width:16px;height:16px}
+.product-row-menu .row-act:hover,.product-row-menu .row-act:focus-visible{background:#eff9f3}
+.product-row-menu .row-act.danger{color:#cf3f3f}

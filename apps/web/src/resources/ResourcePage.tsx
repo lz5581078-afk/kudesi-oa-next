@@ -731,7 +731,6 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
       {referenceProduct&&<input hidden type="file" accept=".xlsx" aria-label="导入商品档案成本" ref={productCostImportInput} onChange={event=>{const file=event.target.files?.[0];event.target.value='';if(file)void productCostExcel.pickFile(file);}}/>}
       {hasAppbar && hint && <AppbarHint>{hint}</AppbarHint>}
       {hier && <HierBar showBack={!referenceFee} title={referenceArchive ? paths[treeField?.key ?? '']?.split(' / ').at(-1) || hier.title : hier.title} subtitle={hier.subtitle} onBack={hier.onBack} />}
-      {referenceProduct&&<div className="reference-product-storage-status" role="status" aria-live="polite">{error|| (data?'数据已保存到数据库':'正在从数据库加载档案…')}</div>}
       {hier && type === 'finance-products' && (tab === 'package' || tab === 'oem_package') && <ProductPackagingSchemesSummary archiveType={tab} onChanged={() => void load()} />}
       <div className={browseFields.length ? 'res-body with-tree' : 'res-body'}>
         {browseFields.length > 0 && (
@@ -796,7 +795,7 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
               />
             ) : <div className="res-loading" role="status"><span className="res-spin" aria-hidden="true" />加载中…</div>
           ) : isMobile && !referenceArchive ? (
-            <ResourceCards onCellSaved={()=>void load()} def={def} type={type} rows={data ? data.items : null} columns={columns} checked={checked} onCheck={onCheck} selected={selected} onOpen={setSelected} today={today} empty={empty} groups={rowGroups} folded={foldedGroups} onToggleGroup={toggleGroup} onAddInGroup={addInGroup} rowActions={type === 'workforce' ? rowActions : undefined} />
+            <ResourceCards onCellSaved={()=>void load()} def={def} type={type} rows={data ? data.items : null} columns={columns} checked={checked} onCheck={onCheck} selected={selected} onOpen={setSelected} today={today} empty={empty} groups={rowGroups} folded={foldedGroups} onToggleGroup={toggleGroup} onAddInGroup={addInGroup} rowActions={type === 'workforce' || referenceProduct ? rowActions : undefined} />
           ) : (
             <ResourceTable
               referenceArchive={referenceArchive}
