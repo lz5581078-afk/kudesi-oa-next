@@ -7,6 +7,7 @@ import { ResourceFormMutation1782000000000 } from './migrations/1782000000000-Re
 import { DocSettlementMode1781000000000 } from './migrations/1781000000000-DocSettlementMode';
 import { DocCounterpartySummary1783000000000 } from './migrations/1783000000000-DocCounterpartySummary';
 import { LiveSplitSettlement1794000000000 } from './migrations/1794000000000-LiveSplitSettlement';
+import { Recruitment1796000000000 } from './migrations/1796000000000-Recruitment';
 import { DesktopAfterSalesWorkspace1793000000000 } from './migrations/1793000000000-DesktopAfterSalesWorkspace';
 import { DesktopAfterSales1791000000000 } from './migrations/1791000000000-DesktopAfterSales';
 import { LiveDailyWork1780000000000 } from './migrations/1780000000000-LiveDailyWork';
@@ -129,6 +130,7 @@ export function buildDataSourceOptions(env: NodeJS.ProcessEnv = process.env): Da
 }
 
 MIGRATIONS.push(LiveSplitSettlement1794000000000);
+MIGRATIONS.push(Recruitment1796000000000);
 
 /**
  * 让 MySQL 会话时区和上面的 timezone 一致。否则 `DEFAULT CURRENT_TIMESTAMP` 按数据库服务器自己的时区写入，

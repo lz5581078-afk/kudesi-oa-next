@@ -10,6 +10,7 @@ import type { VisionConfig } from './vision.client';
 export const AI_SCOPES = {
   business_license_recognition: '营业执照识别',
   express_price_recognition: '快递价格表识别',
+  resume_recognition: '简历/登记表识别（招聘）',
 } as const;
 export type AiScope = keyof typeof AI_SCOPES;
 export const AI_SYNC_CHANNEL = 'ai_models';

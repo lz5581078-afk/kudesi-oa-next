@@ -68,6 +68,8 @@ import { DeskPage } from './pages/workspace/DeskPage';
 import { PersonalPage } from './pages/workspace/PersonalPage';
 import { LiveDeskPage } from './pages/live/LiveDeskPage';
 import { LiveManagePage } from './pages/live/LiveManagePage';
+import { RecruitPage } from './pages/recruit/RecruitPage';
+import { RecruitApplyPage } from './pages/recruit/RecruitApplyPage';
 
 /**
  * 页面组件登记：键是导航注册表里的“分区.页面id”。
@@ -76,6 +78,7 @@ import { LiveManagePage } from './pages/live/LiveManagePage';
 const PAGE_COMPONENTS: Record<string, ComponentType> = {
   'features.live-desk': LiveDeskPage,
   'features.live': LiveManagePage,
+  'features.recruit': RecruitPage,
   'workbench.home': HomePage,
   'workbench.boss': BossPage,
   'workbench.desk': DeskPage,
@@ -182,6 +185,7 @@ export function App() {
 
   // 扫码入口免登录，公司及岗位由服务端令牌绑定。
   if (location.pathname === '/join') return <StaffEnrollmentPage />;
+  if (location.pathname === '/apply') return <RecruitApplyPage />;
   if (window.location.pathname === '/m/upload') return <PhoneUploadPage />;
   if (loading) return <div className="center-screen">加载中…</div>;
   if (platformAdmin) return <PlatformApp />;

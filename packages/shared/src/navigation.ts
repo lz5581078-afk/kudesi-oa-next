@@ -268,6 +268,8 @@ export const NAV_SECTIONS: readonly NavSection[] = [
       { ...page('features', 'live-desk', '我的直播', true), group: '直播管理' },
       // 直播管理：全览图、排场、场次记录、待审核、提成记录、主播工资、提成结算、提成规则（页面内标签，按下面的权限显示）
       { ...page('features', 'live', '直播管理', true), group: '直播管理' },
+      // 人事管理·招聘：招聘二维码、求职者登记表、面试打印、跟进记录（后续接面试结果和入职流程）
+      { ...page('features', 'recruit', '招聘管理', true), group: '人事管理' },
     ],
   },
   {
@@ -320,6 +322,10 @@ export const SPECIAL_PERMISSIONS = {
   supervisionManage: 'supervision.manage',
   /** 直播管理：排场、修改提成规则、生成月结单并提交审批 */
   liveManage: 'live.manage',
+  /** 招聘管理：生成/停用招聘二维码、认领跟进求职者、打印面试资料 */
+  recruitManage: 'recruit.manage',
+  /** 招聘管理：查看求职者身份证号明文（每次查看写审计） */
+  recruitIdView: 'recruit.id.view',
   /** 直播管理：查看全员的提成、主播工资和月结（没有它只能看本人的） */
   liveCommissionsView: 'live.commissions.view',
   /** 资料列表页签的“管理分类”：改名、排序、隐藏、新增自建分类、删除（统一一个键，所有带分类页签的资料通用；还要有该资料的查看权限） */
