@@ -67,7 +67,7 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
       /* 响应不是 JSON，保留默认提示 */
     }
     // 登录接口自己的 401 是“账号或密码错”，不触发全局登出
-    if (response.status === 401 && path !== '/auth/login') {
+    if (response.status === 401 && !['/auth/login', '/auth/feishu/desktop/poll', '/auth/feishu/desktop/relay'].includes(path)) {
       tokenStore.clear();
       onUnauthorized?.();
     }

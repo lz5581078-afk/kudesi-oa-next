@@ -1,3 +1,4 @@
+import { FEISHU_DESKTOP_STATE_PREFIX, isFeishuDesktopState } from '@kudesi/shared';
 import { User } from '../entities';
 import { BadRequestException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { createHash, randomBytes } from 'crypto';
@@ -28,11 +29,20 @@ export class FeishuAuthService {
     return cfg;
   }
   async start(companyId: number, user?: AuthUser) {
+    return this.begin(companyId, user ? 'bind' : 'login', user);
+  }
+  async startDesktop(companyId: number) {
+    return this.begin(companyId, 'desktop');
+  }
+  private async begin(companyId: number, purpose: 'bind' | 'login' | 'desktop', user?: AuthUser) {
     if (user && user.companyId !== companyId) throw new ForbiddenException();
-    const cfg = await this.config(companyId), state = randomBytes(32).toString('base64url'), browser = randomBytes(32).toString('base64url');
+    const cfg = await this.config(companyId);
+    const nonce = randomBytes(32).toString('base64url');
+    const state = purpose === 'desktop' ? FEISHU_DESKTOP_STATE_PREFIX + nonce : nonce;
+    const browser = randomBytes(32).toString('base64url');
     const redirectUri = new URL(user ? '/feishu-bind' : '/login', cfg.origin).href;
     await this.settings.ds.query('DELETE FROM feishu_oauth_states WHERE expires_at < DATE_SUB(NOW(), INTERVAL 1 DAY)');
-    await this.settings.ds.query('INSERT INTO feishu_oauth_states(state_hash,browser_hash,company_id,user_id,app_id,purpose,redirect_uri,expires_at) VALUES(?,?,?,?,?,?,?,DATE_ADD(NOW(),INTERVAL 10 MINUTE))', [hashState(state), hashState(browser), companyId, user?.id ?? null, cfg.appId, user ? 'bind' : 'login', redirectUri]);
+    await this.settings.ds.query('INSERT INTO feishu_oauth_states(state_hash,browser_hash,company_id,user_id,app_id,purpose,redirect_uri,expires_at) VALUES(?,?,?,?,?,?,?,DATE_ADD(NOW(),INTERVAL 10 MINUTE))', [hashState(state), hashState(browser), companyId, user?.id ?? null, cfg.appId, purpose, redirectUri]);
     const u = new URL('https://accounts.feishu.cn/open-apis/authen/v1/authorize');
     u.search = new URLSearchParams({ client_id: cfg.appId, response_type: 'code', redirect_uri: redirectUri, state }).toString();
     return { authorizationUrl: u.href, state, browser };
@@ -46,11 +56,7 @@ export class FeishuAuthService {
       await em.query('UPDATE feishu_oauth_states SET consumed_at=NOW() WHERE state_hash=?', [r.state_hash]);
       return r;
     });
-    const cfg = await this.config(Number(row.company_id));
-    if (cfg.appId !== row.app_id) throw new UnauthorizedException('飞书应用已变更，请重新发起');
-    let identity;
-    try { identity = await this.client.identity(cfg, code, row.redirect_uri); } catch { throw new BadRequestException('飞书授权失败，请检查应用权限和回调白名单后重新授权'); }
-    if (identity.tenantKey !== cfg.tenantKey) throw new ForbiddenException('请使用本企业的飞书账号');
+    const { cfg, identity } = await this.resolveIdentity(code, row);
     if (user) {
       await this.settings.ds.transaction(async em => {
         await em.query('SELECT id FROM companies WHERE id=? FOR UPDATE', [user.companyId]);
@@ -67,9 +73,53 @@ export class FeishuAuthService {
       });
       return { bound: true, allNotificationsEnabled: true };
     }
-    const [bound] = await this.settings.ds.query('SELECT user_id FROM feishu_identities WHERE company_id=? AND app_id=? AND tenant_key=? AND open_id=?', [Number(row.company_id), cfg.appId, cfg.tenantKey, identity.openId]);
+    const userId = await this.boundUser(Number(row.company_id), cfg, identity.openId);
+    return this.auth.loginBoundUser(userId, Number(row.company_id));
+  }
+  private async resolveIdentity(code: string, row: { company_id: number; app_id: string; redirect_uri: string }) {
+    const cfg = await this.config(Number(row.company_id));
+    if (cfg.appId !== row.app_id) throw new UnauthorizedException('飞书应用已变更，请重新发起');
+    let identity;
+    try { identity = await this.client.identity(cfg, code, row.redirect_uri); } catch { throw new BadRequestException('飞书授权失败，请检查应用权限和回调白名单后重新授权'); }
+    if (identity.tenantKey !== cfg.tenantKey) throw new ForbiddenException('请使用本企业的飞书账号');
+    return { cfg, identity };
+  }
+  private async boundUser(companyId: number, cfg: FeishuConfig, openId: string) {
+    const [bound] = await this.settings.ds.query('SELECT user_id FROM feishu_identities WHERE company_id=? AND app_id=? AND tenant_key=? AND open_id=?', [companyId, cfg.appId, cfg.tenantKey, openId]);
     if (!bound) throw new ForbiddenException('此飞书账号尚未绑定员工，请先用账号密码登录，再绑定飞书');
-    return this.auth.loginBoundUser(Number(bound.user_id), Number(row.company_id));
+    return Number(bound.user_id);
+  }
+  async relayDesktop(code: string, state: string) {
+    if (!isFeishuDesktopState(state)) throw new UnauthorizedException('飞书桌面授权状态无效');
+    const stateHash = hashState(state);
+    const [row] = await this.settings.ds.query("SELECT company_id,app_id,redirect_uri,user_id FROM feishu_oauth_states WHERE state_hash=? AND purpose='desktop' AND consumed_at IS NULL AND expires_at>NOW()", [stateHash]);
+    if (!row || row.user_id !== null) throw new UnauthorizedException('飞书桌面授权已处理或过期');
+    const { cfg, identity } = await this.resolveIdentity(code, row);
+    // Record only the OA employee ID, and check the exact Feishu binding in the same update.
+    const result = await this.settings.ds.query(
+      "UPDATE feishu_oauth_states AS pending JOIN feishu_identities AS bound ON bound.company_id=pending.company_id AND bound.app_id=pending.app_id AND bound.tenant_key=? AND bound.open_id=? SET pending.user_id=bound.user_id WHERE pending.state_hash=? AND pending.purpose='desktop' AND pending.user_id IS NULL AND pending.consumed_at IS NULL AND pending.expires_at>NOW()",
+      [cfg.tenantKey, identity.openId, stateHash],
+    );
+    if (result.affectedRows !== 1) {
+      await this.boundUser(Number(row.company_id), cfg, identity.openId);
+      throw new UnauthorizedException('飞书桌面授权已处理或过期');
+    }
+    return { received: true };
+  }
+  async pollDesktop(state: string, browser: string) {
+    if (!isFeishuDesktopState(state) || !/^[A-Za-z0-9_-]{43}$/.test(browser)) throw new UnauthorizedException('飞书桌面授权状态无效，请重新发起');
+    const row = await this.settings.ds.transaction(async em => {
+      const [pending] = await em.query("SELECT state_hash,company_id,user_id,app_id FROM feishu_oauth_states WHERE state_hash=? AND browser_hash=? AND purpose='desktop' AND consumed_at IS NULL AND expires_at>NOW() FOR UPDATE", [hashState(state), hashState(browser)]);
+      if (!pending) throw new UnauthorizedException('飞书桌面授权已过期或不属于当前窗口');
+      if (pending.user_id === null) return null;
+      await em.query('UPDATE feishu_oauth_states SET consumed_at=NOW() WHERE state_hash=?', [pending.state_hash]);
+      return pending;
+    });
+    if (!row) return { login: null };
+    const cfg = await this.config(Number(row.company_id));
+    const [bound] = await this.settings.ds.query('SELECT user_id FROM feishu_identities WHERE company_id=? AND user_id=? AND app_id=? AND tenant_key=?', [row.company_id, row.user_id, cfg.appId, cfg.tenantKey]);
+    if (cfg.appId !== row.app_id || !bound) throw new UnauthorizedException('飞书绑定已变更，请重新授权');
+    return { login: await this.auth.loginBoundUser(Number(row.user_id), Number(row.company_id)) };
   }
   async status(user: AuthUser) {
     const cfg = await this.config(user.companyId);

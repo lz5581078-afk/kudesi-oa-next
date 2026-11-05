@@ -88,6 +88,34 @@ d('全员强制飞书绑定：真实HTTP/JWT/权限守卫及隔离MySQL', () => 
     expect((await (await request('auth/me', token(manual))).json()).feishuBindingPending).toBeUndefined();
     expect((await request('binding-policy-test', token(manual), {})).status).toBe(201);
   });
+  it('飞书客户端回传后只在发起的桌面窗口签发一次 OA 登录会话', async () => {
+    const begin = await request('auth/feishu/desktop/start', undefined, { companyId: company.id });
+    expect(begin.status).toBe(201);
+    const { authorizationUrl, state } = await begin.json();
+    const callback = new URL(authorizationUrl).searchParams;
+    expect(callback.get('redirect_uri')).toBe('https://test.example/login');
+    expect(callback.get('state')).toBe(state);
+    const setCookie = begin.headers.get('set-cookie')!;
+    expect(setCookie).toMatch(/^__Host-feishu-.*;.*Path=\/.*;.*HttpOnly.*;.*Secure/i);
+    const cookie = setCookie.split(';')[0];
+    const poll = (browserCookie?: string) => fetch(base + '/api/auth/feishu/desktop/poll', {
+      method: 'POST', headers: { 'content-type': 'application/json', ...(browserCookie ? { cookie: browserCookie } : {}) },
+      body: JSON.stringify({ state }),
+    });
+    expect(await (await poll(cookie)).json()).toEqual({ login: null });
+    const relay = await request('auth/feishu/desktop/relay', undefined, { code: 'synthetic-desktop-code', state });
+    expect(relay.status).toBe(201);
+    expect(await relay.json()).toEqual({ received: true });
+    expect((await poll()).status).toBe(401);
+    const results = await Promise.all([poll(cookie), poll(cookie)]);
+    expect(results.map(r => r.status).sort()).toEqual([201, 401]);
+    const success = results.find(r => r.status === 201)!;
+    expect(success.headers.get('set-cookie')).toContain('Expires=');
+    const { login } = await success.json();
+    const current = await request('auth/me', login.accessToken);
+    expect(current.status).toBe(200);
+    expect(await current.json()).toMatchObject({ id: manual.id, companyId: company.id });
+  });
   it('解绑后业务访问不受影响，登录状态重新带上“待绑定”提醒标记', async () => {
     const reset=new StaffFeishuService(ds,config),actor={id:admin.id,companyId:company.id,name:admin.name,permissions:{isCompanyAdmin:true,allow:[],deny:[]}};
     await reset.resetBindings(actor,(await reset.resetPreview(actor)).fingerprint);

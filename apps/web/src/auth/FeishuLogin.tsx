@@ -13,6 +13,44 @@ export function FeishuLogin() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const started = useRef(false);
+  const desktopAttempt = useRef<AbortController | null>(null);
+  const [waitingForClient, setWaitingForClient] = useState(false);
+  useEffect(() => () => desktopAttempt.current?.abort(), []);
+  function cancelDesktop() {
+    desktopAttempt.current?.abort();
+    desktopAttempt.current = null;
+    setWaitingForClient(false);
+    setBusy(false);
+  }
+  async function authorizeDesktop(id: number, openClient: (url: string) => Promise<boolean>) {
+    const attempt = new AbortController();
+    desktopAttempt.current = attempt;
+    setBusy(true);
+    setError('');
+    try {
+      const { authorizationUrl, state } = await api<{ authorizationUrl: string; state: string }>('/auth/feishu/desktop/start', { body: { companyId: id } });
+      if (attempt.signal.aborted) return;
+      if (!await openClient(authorizationUrl)) throw new Error('未能打开本机飞书，请重试');
+      if (attempt.signal.aborted) return;
+      setWaitingForClient(true);
+      const deadline = Date.now() + 3 * 60_000;
+      while (!attempt.signal.aborted && Date.now() < deadline) {
+        const { login } = await api<{ login: LoginResponse | null }>('/auth/feishu/desktop/poll', { body: { state } });
+        if (attempt.signal.aborted) return;
+        if (login) {
+          tokenStore.set(login.accessToken);
+          location.replace(consumeLiveRoom());
+          return;
+        }
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+      if (!attempt.signal.aborted) setError('飞书授权等待超时，请重新发起');
+    } catch (e) {
+      if (!attempt.signal.aborted) setError((e as Error).message.replace(/^Error invoking remote method .*?: Error: /, ''));
+    } finally {
+      if (desktopAttempt.current === attempt && !attempt.signal.aborted) cancelDesktop();
+    }
+  }
   useEffect(() => {
     const query = new URLSearchParams(location.search), code = query.get('code'), state = query.get('state');
     if (code && state) {
@@ -45,7 +83,13 @@ export function FeishuLogin() {
   }
   return <div className="stack">
     {companies.length > 1 && <label>飞书所属公司<select value={companyId} onChange={e => setCompanyId(e.target.value)}>{companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>}
-    {companies.length > 0 && <button type="button" className="secondary-button" disabled={busy || !companyId} onClick={() => void authorize(Number(companyId))}>{busy ? '正在授权…' : '飞书授权登录'}</button>}
+    {companies.length > 0 && <button type="button" className="secondary-button" disabled={busy || !companyId} onClick={() => {
+      const desktop = (window as Window & { oaDesktop?: { openFeishuLogin?: (url: string) => Promise<boolean> } }).oaDesktop;
+      const openClient = desktop?.openFeishuLogin;
+      if (openClient) void authorizeDesktop(Number(companyId), openClient);
+      else void authorize(Number(companyId));
+    }}>{busy ? '正在授权…' : '飞书授权登录'}</button>}
+    {waitingForClient && <div className="stack"><p role="status">请在本机飞书完成授权，OA 会自动登录。</p><button type="button" className="secondary-button" onClick={cancelDesktop}>取消等待</button></div>}
     {error && <div role="alert" className="notice error">{error}</div>}
   </div>;
 }

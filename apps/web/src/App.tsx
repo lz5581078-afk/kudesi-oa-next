@@ -2,11 +2,12 @@ import { FeishuEnrollmentSetup } from './auth/FeishuEnrollmentSetup';
 import { FeishuBindCallback } from './auth/FeishuLogin';
 import { ComponentType } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { NAV_SECTIONS, RESOURCE_COMPANIONS, PAGE_TABS, RESOURCE_VIEWS, getResourceDef, type DocType } from '@kudesi/shared';
+import { NAV_SECTIONS, RESOURCE_COMPANIONS, PAGE_TABS, RESOURCE_VIEWS, getResourceDef, isFeishuDesktopState, type DocType } from '@kudesi/shared';
 import { useAuth } from './auth/AuthContext';
 import { Shell } from './layout/Shell';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
 import { LoginPage } from './pages/LoginPage';
+import { FeishuDesktopCallback } from './auth/FeishuDesktopCallback';
 import { AfterSalesPage } from './pages/service/AfterSalesPage';
 import { AppealsPage } from './pages/service/AppealsPage';
 import { SupervisionPage } from './pages/service/SupervisionPage';
@@ -176,6 +177,12 @@ for (const [hostKey, tabs] of Object.entries(PAGE_TABS)) {
 export function App() {
   const { user, platformAdmin, loading, can } = useAuth();
   const location = useLocation();
+
+  if (location.pathname === '/login') {
+    const query = new URLSearchParams(location.search);
+    const state = query.get('state') ?? '';
+    if (isFeishuDesktopState(state)) return <FeishuDesktopCallback code={query.get('code')} state={state} />;
+  }
 
   // 扫码入口免登录，公司及岗位由服务端令牌绑定。
   if (location.pathname === '/join') return <StaffEnrollmentPage />;
