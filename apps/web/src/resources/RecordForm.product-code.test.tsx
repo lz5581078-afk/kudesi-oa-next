@@ -20,19 +20,19 @@ const record = (archiveType = 'package'): ResourceDto => ({ id: 7, type: def.key
 afterEach(cleanup);
 beforeEach(() => { vi.clearAllMocks(); resetUnitOptionsForTest({}); vi.mocked(resourceApi.saveForm).mockResolvedValue(record()); });
 async function save() { fireEvent.click(screen.getByRole('button', { name: '保存修改' })); fireEvent.click(await screen.findByRole('button', { name: '确认并保存' })); await waitFor(() => expect(resourceApi.saveForm).toHaveBeenCalled()); }
-describe('新建生成编码，已保存商品编码固定', () => {
+describe('上传后编码固定，未上传可改码', () => {
   it('包装编辑保留原编号；改容量也不传空要求重编', async () => {
-    render(<RecordForm def={def} record={record()} onClose={vi.fn()} onSaved={vi.fn()} />);
+    render(<RecordForm def={def} record={{...record(),data:{...record().data,jstUploadedCode:'EXISTING-CODE'}}} onClose={vi.fn()} onSaved={vi.fn()} />);
     const input=screen.getByRole('textbox',{name:/^(系统自动编号|产品包装编号|OEM包装编号)$/}) as HTMLInputElement;
     expect(input.value).toBe('EXISTING-CODE');expect(input.readOnly).toBe(true);expect((screen.getByRole('button',{name:'人工修正'}) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(screen.getByLabelText('第1条容量'),{target:{value:'250'}});expect(input.value).toBe('EXISTING-CODE');await save();
     expect(vi.mocked(resourceApi.saveForm).mock.calls[0][1].values).toMatchObject({capacities:'250G',code:'EXISTING-CODE'});
   });
-  it.each(['raw','self_made','purchased','shipping_material','package','oem_package'])('已有%s保持原编号且不可人工重编',async family=>{
+  it.each(['raw','self_made','purchased','shipping_material','package','oem_package'])('未上传%s原编号可编辑',async family=>{
     render(<RecordForm def={def} record={record(family)} onClose={vi.fn()} onSaved={vi.fn()}/>);
     const input=screen.getByRole('textbox',{name:/^(系统自动编号|产品包装编号|OEM包装编号)$/}) as HTMLInputElement;
-    expect(input.value).toBe('EXISTING-CODE');expect(input.readOnly).toBe(true);expect((screen.getByRole('button',{name:'人工修正'}) as HTMLButtonElement).disabled).toBe(true);
-    const reset=screen.queryByRole('button',{name:'恢复自动编号'});if(reset)expect((reset as HTMLButtonElement).disabled).toBe(true);
+    expect(input.value).toBe('EXISTING-CODE');expect(input.readOnly).toBe(false);expect((screen.getByRole('button',{name:'人工修正'}) as HTMLButtonElement).disabled).toBe(false);fireEvent.change(input,{target:{value:'EDITED-CODE'}});expect(input.value).toBe('EDITED-CODE');
+    const reset=screen.queryByRole('button',{name:'恢复自动编号'});if(reset)expect((reset as HTMLButtonElement).disabled).toBe(false);
   });
   it('新建与复制新增仍可预览并填写首次编码',async()=>{
     render(<RecordForm def={def} record={null} initial={{...record().data,code:'',__copyOf:7,__copyVersion:'synthetic-version'}} onClose={vi.fn()} onSaved={vi.fn()}/>);
