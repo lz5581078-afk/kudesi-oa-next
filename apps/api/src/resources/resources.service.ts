@@ -1,6 +1,6 @@
 import {beginSourceProductQuality,sourceQualitySavedRows,endSourceProductQuality,sourceProductQualityActive,sourceQualityValues} from './source-product-quality';
 import {deriveBaseCodeListFacts,type BaseCodeListFacts} from './base-code-list-facts';
-import {changedFinanceCodeFields,retainFinanceCodeIdentity} from '@kudesi/shared';
+import {changedFinanceCodeFields,retainFinanceCodeIdentity,uploadedFinanceCode} from '@kudesi/shared';
 import {deriveBaseCodeSourceStatuses} from './base-code-source-statuses';
 import {extractProductBomCostFacts} from './product-bom-cost-facts';
 import {recordVersion} from './resource-record-version';
@@ -64,7 +64,7 @@ import {
 import { AuthUser } from '../common/auth.decorators';
 import { WAREHOUSE_PRODUCT_FIELDS, isWarehouseMode } from './warehouse-mode';
 import { CryptoService } from '../common/crypto.service';
-import { AuditLog, Company, Department, ResourceChangeLog, ResourceImportBackup, ResourceLink, ResourceRecord, User } from '../entities';
+import { AuditLog, Company, Department, ResourceChangeLog, ResourceImportBackup, ResourceLink, ResourceRecord, OutboxJob, User } from '../entities';
 import { FileInfo, FilesService } from '../integrations/files.service';
 import { deriveStoreFunds } from './store-funds';
 import { deriveBankBalances } from './bank-balance';
@@ -408,10 +408,14 @@ export class ResourcesService implements RuleHost {
     const productCostReferences=def.key==='finance-product-costs'?await loadProductCostReferences(em,companyId,records):null;
     const baseCodeSourceStatuses=def.key==='finance-base-codes'?await deriveBaseCodeSourceStatuses(em,companyId,records):null;
     const baseCodeFacts=def.key==='finance-base-codes'?await deriveBaseCodeListFacts(em,companyId,records):null;
+    const codeKeys=['finance-base-codes','finance-bundles'].includes(def.key)?[...new Set(records.map(r=>String(r.data.code??'').toLowerCase()).filter(Boolean))]:[];
+    const jstMirrors=codeKeys.length?await em.find(ResourceRecord,{where:{companyId,type:'finance-jst-skus',uniqueKey:In(codeKeys)},select:['uniqueKey','data']}):[];
+    const uploadedKeys=new Set(jstMirrors.filter(r=>def.key==='finance-bundles'?r.data.goodsType==='combine':r.data.goodsType!=='combine').map(r=>r.uniqueKey));
     const optionFields = def.fields.filter(field => field.type === 'select' && field.optionsFrom?.resource === 'finance-product-units');
     const units = records.length && optionFields.length ? await loadUnitLists(em, companyId) : null;
     return records.map((r) => {
       const dto = this.toDto(def, r, labels.get(r.id) ?? {}, fileMap);
+      if(uploadedKeys.has(String(r.data.code??'').toLowerCase()))dto.data._financeCodeUploaded=true;
       if(productReference)Object.assign(dto.data,productReference.get(r.id)??{});
       if(productFinishedNames?.has(r.id))dto.data.__finishedNameDetails=productFinishedNames.get(r.id);
       if(productCostReferences)Object.assign(dto,productCostReferences.get(r.id)??{});
@@ -557,6 +561,29 @@ export class ResourcesService implements RuleHost {
     return parts.join(' ').toLowerCase().slice(0, 1500);
   }
 
+  private async financeCodeIdentity(em:EntityManager,user:AuthUser,type:string,record:ResourceRecord|null):Promise<ResourceRecord|null>{
+    if(!record||!['finance-base-codes','finance-bundles'].includes(type))return record;
+    if(em.queryRunner?.isTransactionActive){
+      await em.findOneOrFail(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}});
+      const current=await em.findOneOrFail(ResourceRecord,{where:{companyId:user.companyId,type,id:record.id},lock:{mode:'pessimistic_write'}});
+      if(current.data.code!==record.data.code)throw new ConflictException('编码刚被修改，请刷新后重试');
+      record=current;
+    }
+    if(uploadedFinanceCode(record)||typeof record.data.code!=='string'||!record.data.code)return record;
+    const mirror=await em.findOne(ResourceRecord,{where:{companyId:user.companyId,type:'finance-jst-skus',uniqueKey:record.data.code.toLowerCase()},select:['id','data']});
+    if(mirror&&(type==='finance-bundles'?mirror.data.goodsType==='combine':mirror.data.goodsType!=='combine'))return {...record,data:{...record.data,_financeCodeUploaded:true}} as ResourceRecord;
+    return record;
+  }
+
+  /** 未上传改码时取消旧待发包；发送中的编码须先等结果，不能把旧包回写成新身份。 */
+  private async guardCodeUploadJobs(em:EntityManager,user:AuthUser,type:string,existing:ResourceRecord|null,data:Record<string,unknown>){
+    if(!existing||!['finance-products','finance-base-codes','finance-bundles'].includes(type)||data.code===existing.data.code)return;
+    if(String(existing.data.jstMessage??'').startsWith('结果未知'))throw new ConflictException('上传结果尚未确认，请先回查聚水潭后再改码');
+    const jobs=await em.createQueryBuilder(OutboxJob,'job').where('job.companyId=:company AND job.resourceType=:type AND job.resourceId=:id AND job.channel=:channel',{company:user.companyId,type,id:existing.id,channel:'jushuitan'}).andWhere('job.status IN (:...statuses)',{statuses:['pending','sending','failed']}).setLock('pessimistic_write').getMany();
+    if(jobs.some(job=>job.status==='sending'))throw new ConflictException('聚水潭正在发送此编码，请待结果确认后再修改');
+    if(jobs.length){await em.update(OutboxJob,{companyId:user.companyId,id:In(jobs.map(job=>job.id))},{status:'cancelled',lastError:'上传前编码已修改，旧任务取消，请重新核对后加入队列'});data.jstStatus='not_synced';data.jstMessage='编码已修改，请核对后重新同步';}
+  }
+
   private async saveRecord(
     em: EntityManager,
     user: AuthUser,
@@ -565,6 +592,7 @@ export class ResourcesService implements RuleHost {
     input: Record<string, unknown>,
     options: { status?: string; note?: string; cleanup?: string[]; logAction?: string; reason?: string; legacyRegistration?:LegacyRegistration; copySource?:ResourceRecord; statusReason?:string } = {},
   ): Promise<ResourceRecord> {
+    existing=await this.financeCodeIdentity(em,user,def.key,existing);
     if(def.key==='finance-products'&&(Object.hasOwn(input,'__sourceQuality')||Object.hasOwn(input,'sourceQualityConfirmations')))throw new BadRequestException('不能直接写入核算资料确认，需通过完整档案表单办理');
     if (def.readOnly) {
       if (existing || !canAppendReadonly(em, user.companyId, def.key)) throw new ForbiddenException('历史记录只读，不能新增或修改');
@@ -643,12 +671,14 @@ export class ResourcesService implements RuleHost {
     }
 
     const rule = { em, host: this, user, input, data, existing, copySource:options.copySource, status, hasSensitive: (key: string) => Boolean(secrets[key]) };
-    if(['finance-products','finance-base-codes','finance-bundles'].includes(def.key)&&Object.hasOwn(input,'_financeCodeFrozen'))throw new BadRequestException('不能手工修改编码锁定标识');
-    if(changedFinanceCodeFields(def.key,existing,input).length)throw new BadRequestException('已有商品编码已固定，不能修改或清空；资料更新沿用原编码');
+    if(['finance-products','finance-base-codes','finance-bundles'].includes(def.key)&&['_financeCodeFrozen','_financeCodeUploaded'].some(key=>Object.hasOwn(input,key)))throw new BadRequestException('不能手工修改编码锁定标识');
+    const identity=existing;
+    if(changedFinanceCodeFields(def.key,identity,input).length)throw new BadRequestException('已上传聚水潭的编码已固定，不能修改或清空；其他资料可以维护');
     if (def.key === 'stores') await validateStoreJst(data, existing?.data, () => this.jushuitanShops(user, def.key));
     await beforeSaveRule(def.key, rule);
-    retainFinanceCodeIdentity(def.key,existing,data);
-    if(def.key==='finance-bundles'&&rule.status==='verified')data._financeCodeFrozen=true;
+    if(identity)for(const key of ['jstUploadedCode','jstStatus','jstMessage'])if(!Object.hasOwn(input,key))data[key]=identity.data[key];
+    retainFinanceCodeIdentity(def.key,identity,data);
+    await this.guardCodeUploadJobs(em,user,def.key,existing,data);
     status = rule.status;
     for (const k of Object.keys(data)) if (data[k] === null || data[k] === undefined) delete data[k];
 
@@ -882,17 +912,22 @@ export class ResourcesService implements RuleHost {
   }
 
   /** 规则里改别的记录并记日志；currentRead用于持锁业务操作，避免旧事务快照覆盖刚提交的事实。 */
-  async patchData(em: EntityManager, user: AuthUser, type: string, id: number, patch: Record<string, unknown>, note?: string, syncRefs = false, currentRead = false) {
+  async patchData(em: EntityManager, user: AuthUser, type: string, id: number, patch: Record<string, unknown>, note?: string, syncRefs = false, currentRead = false): Promise<void> {
+    if(['finance-products','finance-base-codes','finance-bundles'].includes(type)&&Object.hasOwn(patch,'code')&&!em.queryRunner?.isTransactionActive)return em.transaction(tx=>this.patchData(tx,user,type,id,patch,note,syncRefs,currentRead));
     const def = this.def(type);
     const record = await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type }, ...(currentRead ? { lock: { mode: 'pessimistic_write' as const } } : {}) });
     if (!record) return;
-    if(changedFinanceCodeFields(type,record,patch).length)throw new BadRequestException('已有商品编码已固定，不能在资料联动中重编');
+    const identity=await this.financeCodeIdentity(em,user,type,record);
+    if(changedFinanceCodeFields(type,identity,patch).length)throw new BadRequestException('已上传聚水潭的编码已固定，不能在资料联动中重编');
+    if(identity&&identity!==record)Object.assign(record,identity,{data:{...identity.data}});
     if(isRegistrationType(type)&&def.uniqueField&&Object.hasOwn(patch,def.uniqueField)){
       await this.saveRecord(em,user,def,record,patch,{note});return;
     }
     const before = { ...record, data: { ...record.data } } as ResourceRecord;
     const data: Record<string, unknown> = { ...record.data, ...patch };
-    retainFinanceCodeIdentity(type,record,data);
+    if(identity)for(const key of ['jstUploadedCode','jstStatus','jstMessage'])if(!Object.hasOwn(patch,key))data[key]=identity.data[key];
+    retainFinanceCodeIdentity(type,identity,data);
+    await this.guardCodeUploadJobs(em,user,type,record,data);
     for (const k of Object.keys(data)) if (data[k] === null || data[k] === undefined) delete data[k];
     const title = String(data[def.titleField] ?? record.title).slice(0, 200);
     if (JSON.stringify(data) === JSON.stringify(record.data) && title === record.title) return;
@@ -904,8 +939,14 @@ export class ResourcesService implements RuleHost {
         if (clash && clash.id !== id) throw new ConflictException(`「${String(data[def.uniqueField])}」已存在，请先处理重复的编码`);
       }
     }
-    Object.assign(record, { data, title, uniqueKey, searchText: this.buildSearchText(def, data, title), updatedBy: user.id });
-    await em.save(ResourceRecord, record);
+    const values={ data, title, uniqueKey, searchText: this.buildSearchText(def, data, title), updatedBy: user.id };
+    Object.assign(record,values);
+    if(currentRead){
+      // 当前读可能看见旧快照里不存在的并发新行；save 的存在性查询会误判为新增。
+      const updated=await em.update(ResourceRecord,{id,companyId:user.companyId,type},{...values,data:values.data as never});
+      if(!updated.affected)throw new ConflictException('资料已变化，请刷新后重试');
+      Object.assign(record,await em.findOneOrFail(ResourceRecord,{where:{id,companyId:user.companyId,type},lock:{mode:'pessimistic_write'}}));
+    }else await em.save(ResourceRecord, record);
     if (syncRefs && def.fields.some((f) => f.type === 'ref' && f.key in patch)) await this.syncLinks(em, user, def, record);
     await this.writeLog(em, user, def, id, 'update', before, record, note);
   }

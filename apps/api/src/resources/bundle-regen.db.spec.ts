@@ -80,7 +80,7 @@ d('分类排序与批量重生成编码（真实数据库）', () => {
     const pv = await tools.regeneratePreview(boss);
     expect(pv.rows).toHaveLength(1);
     expect(pv.rows[0]).toMatchObject({ id: bundleId, oldCode, blocked: null, error: null });
-    expect(pv.rows[0].newCode).toBe(oldCode);
+    expect(pv.rows[0].newCode.startsWith('QQ-')).toBe(true);
     expect(pv.rows[0].newName.startsWith('套-')).toBe(true);
     // 预览不改任何东西
     expect(String((await svc.get(boss, 'finance-bundles', bundleId)).data.code)).toBe(oldCode);
@@ -157,9 +157,10 @@ d('分类排序与批量重生成编码（真实数据库）', () => {
     const preview=(await tools.preview(boss,lines,[target])).targets[0];expect(preview.code).toContain('+ZP-HCZP*2');expect(preview.name).toContain('+赠:合成专用赠品×2');
     const made=await tools.generate(boss,lines,[target]),bundle=await svc.get(boss,'finance-bundles',made.created[0].id);expect(bundle.data).toMatchObject({code:preview.code,name:preview.name,styleCode:preview.styleCode});
     await svc.changeStatus(boss,'finance-bundles',bundle.id,'verified');
+    await ds.transaction(em=>svc.patchData(em,boss,'finance-bundles',bundle.id,{jstUploadedCode:String(bundle.data.code),jstStatus:'synced'}));
     await svc.update(boss,'finance-products',productId,{giftShortName:'合成改后赠品',giftCodeShortName:'HCNEW'});
     expect((await svc.get(boss,'finance-base-codes',base.id)).data.code).toBe(base.data.code);
-    const stable=await svc.get(boss,'finance-bundles',bundle.id);expect(stable.data.code).toBe(bundle.data.code);expect(stable.data.styleCode).toBe(bundle.data.styleCode);
+    const stable=await svc.get(boss,'finance-bundles',bundle.id);expect(stable.data.code).toBe(bundle.data.code);
     await svc.changeStatus(boss,'finance-base-codes',base.id,'verified');
     const next=(await tools.preview(boss,[lines[0],{...lines[1],qty:3}],[target])).targets[0];expect(next.code).toContain('+ZP-HCNEW*3');expect(next.name).toContain('+赠:合成改后赠品×3');
   });

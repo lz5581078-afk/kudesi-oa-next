@@ -6,7 +6,7 @@ const msg = (e: unknown) => (e instanceof ApiError ? e.message : (e as Error).me
 
 /**
  * 改了命名规则之后：列出按新规则会变的编码/名称（只预览），选哪些、写原因、确认后才改。
- * 已验证的会回到“需重新验证”；已验证或上传的编码保持不变。
+ * 已验证的会回到“需重新验证”；已上传聚水潭的编码保持不变。
  */
 export function BundleRegenDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const [rows, setRows] = useState<RegenRow[] | null>(null);
@@ -36,7 +36,7 @@ export function BundleRegenDialog({ onClose, onDone }: { onClose: () => void; on
         <div className="modal-body">
           {error && <div role="alert" className="notice error">{error}</div>}
           {notice && <div role="status" className="notice ok">{notice}</div>}
-          <p className="muted">下面是按“现在的命名规则”重新算出来、和已有不一样的组合。已验证或已上传的编码保持不变。不会自动修改，选好、写原因、确认后才执行。</p>
+          <p className="muted">下面是按“现在的命名规则”重新算出来、和已有不一样的组合。已上传聚水潭的编码保持不变。不会自动修改，选好、写原因、确认后才执行。</p>
           <div className="table-scroll"><table className="data-table">
             <thead><tr><th style={{ width: 28 }}><input type="checkbox" aria-label="全选" checked={usable.length > 0 && picked.length === usable.length} onChange={(e) => setPicked(e.target.checked ? usable.map((r) => r.id) : [])} /></th><th>现在的编码 / 名称</th><th>新的编码 / 名称</th><th>提醒</th></tr></thead>
             <tbody>

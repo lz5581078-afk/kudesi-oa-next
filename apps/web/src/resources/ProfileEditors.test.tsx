@@ -53,8 +53,17 @@ describe('独立编辑链路',()=>{
   it('生效引用锁住身份字段，名称仍可编辑',async()=>{
     vi.mocked(api).mockResolvedValue({lockedFields:['code','styleCode','categoryId','weightG'],items:[]});
     render(<BaseCodeProfileEditor record={record} onClose={()=>{}} onSaved={()=>{}}/>);
-    await screen.findByText(/该商品编码已有生效引用/);
+    await screen.findByText(/该商品编码有聚水潭上传记录/);
     expect((screen.getByLabelText(/重量（kg）/) as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText(/商品名称/) as HTMLInputElement).disabled).toBe(false);
+  });
+  it('已上传基础编码仅编码只读，款式、分类、重量和名称可维护',async()=>{
+    vi.mocked(api).mockResolvedValue({lockedFields:['code'],items:[]});
+    render(<BaseCodeProfileEditor record={{...record,data:{...record.data,jstUploadedCode:record.data.code}}} onClose={()=>{}} onSaved={()=>{}}/>);
+    await screen.findByText(/该商品编码有聚水潭上传记录/);
+    expect((screen.getByLabelText(/商品编码/) as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText(/款式编码/) as HTMLInputElement).disabled).toBe(false);
+    expect((screen.getByLabelText(/重量（kg）/) as HTMLInputElement).disabled).toBe(false);
     expect((screen.getByLabelText(/商品名称/) as HTMLInputElement).disabled).toBe(false);
   });
   it('组合基础编辑不会提交编码或组成；停用先要求原因',async()=>{

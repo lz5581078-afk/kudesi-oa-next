@@ -29,13 +29,13 @@ export function BundleManualDialog({ bundle, onClose, onDone }: { bundle: Resour
         <div className="modal-body">
           {error && <div role="alert" className="notice error">{error}</div>}
           <p className="muted">名称、简称和规格值可维护；已固定的编码保持不变。{bundle.status === 'verified' && '这个组合已验证，改完会回到“需重新验证”。'}</p>
-          {fixed && <div className="notice">组合编码和款式编码已固定，资料更新沿用已有编码。</div>}
+          {fixed && <div className="notice">已上传聚水潭，组合编码固定；款式、名称等其他资料可维护。</div>}
           <div className="form-grid">
             {FIELDS.map(([k, auto, label, max]) => (
               <label key={k} className="wide">{label}
                 <div className="row-actions">
-                  <input aria-label={label} readOnly={fixed && ['manualCode','manualStyleCode'].includes(k)} className="grow" maxLength={max} value={vals[k]} placeholder={`自动：${String(bundle.data[auto] ?? '')}`} onChange={(e) => setVals({ ...vals, [k]: k === 'manualCode' || k === 'manualStyleCode' ? e.target.value.toUpperCase() : e.target.value })} />
-                  {vals[k] && !(fixed && ['manualCode','manualStyleCode'].includes(k)) && <button type="button" className="link-button" onClick={() => setVals({ ...vals, [k]: '' })}>恢复自动</button>}
+                  <input aria-label={label} readOnly={fixed && k==='manualCode'} className="grow" maxLength={max} value={vals[k]} placeholder={`自动：${String(bundle.data[auto] ?? '')}`} onChange={(e) => setVals({ ...vals, [k]: k === 'manualCode' || k === 'manualStyleCode' ? e.target.value.toUpperCase() : e.target.value })} />
+                  {vals[k] && !(fixed && k==='manualCode') && <button type="button" className="link-button" onClick={() => setVals({ ...vals, [k]: '' })}>恢复自动</button>}
                 </div>
               </label>
             ))}

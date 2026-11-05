@@ -4,7 +4,7 @@ import * as crypto from 'crypto';
 import { DataSource } from 'typeorm';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
-import { Company, User } from '../entities';
+import { Company, User, OutboxJob } from '../entities';
 import { buildServices } from '../test-support';
 import { ResourcesService } from '../resources/resources.service';
 import { OutboxSender, OutboxService } from './outbox.service';
@@ -67,9 +67,19 @@ d('聚水潭同步队列（真实数据库）', () => {
 
   it('开关打开且发送器就绪才发送；成功后标记已同步；失败退避重试，超过次数标记失败', async () => {
     outbox.setSender(sender());
-    expect(await outbox.processCompany(boss.companyId)).toEqual({ sent: 1, failed: 0, blocked: false });
+    const originalPatch=svc.patchData.bind(svc);let uploadWhileSending=false;
+    const patchSpy=jest.spyOn(svc,'patchData').mockImplementation(async(...args)=>{
+      if(args[2]==='finance-base-codes'&&args[3]===ids.bc&&args[4].jstUploadedCode){
+        uploadWhileSending=await args[0].exists(OutboxJob,{where:{companyId:boss.companyId,resourceType:'finance-base-codes',resourceId:ids.bc,status:'sending'}});
+      }
+      return originalPatch(...args);
+    });
+    try{expect(await outbox.processCompany(boss.companyId)).toEqual({ sent: 1, failed: 0, blocked: false });}finally{patchSpy.mockRestore();}
+    expect(uploadWhileSending).toBe(true);
+
     expect(sentKeys).toHaveLength(1);
     expect((await svc.get(boss, 'finance-base-codes', ids.bc)).data.jstStatus).toBe('synced');
+    expect((await svc.get(boss, 'finance-base-codes', ids.bc)).data._financeCodeUploaded).toBe(true);
     // 再发一次改动：编码名称变了 → 新版本入队 → 发送失败
     expect((await outbox.enqueue(boss, 'finance-base-codes', [ids.bc])).queued).toBe(0); // 内容没变，不重复入队
     await svc.update(boss, 'finance-base-codes', ids.bc, { shortName: '改一下' });
@@ -130,6 +140,31 @@ d('聚水潭同步队列（真实数据库）', () => {
     expect(job.lastError).toMatch(/只保留元后 4 位/);
     expect(await outbox.processCompany(boss.companyId)).toMatchObject({ sent: 0, failed: 0 });
     expect(writes).not.toHaveBeenCalled();
+  });
+
+  it('未上传改码取消旧待发/失败任务，发送中暂不能改码；不会发出旧编号',async()=>{
+    outbox.setSender(sender());
+    const bc=await mkBc('合成上传前改码','QUEUE-BEFORE');await svc.changeStatus(boss,'finance-base-codes',bc.id,'verified');
+    await outbox.enqueue(boss,'finance-base-codes',[bc.id]);
+    const first=await ds.manager.findOneByOrFail(OutboxJob,{companyId:boss.companyId,resourceType:'finance-base-codes',resourceId:bc.id,status:'pending'});
+    const before=sentKeys.length;
+    await svc.update(boss,'finance-base-codes',bc.id,{code:'QUEUE-AFTER',codeChangeReason:'尚未上传修改'});
+    expect((await ds.manager.findOneByOrFail(OutboxJob,{id:first.id})).status).toBe('cancelled');expect(sentKeys).toHaveLength(before);
+    await svc.changeStatus(boss,'finance-base-codes',bc.id,'verified');await outbox.enqueue(boss,'finance-base-codes',[bc.id]);
+    const second=await ds.manager.findOneByOrFail(OutboxJob,{companyId:boss.companyId,resourceType:'finance-base-codes',resourceId:bc.id,status:'pending'});
+    await ds.manager.update(OutboxJob,{id:second.id},{status:'sending'});
+    await expect(svc.update(boss,'finance-base-codes',bc.id,{code:'RACE-WRONG',codeChangeReason:'不能抢在发送中改码'})).rejects.toThrow(/正在发送/);
+    expect((await svc.get(boss,'finance-base-codes',bc.id)).data.code).toBe('QUEUE-AFTER');
+    await ds.manager.update(OutboxJob,{id:second.id},{status:'failed'});
+    await svc.update(boss,'finance-base-codes',bc.id,{code:'FAILED-EDITABLE',codeChangeReason:'首次发送失败未上传'});
+    expect((await ds.manager.findOneByOrFail(OutboxJob,{id:second.id})).status).toBe('cancelled');expect(sentKeys).toHaveLength(before);
+  });
+
+  it('历史改码替换队列也不再执行，不能绕过已上传编码保护',async()=>{
+    const bc=await mkBc('历史改码任务合成','LEGACY-REPLACE'),writes=jest.fn();outbox.setSender(sender({send:async j=>{writes(j);}}));
+    await ds.query("INSERT INTO outbox_jobs(company_id,channel,kind,resource_type,resource_id,idempotency_key,payload_json,created_by) VALUES(?,'jushuitan','base_code_replace','finance-base-codes',?,'legacy-replace-guard',?,?)",[boss.companyId,bc.id,JSON.stringify({code:'LEGACY-REPLACE',oldCode:'UPLOADED-OLD'}),boss.id]);
+    await outbox.setSwitch(boss,true,'仅合成发送器');expect(await outbox.processCompany(boss.companyId)).toMatchObject({sent:0,failed:1});expect(writes).not.toHaveBeenCalled();
+    expect(await ds.manager.findOneByOrFail(OutboxJob,{companyId:boss.companyId,idempotencyKey:'legacy-replace-guard'})).toMatchObject({status:'cancelled',lastError:expect.stringContaining('编码不可替换')});
   });
 
 });

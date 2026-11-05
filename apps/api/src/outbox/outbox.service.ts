@@ -182,8 +182,7 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
     if(value.marginPercent===null)issues.push({code:'margin_unavailable',message:'成本表未设置有效利润率，不能上传基本售价'});
     if(value.minPriceCents===null)issues.push({code:'price_unavailable',message:'成本表暂不能计算有效最低售价'});else payload.compose_sale_price=value.minPriceCents/100;
     const old=str(record.data.jstUploadedCode),replacing=!!old&&old!==str(record.data.code);
-    if(replacing&&!options.replaceConfirmed)issues.push({code:'replacement_unconfirmed',message:'编码已变化，请先核对旧编码关联并确认改码上传'});
-    if(replacing&&options.replaceConfirmed)payload.oldCode=old;
+    if(replacing)issues.push({code:'uploaded_code_fixed',message:'已上传聚水潭的编码不可替换，请核对原编码'});
     if(options.expectedTarget&&sender.targetKey&&sender.targetKey!==options.expectedTarget)issues.push({code:'target_changed',message:'聚水潭目标账号已变化，请重新核对同步关系'});
     if(options.expectedTarget||sender.targetKey)payload.targetKey=options.expectedTarget||sender.targetKey;
     return {payload,issues,replacing};
@@ -238,6 +237,7 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
       if (prior.length && sameBase(prior[0].idempotency_key)) { skipped++; continue; }
       const key = prior.some((p) => sameBase(p.idempotency_key)) ? `${baseKey}:${prior.filter((p) => sameBase(p.idempotency_key)).length}` : baseKey;
       const old = str(r.data.jstUploadedCode);
+      if(t==='finance-base-codes'&&old&&old!==str(r.data.code))throw new BadRequestException('已上传聚水潭的编码不可替换');
       const replacing = !!old && old !== str(r.data.code);
       if (replacing && !opts.replaceConfirmed&&!opts.approvalIntent) {
         if (ids?.length) throw new BadRequestException(`「${str(r.data.code)}」的编码和聚水潭上已有的「${old}」不同，需要先确认旧编码的库存、在途订单、组合装和店铺映射已处理，再改码上传`);
@@ -601,6 +601,7 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
       let sendOk = false;
       const hook = { ...this.hookCtx, sys };
       try {
+      if(['base_code_replace','bundle_replace'].includes(job.kind)){await em.update(OutboxJob,{id:job.id},{status:'cancelled',lastError:'已上传聚水潭的编码不可替换，请核对历史任务'});failed++;continue;}
       if(job.payloadJson.approvalIntent){
         const record=await em.findOneBy(ResourceRecord,{companyId,id:job.resourceId,type:'finance-bundles'});
         const runId=Number((job.payloadJson.approvalIntent as {runId?:number}).runId);
@@ -620,6 +621,14 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
         sendOk = true;
         await afterJobSent(hook, job);
         await this.confirm(job, result as JobOutcome | undefined, sender);
+        if(['base_code_upsert','bundle_upsert'].includes(job.kind)&&['finance-base-codes','finance-bundles'].includes(job.resourceType)){
+          const sentCode=str(job.payloadJson.sku_id)||str(job.payloadJson.code);
+          await this.dataSource.transaction(async tx=>{
+            await this.resources.patchData(tx,sys,job.resourceType,job.resourceId,{jstStatus:'synced',jstUploadedCode:sentCode||null},'已同步到聚水潭');
+            await tx.update(OutboxJob,{id:job.id},{status:'done',doneAt:new Date(),attempts:job.attempts+1,lastError:null});
+          });
+          sent++;continue;
+        }
         await em.update(OutboxJob, { id: job.id }, { status: 'done', doneAt: new Date(), attempts: job.attempts + 1, lastError: null });
         if (job.resourceType === 'finance-jst-uploads') {
           await this.dataSource.transaction((tx) => this.resources.setStatusDirect(tx, sys, job.resourceType, job.resourceId, 'success', '已上传到聚水潭'));
