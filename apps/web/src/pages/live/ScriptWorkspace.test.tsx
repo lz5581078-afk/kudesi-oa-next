@@ -53,6 +53,7 @@ it('删除目录保留稿件和标注，在选中章节前插入；取消管理�
   expect(screen.getByRole('button', { name: /01 开场/ })).toBeTruthy();
   click('管理章节');
   click('删除章节');
+  click('确认删除章节');
   fireEvent.change(screen.getByLabelText('新环节名称'), { target: { value: '留人' } });
   click('在本章前添加');
   click('应用目录');
@@ -73,12 +74,12 @@ it('删除目录保留稿件和标注，在选中章节前插入；取消管理�
 });
 it('问题库独立保存，切换页签保留版本草稿和离开提示', async () => {
   const dirty = openEditor();
-  fireEvent.change(screen.getByLabelText('话术正文'), { target: { value: '甲乙丙' } });
+  fireEvent.change(screen.getByLabelText('互动正文（第2章）'), { target: { value: '乙丙' } });
   fireEvent.click(screen.getByRole('button', { name: '问题库' }));
   fireEvent.click(await screen.findByText('编辑文章'));
   fireEvent.change(screen.getByLabelText('产品问题库正文'), { target: { value: '谁适合种？' } });
   fireEvent.click(screen.getByRole('button', { name: '正文与标注' }));
-  expect((screen.getByLabelText('话术正文') as HTMLTextAreaElement).value).toBe('甲乙丙');
+  expect((screen.getByLabelText('互动正文（第2章）') as HTMLTextAreaElement).value).toBe('乙丙');
   fireEvent.click(screen.getByRole('button', { name: '问题库' }));
   fireEvent.click(screen.getByText('保存问题库'));
   await screen.findByText('问题库已保存');

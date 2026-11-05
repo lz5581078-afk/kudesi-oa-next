@@ -615,45 +615,6 @@
   color: #286c62;
   margin-bottom: 6px;
 }
-.sc-manuscript {
-  position: relative;
-  min-height: 48vh;
-  border: 1px solid #cadbd7;
-  border-radius: 8px;
-  background: white;
-}
-.live-page .sc-center .sc-manuscript textarea,
-.live-page .sc-center .sc-text-measure {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 18px;
-  border: 0;
-  font:
-    400 16px/1.85 system-ui,
-    sans-serif;
-  letter-spacing: normal;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-  tab-size: 4;
-  width: 100%;
-  text-align: start;
-}
-.sc-text-measure {
-  color: transparent;
-  pointer-events: none;
-  user-select: none;
-  min-height: 48vh;
-}
-.sc-text-measure [data-current] {background:#e8f4ef;box-decoration-break:clone;-webkit-box-decoration-break:clone;}
-.live-page .sc-center .sc-manuscript textarea {
-  position: absolute;
-  inset: 0;
-  height: 100%;
-  resize: none;
-  overflow: hidden;
-  background: transparent;
-}
-
 .sc-outline-layout nav .sc-manage-stages { justify-content:center; color:#105c52; border:1px solid #b5d3cb; background:white; }
 .sc-outline-dialog { width:min(720px,94vw); max-height:88vh; overflow:auto; }
 .sc-stage-workspace { display:grid; grid-template-columns:minmax(130px,2fr) minmax(0,3fr); gap:18px; margin:14px 0; }
@@ -666,3 +627,34 @@
 .sc-stage-tools label { display:grid; gap:4px; }
 .sc-outline-dialog footer { justify-content:flex-end; margin-top:16px; }
 @media(max-width:600px) { .sc-stage-workspace { grid-template-columns:1fr; } .sc-stage-workspace section { max-height:22vh; } }
+
+/* Explicit chapter boundaries share the existing outline and preview design. */
+.sc-writing-help { color:var(--muted); line-height:1.7; margin:4px 0 12px; }
+.sc-editing-status { position:sticky; top:0; z-index:1; padding:10px 14px; border:1px solid #c9dfd9; border-radius:8px; background:#edf6f2; color:#185d55; }
+.sc-chapter { min-width:0; border:1px solid #d6e1de; border-radius:10px; margin:14px 0; background:white; overflow:hidden; scroll-margin:70px; }
+.sc-chapter[data-active] { border-color:#278376; box-shadow:0 0 0 1px #278376; }
+.sc-chapter header { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px; padding:12px 16px; background:#f4f8f7; border-bottom:1px solid #e2ebe8; }
+.sc-chapter h4 { display:flex; flex-wrap:wrap; align-items:baseline; gap:10px; margin:0; overflow-wrap:anywhere; }
+.sc-chapter h4 small { font-weight:400; color:#5b7973; }
+.sc-chapter-count { display:block; margin-top:3px; font-weight:400; }
+.sc-chapter textarea { display:block; box-sizing:border-box; width:100%; min-height:132px; padding:16px; border:0; border-radius:0; background:white; resize:none; overflow:hidden; font:400 16px/1.85 system-ui,sans-serif; }
+.sc-chapter textarea:focus { outline:2px solid #278376; outline-offset:-2px; }
+.sc-chapter footer { display:flex; flex-wrap:wrap; gap:8px 20px; padding:4px 16px 12px; }
+.sc-chapter footer button { min-height:40px; text-align:left; }
+.sc-division-dialog { max-width:520px; }
+.sc-division-dialog > label { display:grid; gap:6px; margin:16px 0 10px; }
+.sc-division-dialog footer { display:flex; justify-content:flex-end; margin-top:18px; }
+.sc-remove-chapter { display:grid; gap:10px; padding:12px; background:#fff5e8; border:1px solid #ecd3ad; border-radius:8px; }
+.sc-remove-chapter select { width:100%; }
+.sc-reading-heading { padding:12px 0; margin:16px 0 8px; border-bottom:1px solid #c9dfd9; color:#185d55; overflow-wrap:anywhere; }
+@media(max-width:700px) {
+  .sc-article-layout { grid-template-columns:minmax(0,1fr); }
+  .sc-article-layout nav { position:static; grid-template-columns:repeat(2,minmax(0,1fr)); max-height:210px; padding:8px; }
+  .sc-article-layout nav > strong, .sc-article-layout nav .sc-manage-stages { grid-column:1/-1; }
+  .sc-article-layout nav small { display:block; }
+  .sc-article-head { flex-wrap:wrap; gap:4px; }
+  .sc-chapter header, .sc-chapter textarea { padding:12px; }
+  .sc-chapter footer { display:grid; gap:0; padding:4px 12px 10px; }
+  .sc-division-dialog { width:calc(100vw - 32px); box-sizing:border-box; }
+  .sc-division-dialog > button { width:100%; white-space:normal; min-height:44px; }
+}

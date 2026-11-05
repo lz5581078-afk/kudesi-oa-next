@@ -40,7 +40,12 @@ export function editRange(before: string, after: string, caret: number) {
 export function moveCues(before: string, after: string, caret: number, cues: Cue[]): Cue[] {
   if (before === after) return cues;
   const {start,end,nextEnd}=editRange(before,after,caret);
-  const delta = after.length - before.length;
+  return replaceCueRange(cues, start, end, nextEnd - start);
+}
+
+// Use a known document range when editing a chapter, so repeated prose in other chapters cannot move the edit.
+export function replaceCueRange(cues: Cue[], start: number, end: number, inserted: number): Cue[] {
+  const delta = inserted - (end - start), nextEnd = start + inserted;
   return cues.flatMap((c) => {
     if (c.end <= start) return [c];
     if (c.start >= end) return [{ ...c, start: c.start + delta, end: c.end + delta }];
