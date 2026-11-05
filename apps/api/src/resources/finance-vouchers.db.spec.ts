@@ -82,8 +82,11 @@ d('制单中心：优惠、预付冲抵、往来余额、行提示（真实数�
   });
 
   it('并发填写同名仓库只建立一条，停止的仓库不能靠文字重新建立', async () => {
-    const drafts = await Promise.all([1, 2].map(() => docs.createDraft(boss, { type: 'sale', date: day, warehouseName: '并发文字验收仓' })));
-    expect(drafts[0].warehouseId).toBe(drafts[1].warehouseId);
+    const results = await Promise.allSettled(Array.from({length:12}, () => docs.createDraft(boss, { type: 'sale', date: day, warehouseName: '并发文字验收仓' })));
+    expect(results.filter(r=>r.status==='rejected')).toEqual([]);
+    const drafts=results.flatMap(r=>r.status==='fulfilled'?[r.value]:[]);
+    expect(new Set(drafts.map(d=>d.warehouseId)).size).toBe(1);
+    expect(Number((await ds.query("SELECT COUNT(*) AS n FROM resource_records WHERE company_id=? AND type='finance-warehouses' AND unique_key=?",[boss.companyId,'并发文字验收仓']))[0].n)).toBe(1);
     const warehouse = await svc.findByUnique(ds.manager, boss.companyId, 'finance-warehouses', '并发文字验收仓');
     await svc.changeStatus(boss, 'finance-warehouses', warehouse!.id, 'inactive', '合成停用仓库验收');
     await expect(docs.createDraft(boss, { type: 'sale', date: day, warehouseName: '并发文字验收仓' })).rejects.toThrow(/停用或归档/);

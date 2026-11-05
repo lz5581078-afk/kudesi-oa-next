@@ -162,7 +162,8 @@ export class FinanceDocumentsService {
 
   /** 全公司串行：过账/红冲前先锁住这一行 */
   private async lockPosting(em: EntityManager, user: AuthUser) {
-    await em.query("INSERT IGNORE INTO finance_doc_counters (company_id, counter_key, value) VALUES (?, 'lock:posting', 0)", [user.companyId]);
+    // 直接取得排他锁，避免 INSERT IGNORE 的共享锁随后升级时并发互等。
+    await em.query("INSERT INTO finance_doc_counters (company_id, counter_key, value) VALUES (?, 'lock:posting', 0) ON DUPLICATE KEY UPDATE value = value", [user.companyId]);
     await em.query("SELECT value FROM finance_doc_counters WHERE company_id = ? AND counter_key = 'lock:posting' FOR UPDATE", [user.companyId]);
   }
 
