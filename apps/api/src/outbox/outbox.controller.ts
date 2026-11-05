@@ -85,6 +85,11 @@ export class OutboxController {
   retry(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.outbox.retry(u, id); }
 
   @RequirePermission('finance.jst-sync.view')
+  @Post('category/jobs/:id/recheck')
+  @HttpCode(200)
+  recheckCategory(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number){return this.outbox.retry(u,id,true);}
+
+  @RequirePermission('finance.jst-sync.view')
   @Post('jobs/:id/cancel')
   @HttpCode(200)
   cancel(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.outbox.cancel(u, id); }

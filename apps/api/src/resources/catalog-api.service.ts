@@ -5,8 +5,10 @@ import { AuthUser } from '../common/auth.decorators';
 import { ResourceRecord } from '../entities';
 import { CostService } from './cost.service';
 import { sigOf } from './base-code-support';
+import { plainBundleCategoryName } from './code-category-names';
 
 const str = (v: unknown) => (typeof v === 'string' ? v : v === undefined || v === null ? '' : String(v));
+const categoryLabel = (c?: ResourceRecord) => c?.data.archiveType === 'bundle' ? plainBundleCategoryName(c.title) : c?.title ?? '';
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 export interface CatalogQuery { afterId?: number; limit?: number; code?: string }
@@ -58,7 +60,7 @@ export class CatalogApiService {
       const chain: number[] = [];
       for (let cur: number | null = id, i = 0; cur && i < 8 && !chain.includes(cur); i++, cur = num(byId.get(cur)?.data.parentId)) chain.unshift(cur);
       const c = byId.get(id)!;
-      return { id, name: c.title, code: str(c.data.code), parentId: num(c.data.parentId), bundleCount: count(id), status: c.status === 'active' ? 'active' : 'inactive', sortOrder: Number(c.data.sort) || 0, pathIds: chain, pathNames: chain.map((x) => byId.get(x)?.title ?? '') };
+      return { id, name: categoryLabel(c), code: str(c.data.code), parentId: num(c.data.parentId), bundleCount: count(id), status: c.status === 'active' ? 'active' : 'inactive', sortOrder: Number(c.data.sort) || 0, pathIds: chain, pathNames: chain.map((x) => categoryLabel(byId.get(x))) };
     });
     return { ...this.page(companyId, flat, q), tree: this.tree(flat) };
   }
@@ -85,7 +87,7 @@ export class CatalogApiService {
   async skuCosts(companyId: number, q: CatalogQuery) {
     const rows = await this.verifiedRows(companyId);
     return this.page(companyId, rows.filter((r) => !q.code || r.code === q.code).map((r) => ({
-      id: r.bundleId, code: r.code, name: r.name, categoryId: r.categoryId, categoryName: r.categoryName, weightG: r.weightG, preShipCostCents: r.preShipCostCents,
+      id: r.bundleId, code: r.code, name: r.name, categoryId: r.categoryId, categoryName: r.categoryName == null ? r.categoryName : plainBundleCategoryName(r.categoryName), weightG: r.weightG, preShipCostCents: r.preShipCostCents,
       freightCents: r.freightCents, costIncludingFreightCents: r.costIncludingFreightCents, marginPercent: r.marginPercent, minPriceCents: r.minPriceCents,
       // 旧字段名（元 / 0～1 小数 / 千克）
       bundleCodeId: r.bundleId, skuCode: r.code, skuName: r.name, productCost: this.yuan(r.preShipCostCents), preShipCost: this.yuan(r.preShipCostCents), carrierName: r.carrierName,
@@ -102,7 +104,7 @@ export class CatalogApiService {
     return this.page(companyId, rows.filter((r) => !q.code || r.code === q.code).map((r) => {
       const b = meta.get(r.bundleId);
       return {
-        id: r.bundleId, code: r.code, name: r.name, styleCode: str(b?.data.styleCode), shortName: str(b?.data.shortName), platformCode: str(b?.data.platformCode), categoryId: r.categoryId, categoryName: r.categoryName, weightG: r.weightG,
+        id: r.bundleId, code: r.code, name: r.name, styleCode: str(b?.data.styleCode), shortName: str(b?.data.shortName), platformCode: str(b?.data.platformCode), categoryId: r.categoryId, categoryName: r.categoryName == null ? r.categoryName : plainBundleCategoryName(r.categoryName), weightG: r.weightG,
         // 旧接口字段：验证状态、问题清单、资料快照和组成
         status: 'active', verificationStatus: 'verified', verifiedAt: str(b?.data.verifiedAt) || null, issues: [],
         profile: this.profile(b, r), components: comps.get(r.bundleId) ?? [],
@@ -151,7 +153,7 @@ export class CatalogApiService {
       const mains = components.filter((x) => x.role === 'main').map((x) => ({ code: x.componentCode, name: x.componentName, quantity: x.quantity, unit: x.unitName }));
       return {
         id: r.bundleId, code: r.code, name: r.name, categoryId: r.categoryId,
-        category: c ? { id: c.id, code: str(c.data.code), name: c.title, parentId: num(c.data.parentId), pathIds: chain, pathNames: chain.map((x) => byCat.get(x)?.title ?? '') } : null,
+        category: c ? { id: c.id, code: str(c.data.code), name: categoryLabel(c), parentId: num(c.data.parentId), pathIds: chain, pathNames: chain.map((x) => categoryLabel(byCat.get(x))) } : null,
         mainProductName: mains.map((m) => m.name).filter(Boolean).join('+'), mainProducts: mains,
         verification: { status: 'verified', count: Math.max(1, countById.get(r.bundleId) ?? 1), verifiedAt: str(b?.data.verifiedAt) || null, signature: sigOf(str(b?.data.snapshot)) },
         details: { profile: this.profile(b, r), components },
@@ -184,7 +186,7 @@ export class CatalogApiService {
     const flat = cats.map((c) => {
       const chain: number[] = [];
       for (let cur: number | null = c.id, i = 0; cur && i < 8 && !chain.includes(cur); i++, cur = num(byId.get(cur)?.data.parentId)) chain.unshift(cur);
-      return { id: c.id, code: str(c.data.code), name: c.title, parentId: num(c.data.parentId), status: c.status === 'active' ? 'active' : 'inactive', sortOrder: Number(c.data.sort) || 0, pathIds: chain, pathNames: chain.map((x) => byId.get(x)?.title ?? '') };
+      return { id: c.id, code: str(c.data.code), name: categoryLabel(c), parentId: num(c.data.parentId), status: c.status === 'active' ? 'active' : 'inactive', sortOrder: Number(c.data.sort) || 0, pathIds: chain, pathNames: chain.map((x) => categoryLabel(byId.get(x))) };
     }).sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
     return { rows: flat, tree: this.tree(flat), total: flat.length };
   }

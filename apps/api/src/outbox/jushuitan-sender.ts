@@ -5,6 +5,7 @@ import { ExternalConfigService } from '../integrations/external-config.service';
 import { ExternalOutcomeUnknown, JushuitanClient, JsonRow } from '../integrations/jushuitan.client';
 import { OutboxSender, RemoteCategory } from './outbox.service';
 const text = (v: unknown) => v == null ? '' : String(v);
+const validCategoryId = (id: string) => /^[1-9]\d*$/.test(id) && Number.isSafeInteger(Number(id));
 const normalFields = ['sku_id', 'i_id', 'name', 'short_name', 'properties_value', 'c_name', 'brand', 'unit', 'weight', 'cost_price', 'purchase_price', 'enabled'];
 const aliases: Record<string, string> = { shortName: 'short_name', propertiesValue: 'properties_value', categoryName: 'c_name', costPrice: 'cost_price', purchasePrice: 'purchase_price', salePrice: 's_price', marketPrice: 'market_price', stockDisabled: 'stock_disabled', itemType: 'item_type', shelfLife: 'shelf_life', picBig: 'pic_big', supplierName: 'supplier_name', supplierSkuId: 'supplier_sku_id', supplierStyleId: 'supplier_i_id', skuCode: 'sku_code', otherCode: 'other_code', virtualCategory: 'vc_name', productionLicence: 'production_licence', productionBatchFormat: 'productionbatch_format', length: 'l', width: 'w', height: 'h' };
 export class CompanyJstSender implements OutboxSender {
@@ -29,11 +30,10 @@ export class CompanyJstSender implements OutboxSender {
     // category 是用「 - 」拼接的显示路径，名称本身也可能含分隔符；按 ID 查末级，不能拆字符串。
     let categoryName = hit.c_name ?? hit.category;
     if (hit.c_id != null && String(hit.c_id) !== '0') {
-      const categories = await this.client.pages('/open/category/query', {}, 'datas');
-      const matched = categories.filter(c => text(c.c_id ?? c.category_id ?? c.id) === String(hit.c_id));
-      if (matched.length !== 1) throw new Error('聚水潭商品分类 ID 无法唯一回查，请人工核对');
-      categoryName = matched[0].c_name ?? matched[0].name ?? matched[0].category_name;
-      if (!categoryName) throw new Error('聚水潭分类名称缺失，请人工核对');
+      const categories = await this.readCategoryTree();
+      const matched = categories.find(category => category.id === String(hit.c_id));
+      if (!matched) throw new Error('聚水潭商品分类 ID 无法唯一回查，请人工核对');
+      categoryName = matched.name;
     }
     return { ...hit, ...price[0], c_name: categoryName };
   }
@@ -53,9 +53,26 @@ export class CompanyJstSender implements OutboxSender {
   }
   async readCategories(): Promise<RemoteCategory[]> {
     await this.assertCompany();
-    const rows = await this.client.pages('/open/category/query', {}, 'datas');
-    return rows.map((r: JsonRow) => ({ id: text(r.c_id ?? r.category_id ?? r.id), name: text(r.c_name ?? r.name ?? r.category_name), parentId: text(r.parent_c_id ?? r.parent_id ?? r.parentId ?? 0), sort: r.sort == null ? null : Number(r.sort), enable: r.enable == null ? null : ![false, 0, '0', 'false'].includes(r.enable) }));
+    return this.readCategoryTree();
   }
+
+  private async readCategoryTree(): Promise<RemoteCategory[]> {
+    const rows = await this.client.pages('/open/category/query', {}, 'datas');
+    const ids = new Set<string>();
+    return rows.map(row => {
+      const id = text(row?.c_id ?? row?.category_id ?? row?.id);
+      const name = text(row?.c_name ?? row?.name ?? row?.category_name);
+      const parentId = text(row?.parent_c_id ?? row?.parent_id ?? row?.parentId) || '0';
+      if (!validCategoryId(id) || !name.trim() || (parentId !== '0' && !validCategoryId(parentId))) {
+        throw new Error('聚水潭分类缺少有效的 ID、名称或上级，无法确认同步差异');
+      }
+      if (ids.has(id)) throw new Error('聚水潭分类分页返回重复 ID，请刷新差异后重试');
+      ids.add(id);
+      return { id, name, parentId, sort: row.sort == null ? null : Number(row.sort),
+        enable: row.enable == null ? null : [true, 1, '1', 'true'].includes(row.enable) };
+    });
+  }
+
   async send(job: { kind: string; idempotencyKey: string; payload: JsonRow }): Promise<void | { remoteId?: string }> {
     const p = job.payload;
     if (['normal_product_upload', 'base_code_upsert', 'base_code_replace'].includes(job.kind)) assertJstNormalPricePrecision(p);
@@ -84,17 +101,17 @@ export class CompanyJstSender implements OutboxSender {
     }
     if (!bundle && (p.c_name || p.categoryName) && !job.kind.endsWith('_disable')) {
       const categories = await this.readCategories(), wanted = text(p.c_name ?? p.categoryName), leaf = wanted.split('/').at(-1)!;
-      const matches = categories.filter(c => c.name === leaf && c.enable !== false);
-      if (matches.length !== 1 || categories.some(c => c.parentId === matches[0].id)) throw new Error('聚水潭分类不存在、重名或不是末级分类，请核对后同步');
-      if (wanted.includes('/')) {
+      const matches = categories.filter(c => c.name === leaf);
+      if (matches.length !== 1 || matches[0].enable === false || categories.some(c => c.parentId === matches[0].id && c.enable !== false)) throw new Error('聚水潭分类不存在、重名或不是末级分类，请核对后同步');
+      if (wanted.includes('/') || p.categoryPathExact === true) {
         const names = [leaf], seen = new Set([matches[0].id]); let parent = matches[0].parentId;
         while (parent !== '0' && parent !== '') {
           const node = categories.find(c => c.id === parent);
-          if (!node || seen.has(parent)) throw new Error('聚水潭分类层级不完整');
+          if (!node || node.enable === false || seen.has(parent)) throw new Error('聚水潭分类层级不完整');
           seen.add(parent); names.unshift(node.name); parent = node.parentId;
         }
         const remotePath = names.join('/');
-        if (remotePath !== wanted && !remotePath.endsWith('/' + wanted)) throw new Error('聚水潭分类路径与本地不一致');
+        if (remotePath !== wanted && (p.categoryPathExact === true || !remotePath.endsWith('/' + wanted))) throw new Error('聚水潭分类路径与本地不一致');
       }
       item.c_name = leaf;
     }
@@ -135,8 +152,10 @@ export class CompanyJstSender implements OutboxSender {
     let result: JsonRow;
     try { result = await this.client.call('/open/webapi/itemapi/category/addorupdate', { ...(id != null ? { c_id: id } : {}), c_name: desired.name, parent_c_id: parent, sort: desired.sort, enable: desired.enable, is_pv: false }); }
     catch (e) { if (!(e as { outcomeUnknown?: boolean }).outcomeUnknown) { delete p.transport; await this.persist(job.idempotencyKey, p); } throw e; }
-    const remoteId = result.c_id ?? result.id ?? id;
-    if (remoteId == null) throw new ExternalOutcomeUnknown('聚水潭未返回分类 ID，请回查');
+    const remoteId = text(result.c_id ?? result.id);
+    if (!validCategoryId(remoteId) || id !== null && remoteId !== String(id)) {
+      throw new ExternalOutcomeUnknown('聚水潭未确认正确的分类 ID，请回查，禁止重复提交');
+    }
     p.transport = { stage: 'category-written', remoteId: String(remoteId) };
     try { await this.persist(job.idempotencyKey, p); } catch { throw new ExternalOutcomeUnknown('分类已经提交，但结果记录未完成，请回查'); }
     return { remoteId: String(remoteId) };
