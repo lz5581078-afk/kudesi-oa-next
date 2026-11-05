@@ -10,12 +10,12 @@ export async function assertCodeCategoryName(em:EntityManager,companyId:number,t
   if(!isCodeCategory(type,data))return;
   await em.findOneOrFail(Company,{where:{id:companyId},lock:{mode:'pessimistic_write'}});
   const comparable=(recordType:string,row:Record<string,unknown>)=>normalized(recordType==='finance-categories'?plainBundleCategoryName(row.name):row.name);
-  const name=comparable(type,data);
+  const name=comparable(type,data), storedName=normalized(data.name);
   if(existing&&isCodeCategory(type,existing.data)&&comparable(type,existing.data)===name)return;
   const rows=await em.createQueryBuilder(ResourceRecord,'r')
     .where('r.companyId=:companyId',{companyId})
     .andWhere("((r.type='finance-code-dictionaries' AND JSON_UNQUOTE(JSON_EXTRACT(r.data,'$.kind'))='product_category') OR (r.type='finance-categories' AND JSON_UNQUOTE(JSON_EXTRACT(r.data,'$.archiveType'))='bundle'))")
     .orderBy('r.id','ASC').setLock('pessimistic_read').getMany();
-  const conflict=rows.find(row=>row.id!==existing?.id&&isCodeCategory(row.type,row.data)&&comparable(row.type,row.data)===name);
+  const conflict=rows.find(row=>row.id!==existing?.id&&isCodeCategory(row.type,row.data)&&(comparable(row.type,row.data)===name||normalized(row.data.name)===storedName));
   if(conflict)throw new ConflictException(`${conflict.type==='finance-code-dictionaries'?'商品编码':'商品组合编码'}分类中名称已存在：${String(conflict.data.name??conflict.title)}`);
 }
