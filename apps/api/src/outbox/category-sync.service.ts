@@ -12,6 +12,8 @@ const str=(v:unknown)=>typeof v==='string'?v:'';
 const parse=<T>(v:unknown):T|null=>v==null?null:typeof v==='string'?JSON.parse(v) as T:v as T;
 const dataOf=(v:unknown)=>parse<Record<string,unknown>>(v)??{};
 const withoutScope=(value:Record<string,unknown>|null)=>{if(!value)return value;const {syncScope:_scope,...data}=value;return data;};
+export class CategoryDependencyPending extends Error {}
+
 const scopeName={product:'商品编码分类',bundle:'商品组合编码分类',archive:'商品档案分类'};
 /** 同一分类计划及出站队列：自动授权只绑定可信完整连接，实际发送仍受总开关控制。 */
 @Injectable()
@@ -25,7 +27,7 @@ export class CategorySyncService{
   const version=hash(inScope.map(row=>[row.id,row.data.name,row.data.code,row.data.parentId??null,row.data.sort??0,row.status]).sort((a,b)=>Number(a[0])-Number(b[0])));
   return {all,inScope,version};
  }
- private async snapshot(user:AuthUser,scope:CategoryScope,em:EntityManager=this.ds.manager,mode:'manual'|'auto'='manual'){
+ private async snapshot(user:AuthUser,scope:CategoryScope,em:EntityManager=this.ds.manager,mode:'manual'|'auto'|'dependency'='manual'){
   const sender=await this.outbox.senderFor(user.companyId),targetKey=sender.targetKey;
   if(!sender.readCategories||!targetKey)throw new ConflictException('还没有接入聚水潭（或没有配置企业编号），无法读取聚水潭分类，也就不能核对差异');
   const {all,inScope,version}=await this.local(em,user.companyId,scope);let nodes;
@@ -42,8 +44,70 @@ export class CategorySyncService{
   const categoryTarget=sender.categoryTarget,identity=categoryTarget?.key||targetKey;
   return {plan:{...plan,signature:hash([plan.signature,version,identity])},targetKey,categoryTarget,identity,version,remote};
  }
- async preview(user:AuthUser,scope:CategoryScope){this.admin(user);this.scope(scope);const state=await this.snapshot(user,scope);return {scope,targetKey:state.identity,target:state.categoryTarget?{name:state.categoryTarget.name,coid:state.categoryTarget.coid}:null,signature:state.plan.signature,conflicts:state.plan.conflicts,remoteOnly:state.plan.remoteOnly.length,changes:state.plan.changes,note:'聚水潭未返回排序或启用状态时，这两项按 OA 配置写入，不能判断远端是否单独修改过。删除同步为停用。'};}
- private async queuePlan(em:EntityManager,user:AuthUser,scope:CategoryScope,state:Awaited<ReturnType<CategorySyncService['snapshot']>>,mode:'manual'|'auto',policyId?:number){
+ async preview(user:AuthUser,scope:CategoryScope){
+  this.admin(user);this.scope(scope);
+  const state=await this.snapshot(user,scope),nodes=new Map(state.plan.nodes.map(node=>[node.id,node])),remote=new Map(state.remote.map(node=>[node.id,node]));
+  const remotePath=(id:string)=>{
+   const names:string[]=[],seen=new Set<string>();
+   for(let node=remote.get(id);node&&!seen.has(node.id);node=remote.get(node.parentId)){seen.add(node.id);names.unshift(node.name);}
+   return names.join(' / ')||(id==='0'?'一级分类':`#${id}`);
+  };
+  const changes=state.plan.changes.map(op=>{
+   const node=nodes.get(op.localId);
+   const before=op.before as RemoteNode|null;
+   return {...op,before:before?{...before,parentLabel:remotePath(before.parentId)}:null,
+    after:op.after?{...op.after,parentLabel:node?(nodes.get(node.parentId)?.path||'一级分类'):remotePath(op.after.parentId)}:null};
+  });
+  return {scope,targetKey:state.identity,target:state.categoryTarget?{name:state.categoryTarget.name,coid:state.categoryTarget.coid}:null,signature:state.plan.signature,conflicts:state.plan.conflicts,remoteOnly:state.plan.remoteOnly.length,changes,note:'聚水潭未返回排序或启用状态时，这两项按 OA 配置写入，不能判断远端是否单独修改过。删除同步为停用。'};
+ }
+ /** Verify the linked remote ID and the whole local path before sending a SKU. */
+ async requireForSku(companyId:number,scope:CategoryScope,categoryId:unknown,sender:Awaited<ReturnType<OutboxService['senderFor']>>){
+  if(!sender.categoryTarget||!sender.targetKey||!sender.readCategories)return;
+  const {inScope}=await this.local(this.ds.manager,companyId,scope);
+  const byId=new Map(inScope.map(row=>[row.id,row])),path:ResourceRecord[]=[],seen=new Set<number>();
+  for(let id=Number(categoryId);id;){
+   const row=byId.get(id);
+   if(!row||seen.has(id)||row.status!=='active')throw new ConflictException('编码分类或上级已停用、缺失或存在循环');
+   seen.add(id);path.unshift(row);id=Number(row.data.parentId??0);
+  }
+  const leaf=path.at(-1);
+  if(!leaf||inScope.some(row=>row.status==='active'&&Number(row.data.parentId)===leaf.id))throw new ConflictException('请选择有效的末级编码分类');
+  const links:Array<{category_id:number;remote_id:string;local_json:unknown}>=await this.ds.query("SELECT category_id,remote_id,local_json FROM jst_category_links WHERE company_id=? AND target_key=? AND status='linked' AND category_id IN (?)",[companyId,sender.targetKey,path.map(row=>row.id)]);
+  const linked=new Map(links.map(link=>[link.category_id,link]));
+  const pending=()=>new CategoryDependencyPending('等待编码分类在当前聚水潭账号同步成功');
+  if(path.some(row=>{
+   const link=linked.get(row.id),saved=dataOf(link?.local_json);
+   return !link?.remote_id||saved.name!==row.data.name||String(saved.parentId??0)!==String(row.data.parentId??0);
+  })){
+   await this.queueSkuPath(companyId,scope,path,sender.categoryTarget.key);
+   throw pending();
+  }
+  const remote=await sender.readCategories(),remoteById=new Map(remote.map(node=>[node.id,node]));
+  for(const row of path){
+   const node=remoteById.get(String(linked.get(row.id)?.remote_id));
+   const parent=row.data.parentId?String(linked.get(Number(row.data.parentId))?.remote_id):'0';
+   if(!node||node.enable===false||node.name!==row.data.name||node.parentId!==parent)throw new CategoryDependencyPending('聚水潭分类或上级资料已变化，等待核对分类映射');
+  }
+ }
+ private async queueSkuPath(companyId:number,scope:CategoryScope,path:ResourceRecord[],target:string){
+  const current=await categoryPolicy(this.ds.manager,companyId,scope);
+  if(current?.data.enabled!==true||current.data.targetKey!==target)return;
+  await this.ds.transaction(async em=>{
+   await em.findOneOrFail(Company,{where:{id:companyId},lock:{mode:'pessimistic_write'}});
+   const policy=await categoryPolicy(em,companyId,scope,true);
+   if(policy?.data.enabled!==true||policy.data.targetKey!==target)return;
+   const ids=path.map(row=>row.id);
+   const [prior]=await em.query("SELECT id FROM outbox_jobs WHERE company_id=? AND kind='category_sync' AND resource_id IN (?) AND status IN ('pending','sending','failed') AND JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.categoryTargetKey'))=? LIMIT 1",[companyId,ids,target]);
+   if(prior)return;
+   const user:AuthUser={id:Number(policy.data.authorizedBy)||0,companyId,name:'商品上传分类依赖',permissions:{isCompanyAdmin:true,allow:[],deny:[]}};
+   const state=await this.snapshot(user,scope,em,'dependency');
+   if(state.categoryTarget?.key!==target)return;
+   const changes=state.plan.changes.filter(change=>ids.includes(Number(change.localId)));
+   if(!changes.length||changes.some(change=>change.action==='conflict'))return;
+   await this.queuePlan(em,user,scope,{...state,plan:{...state.plan,changes}},'dependency',policy.id);
+  });
+ }
+ private async queuePlan(em:EntityManager,user:AuthUser,scope:CategoryScope,state:Awaited<ReturnType<CategorySyncService['snapshot']>>,mode:'manual'|'auto'|'dependency',policyId?:number){
   const {plan,targetKey}=state,details:Array<{localId:string;path:string;action:string;jobId:number|null;status:string}>=[];let queued=0;
   const nodeById=new Map(plan.nodes.map(node=>[node.id,node]));
   for(const op of plan.changes){
@@ -89,14 +153,18 @@ export class CategorySyncService{
   const p=job.payloadJson,scope=p.scope as CategoryScope;if(!p.localVersion||!categoryScopes.includes(scope))return'current';
   const user:AuthUser={id:job.createdBy||0,companyId:job.companyId,name:'分类同步核对',permissions:{isCompanyAdmin:true,allow:[],deny:[]}},sender=await this.outbox.senderFor(job.companyId);
   if(p.categoryTargetKey&&p.categoryTargetKey!==sender.categoryTarget?.key)return'stale';
-  if(p.mode==='auto'){const policy=await categoryPolicy(this.ds.manager,job.companyId,scope);if(!policy||policy.data.enabled!==true||policy.data.targetKey!==sender.categoryTarget?.key)return'stale';}
+  const transport=p.transport as {stage?:string}|undefined;
+  // A persisted write intent can only read back. Replanning could turn a successful
+  // create into a bind and cancel it before the original result can be confirmed.
+  if(transport?.stage==='category-write-intent'||transport?.stage==='category-written')return'current';
+  if(p.mode==='auto'||p.mode==='dependency'){const policy=await categoryPolicy(this.ds.manager,job.companyId,scope);if(!policy||policy.data.enabled!==true||policy.data.targetKey!==sender.categoryTarget?.key)return'stale';}
   if((await this.local(this.ds.manager,job.companyId,scope)).version!==p.localVersion)return'stale';
-  const state=await this.snapshot(user,scope,this.ds.manager,p.mode==='auto'?'auto':'manual'),op=state.plan.operations.find(row=>row.localId===String(p.localId));if(!op||state.plan.conflicts)return'stale';if(op.action==='none')return'satisfied';if(op.action!==p.op)return'stale';
+  const state=await this.snapshot(user,scope,this.ds.manager,p.mode==='dependency'?'dependency':p.mode==='auto'?'auto':'manual'),op=state.plan.operations.find(row=>row.localId===String(p.localId));if(!op||op.action==='conflict'||p.mode!=='dependency'&&state.plan.conflicts)return'stale';if(op.action==='none')return'satisfied';if(op.action!==p.op)return'stale';
   const desired={...(p.desired as Record<string,unknown>)};if(desired.parentLocalId){const [parent]=await this.ds.query("SELECT remote_id FROM jst_category_links WHERE company_id=? AND target_key=? AND category_id=? AND status='linked'",[job.companyId,str(p.targetKey),Number(desired.parentLocalId)]);if(parent?.remote_id)desired.parentRemoteId=String(parent.remote_id);else desired.parentRemoteId='local:'+String(desired.parentLocalId);}
   return op.after&&hash([op.after.name,op.after.parentId,op.after.sort??0,op.after.enable])===hash([desired.name,desired.parentRemoteId??'0',desired.sort??0,desired.enable])?'current':'stale';
  }
  async runs(user:AuthUser,page:number,scope?:CategoryScope){this.admin(user);if(scope)this.scope(scope);const rows:Array<{id:number;mode:string;status:string;message:string;details_json:unknown;created_at:string}>=await this.ds.query(`SELECT id,mode,status,message,details_json,created_at FROM jst_category_runs WHERE company_id=?${scope==='archive'?" AND (mode='archive' OR (mode='product' AND JSON_EXTRACT(details_json,'$.scope') IS NULL))":scope==='product'?" AND mode='product' AND JSON_UNQUOTE(JSON_EXTRACT(details_json,'$.scope'))='product'":scope?" AND mode='bundle'":''} ORDER BY id DESC LIMIT 20 OFFSET ?`,[user.companyId,(page-1)*20]);const out=[];
-  for(const row of rows){const details=parse<{mode?:string;scope?:string;changes:Array<{localId:string;path:string;action:string;jobId:number|null;status:string}>}>(row.details_json)??{changes:[]};const ids=details.changes.map(change=>change.jobId).filter((id):id is number=>!!id),jobs:Array<{id:number;status:string;last_error:string|null}>=ids.length?await this.ds.query('SELECT id,status,last_error FROM outbox_jobs WHERE company_id=? AND id IN (?)',[user.companyId,ids]):[],byId=new Map(jobs.map(job=>[job.id,job]));const changes=details.changes.map(change=>({...change,status:change.jobId?byId.get(change.jobId)?.status??change.status:change.status,error:change.jobId?byId.get(change.jobId)?.last_error??null:null}));const status=changes.some(change=>['failed','cancelled'].includes(change.status))?'failed':!changes.length?row.status:changes.every(change=>['done','success'].includes(change.status))?'success':changes.some(change=>change.status==='sending')?'running':'queued';out.push({id:row.id,scope:details.scope||(row.mode==='product'?'archive':row.mode),mode:details.mode||'manual',status,message:row.message,createdAt:row.created_at,changes});}
+  for(const row of rows){const details=parse<{mode?:string;scope?:string;changes:Array<{localId:string;path:string;action:string;jobId:number|null;status:string}>}>(row.details_json)??{changes:[]};const ids=details.changes.map(change=>change.jobId).filter((id):id is number=>!!id),jobs:Array<{id:number;status:string;last_error:string|null;transport_stage?:string}>=ids.length?await this.ds.query("SELECT id,status,last_error,JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.transport.stage')) AS transport_stage FROM outbox_jobs WHERE company_id=? AND id IN (?)",[user.companyId,ids]):[],byId=new Map(jobs.map(job=>[job.id,job]));const changes=details.changes.map(change=>({...change,status:change.jobId?byId.get(change.jobId)?.status??change.status:change.status,error:change.jobId?byId.get(change.jobId)?.last_error??null:null,canRecheck:!!change.jobId&&byId.get(change.jobId)?.status==='failed'&&['category-write-intent','category-written'].includes(byId.get(change.jobId)?.transport_stage??'')}));const status=changes.some(change=>['failed','cancelled','rejected'].includes(change.status))?'failed':!changes.length?row.status:changes.every(change=>['done','success'].includes(change.status))?'success':changes.some(change=>change.status==='sending')?'running':'queued';out.push({id:row.id,scope:details.scope||(row.mode==='product'?'archive':row.mode),mode:details.mode==='dependency'?'auto':details.mode||'manual',status,message:row.message,createdAt:row.created_at,changes});}
   return{page,rows:out};
  }
 }

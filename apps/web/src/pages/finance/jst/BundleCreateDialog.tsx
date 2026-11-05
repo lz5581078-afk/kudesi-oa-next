@@ -1,3 +1,4 @@
+import { bundleCategoryDisplayName } from '../../../resources/productCategoryFamily';
 import {useEffect,useRef,useState} from 'react';
 import {composeGroups,createChecker,LOGISTICS_CENT_SCALE,sumUnitCentsProducts,type UnitCentsProduct,type NamingInput} from '@kudesi/shared';
 import {useAuth} from '../../../auth/AuthContext';
@@ -38,7 +39,7 @@ function Create({onClose,onDone,sourceBundle,initialCategoryId}:Props){
      if(context.lines.some(line=>line.productId)){const archives=await loadResourceDirectory('finance-products',()=>live,undefined,{includeInactive:true,preserveOrder:true});if(!live||!archives)return;for(const row of archives)map['archive:'+row.id]=row;}
      if(context.lines.some(line=>line.laborId)){const labor=await loadResourceDirectory('finance-labor-costs',()=>live,undefined,{includeInactive:true,preserveOrder:true});if(!live||!labor)return;for(const row of labor)map['labor:'+row.id]=row;}
    }
-   if(!live)return;setSources(map);setProducts(baseRows);setCategories(codeRows);setPlatforms(platformRows.filter(row=>row.status==='active'));setScenarios(scenarioRows);setBrands(brandRows);setBundleCategories(categoryRows.filter(row=>row.data.archiveType==='bundle'));setScenarioId(value=>value||scenarioRows.find(row=>row.status==='active'&&String(row.data.code).toLowerCase()==='standard')?.id||scenarioRows.find(row=>row.status==='active')?.id||'');setBrand(brandRows.find(row=>row.id===Number(sourceBundle?.data.brandId))?.title||'');setReady(true);
+   if(!live)return;setSources(map);setProducts(baseRows);setCategories(codeRows);setPlatforms(platformRows.filter(row=>row.status==='active'));setScenarios(scenarioRows);setBrands(brandRows);setBundleCategories(categoryRows.filter(row=>row.data.archiveType==='bundle').map(row=>({...row,title:bundleCategoryDisplayName(row.title)})));setScenarioId(value=>value||scenarioRows.find(row=>row.status==='active'&&String(row.data.code).toLowerCase()==='standard')?.id||scenarioRows.find(row=>row.status==='active')?.id||'');setBrand(brandRows.find(row=>row.id===Number(sourceBundle?.data.brandId))?.title||'');setReady(true);
  })().catch(error=>{if(live)setLoadingError(msg(error));});return()=>{live=false;};},[revision,sourceBundle?.id]);
  const firstMain=rows.find(row=>row.role==='main')?.baseCodeId;
  const namingIds=[...new Set(rows.filter(row=>['main','gift'].includes(row.role)&&row.baseCodeId).map(row=>row.baseCodeId!))].join(',');

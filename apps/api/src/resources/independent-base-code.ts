@@ -10,7 +10,7 @@ import {guardReferenced,afterBaseCodeLineChange,seedMainLine} from './base-code-
 import {beginBaseCodeForm,endBaseCodeForm} from './base-code-form-scope';
 const text=(value:unknown)=>typeof value==='string'?value:'';
 /** 明确独立目录的人工定义不伪造单一商品来源；旧三条来源分支保持原规则。 */
-export async function beforeIndependentBaseCode(ctx:BeforeSaveContext){const {em,user,data,existing,status}=ctx;if(data.origin!=='composed'||data.codeDictionaryCategoryId==null)return false;
+export async function beforeIndependentBaseCode(ctx:BeforeSaveContext){const {em,user,data,existing,status}=ctx;if(data.origin!=='composed'||data.codeDictionaryCategoryId==null||existing?.data.productId!=null)return false;
  await em.findOneOrFail(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}});
  if(existing&&existing.data.origin!=='composed')throw new BadRequestException('已有的基础编码不能改成独立多构成定义');if(!existing&&data.productId!=null)throw new BadRequestException('独立商品定义通过组成关联档案，不能指定单一来源商品');if(data.canonicalId!=null)throw new BadRequestException('独立商品定义不能作为马甲');
  const facts=await independentDefinitionFacts(em,user.companyId,data);if(facts.errors.length)throw new BadRequestException(facts.errors.join('；'));

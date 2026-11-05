@@ -2,3 +2,5 @@
 export function matchesProductCategoryFamily(family:string,category:{archiveType?:unknown;importArchiveType?:unknown}) {
  return category.archiveType===family || ['original_purchase','supplier_oem'].includes(family) && category.archiveType==='original_purchase' && category.importArchiveType==='purchased';
 }
+
+export const bundleCategoryDisplayName = (name:string) => name.replace(/^(?:组合-)+/,'');

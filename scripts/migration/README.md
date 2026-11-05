@@ -72,3 +72,10 @@ node apps/api/dist/scripts/seal-legacy.js \
 使用独立内部CLI `apps/api/src/scripts/backfill-withdrawal.ts`，默认整批空跑回滚。先在服务器校验冻结源备份并恢复到 `withdrawal_restore_*` 隔离库，来源适配器可组合 `withdrawal-source.cjs` 的 `createWithdrawalReader({connect,decryptPassword,backupDigest})`；连接和原解密器只在服务器内存提供，不把配置或明文写到适配器。
 
 补迁仅处理 `finance_withdrawal`，按原迁移账本映射公司店铺；不迁入旧设备认证、Cookie、登录或远程任务。先核对预览及源/目标备份摘要，执行时明确核对库名/新旧公司并绑定该预览的程序指纹；原店铺缺映射、目标已有未归账资料等情况整批拒绝。电脑资料及原负责关系恢复后，需新助手所有者重新绑定，不会自动恢复在线。细节和本批核对见 `docs/协作/审计/提现资料补迁与上线-20261102.md`。
+
+
+### 商品编码与组合装分类增量补迁
+
+使用现有 `import-legacy` CLI，追加 `--jst-categories-only`。来源适配器需要能只读访问旧库或其隔离备份。先按原方式提供来源公司、目标公司、操作人、相同的核对公司名及新报告路径进行试跑。确认报告中的目录、关联、日志和待核对数量后，使用同一份来源和程序，带 `--expected-report`、`--confirm` 和 `--apply` 执行。
+
+该模式只读两套旧编码目录、分类关联、同步记录和已有基础编码的分类引用。只有旧映射的企业编号、应用和 API 地址与目标配置吻合时才启用原聚水潭 ID，其他映射原样加密留存。补迁不触发聚水潭接口、不迁自动同步授权、不接着执行旧队列。

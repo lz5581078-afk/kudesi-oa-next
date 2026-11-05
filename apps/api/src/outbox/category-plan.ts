@@ -39,7 +39,7 @@ const matches = (remote: { name?: unknown; parentId?: unknown; sort?: unknown; e
   remote.name === d.name && remote.parentId === d.parentId && (remote.sort == null || remote.sort === d.sort) && (remote.enable == null || remote.enable === d.enable);
 export const remoteMatches = matches;
 
-export function buildPlan(o: { local: LocalNode[]; remote: RemoteNode[]; links: LinkRow[]; allLinks?: { localId: string; remoteId: string | null }[]; mode?: 'manual' | 'auto'; targetKey: string }) {
+export function buildPlan(o: { local: LocalNode[]; remote: RemoteNode[]; links: LinkRow[]; allLinks?: { localId: string; remoteId: string | null }[]; mode?: 'manual' | 'auto' | 'dependency'; targetKey: string }) {
   const { local, remote, links, targetKey } = o;
   const allLinks = o.allLinks ?? links;
   const mode = o.mode ?? 'manual';
@@ -60,7 +60,11 @@ export function buildPlan(o: { local: LocalNode[]; remote: RemoteNode[]; links: 
     let op: PlanOp;
     if ((names.get(key(n.name)) ?? 0) > 1) op = row(n, 'conflict', found, desired, 'OA 存在重名分类');
     else if (n.parentId !== '0' && !parentId) op = row(n, 'conflict', found, desired, '父级尚未解决冲突');
-    else if (link?.remoteId && !found) op = row(n, 'conflict', priorRemote, desired, '已关联的聚水潭分类不存在，禁止自动重建');
+    else if (link?.remoteId && !found) {
+      const disabled=!n.enable&&last?.enable===false&&['linked','retired'].includes(link.status);
+      op=disabled?row(n,'none',null,desired):row(n,'conflict',priorRemote,desired,'已关联的聚水潭分类不存在，禁止自动重建');
+      if(disabled)resolved.set(n.id,String(link.remoteId));
+    }
     else if (link?.status === 'uncertain' && mode === 'auto') op = row(n, 'conflict', found, desired, '上次请求结果不明，请先手动核对');
     else if (found) {
       const collisions = remote.filter((r) => r.id !== found.id && key(r.name) === key(n.name));
@@ -76,7 +80,7 @@ export function buildPlan(o: { local: LocalNode[]; remote: RemoteNode[]; links: 
       const same = remote.filter((r) => key(r.name) === key(n.name));
       const candidate = same.length === 1 && same[0].name === n.name && same[0].parentId === desired.parentId ? same[0] : null;
       const owned = candidate && allLinks.some((r) => String(r.remoteId) === candidate.id && String(r.localId) !== n.id);
-      if (candidate && !owned && mode === 'manual') { op = row(n, 'bind', candidate, desired, '关联已有分类，并按 OA 同步排序及启用状态'); resolved.set(n.id, candidate.id); }
+      if (candidate && !owned && (mode === 'manual' || (mode === 'dependency' && candidate.enable !== false && matches(candidate, desired) && (!link?.pending || matches(candidate, link.pending))))) { op = row(n, 'bind', candidate, desired, '关联已有分类，并按 OA 同步排序及启用状态'); resolved.set(n.id, candidate.id); }
       else if (same.length) op = row(n, 'conflict', candidate, desired, '同名分类需手动核对关联，自动同步不会认领或覆盖');
       else if (link?.status === 'uncertain') op = row(n, 'conflict', null, desired, '上次新增结果不明；请回查或在聚水潭确认，不能盲目重复新增');
       else if (n.enable) { op = row(n, 'create', null, desired); resolved.set(n.id, `local:${n.id}`); }
