@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ScriptVersionPanel } from './ScriptVersionPanel';
 import { PondQuestionArticle } from './ProductQuestionArticle';
 import { api } from '../../api/client';
+import type { Asset } from './scriptCues';
 
 vi.mock('../../api/client', () => ({ api: vi.fn() }));
 beforeEach(() => {
@@ -18,11 +19,11 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-function openEditor() {
+function openVersion(manage = true, assets: Asset[] = []) {
   const dirty = vi.fn();
   render(
     <ScriptVersionPanel
-      manage
+      manage={manage}
       folderTitle="玉米"
       onDirty={dirty}
       onName={vi.fn()}
@@ -33,7 +34,7 @@ function openEditor() {
         notes: '',
         body: '甲乙',
         revision: 1,
-        assets: [],
+        assets,
         cues: [{ asset: 4, start: 1, end: 2 }],
         outline: [
           { name: '开场', length: 1 },
@@ -42,6 +43,11 @@ function openEditor() {
       }}
     />,
   );
+  return dirty;
+}
+
+function openEditor() {
+  const dirty = openVersion();
   fireEvent.click(screen.getByText('编辑版本'));
   return dirty;
 }
@@ -122,4 +128,14 @@ it('鱼塘问题库位于版本问题库之后，切换分区保留鱼塘草稿�
   await screen.findByText('问题库已保存');
   expect(api).toHaveBeenCalledWith('/live/scripts/pond-question-article', {method:'PUT', body:{body:'保留的鱼塘草稿', revision:1}});
   expect(dirty).toHaveBeenLastCalledWith(false);
+});
+
+it.each([true, false])('预览直接打开原素材，按直播管理权限显示上传入口（%s）', (manage) => {
+  openVersion(manage, [{ id: 4, name: '籽粒示意图', category: 'image' }]);
+  fireEvent.click(screen.getByRole('button', { name: '素材库' }));
+  const zone = within(screen.getByRole('region', { name: '图片素材区' }));
+  expect(zone.getByRole('button', { name: '下载 籽粒示意图' })).toBeTruthy();
+  expect(Boolean(zone.queryByLabelText('选择图片'))).toBe(manage);
+  expect(Boolean(zone.queryByRole('button', { name: '手机扫码上传' }))).toBe(manage);
+  expect(screen.queryByRole('button', { name: '保存版本' })).toBeNull();
 });
