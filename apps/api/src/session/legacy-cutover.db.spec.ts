@@ -37,6 +37,14 @@ suite('店铺登录模块与整库切换清单保护（新建隔离MySQL库）',
     for (const table of LEGACY_SESSION_TABLES) expect(Number((await ds.query(`SELECT COUNT(*) n FROM \`${table}\``))[0].n)).toBe(0);
   });
 
+  it('产品话术非空时拒绝整库清理并保留原目录', async () => {
+    const {insertId}=await ds.query('INSERT INTO live_script_folders(company_id,name) VALUES(?,?)',[companyId,'测试话术']);
+    try {
+      await expect(run()).rejects.toThrow(/话术中心已有资料/);
+      expect(await ds.query('SELECT name FROM live_script_folders WHERE id=?',[insertId])).toEqual([{name:'测试话术'}]);
+    } finally {await ds.query('DELETE FROM live_script_folders WHERE id=?',[insertId]);}
+  });
+
   const occupiedCases = [
     { table: 'sm_legacy_session_workspaces', sql: "INSERT INTO sm_legacy_session_workspaces (company_id,workspace_key,name,permission_key) VALUES (?,'finance_withdrawal','合成登录工作区','finance.session-manager.manage')", params: () => [companyId] },
     { table: 'sm_legacy_company_adoptions', sql: 'INSERT INTO sm_legacy_company_adoptions (company_id,actor_id,applied_at,source_hash) VALUES (?,1,CURRENT_TIMESTAMP(3),?)', params: () => [companyId, 'c'.repeat(64)] },

@@ -26,6 +26,12 @@ describe('七牛客户端', () => {
     expect(new QiniuClient({ ...cfg, isPrivate: false }, fetch, now).downloadUrl('a/b.png')).toBe('https://cdn.example.com/a/b.png');
   });
 
+  it('命名下载时把附件名编码并纳入私有链接的签名', () => {
+    const target = 'https://cdn.example.com/a.png?attname=' + encodeURIComponent('玉米&籽粒.png');
+    const signed = target + '&e=1700000300';
+    expect(new QiniuClient(cfg, fetch, now).downloadUrl('a.png', 300, '玉米&籽粒.png')).toBe(signed + '&token=AK:' + hmac(signed));
+  });
+
   it('上传走所选区域的上传域名，失败时带出七牛的错误信息', async () => {
     const calls: Array<{ url: string; body: FormData }> = [];
     const ok = (async (url: string, init: { body: FormData }) => {
