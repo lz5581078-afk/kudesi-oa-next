@@ -5,6 +5,9 @@ export function jstSign(secret: string, params: Record<string, string>): string 
   return createHash('md5').update(secret + Object.keys(params).filter(k => k !== 'sign').sort().map(k => k + params[k]).join('')).digest('hex');
 }
 export const JST_READ_PATHS = ['/open/shops/query', '/open/sku/query', '/open/combine/sku/query', '/open/category/query', '/open/orders/single/query', '/open/refund/single/query'] as const;
+const CATEGORY_QUERY = '/open/category/query';
+const CATEGORY_PAGE_SIZE = 100;
+const CATEGORY_MAX_PAGES = 500;
 const writes = ['/open/jushuitan/itemsku/upload', '/open/item/combinesku/upload', '/open/webapi/itemapi/category/addorupdate'];
 export class JushuitanClient {
   constructor(readonly config: { appKey: string; appSecret: string; accessToken: string; baseUrl: string }, private readonly fetchFn: typeof fetch = fetch) {
@@ -34,6 +37,7 @@ export class JushuitanClient {
     return body.data ?? body;
   }
   async pages(path: string, biz: JsonRow, key: string, maxPages = 30): Promise<JsonRow[]> {
+    if (path === CATEGORY_QUERY) return this.categoryPages(biz);
     const all: JsonRow[] = [];
     for (let page = 1; page <= maxPages; page++) {
       const b = await this.call(path, { ...biz, page_index: page, page_size: 50 });
@@ -45,4 +49,30 @@ export class JushuitanClient {
     }
     throw new Error('聚水潭结果超出分页上限，请缩小范围后重试');
   }
+
+  /** 分类接口沿用 24 号分页协议，读完整棵树后才能计划写入。 */
+  private async categoryPages(biz: JsonRow): Promise<JsonRow[]> {
+    const all: JsonRow[] = [];
+    for (let page = 1; page <= CATEGORY_MAX_PAGES; page++) {
+      const response = await this.call(CATEGORY_QUERY, { ...biz, page_index: page, page_size: CATEGORY_PAGE_SIZE });
+      const rows = response.datas;
+      if (!Array.isArray(rows)) throw new Error('聚水潭分类响应缺少列表，无法确认同步差异');
+      const flag = response.has_next;
+      if (flag != null && ![true, false, 0, 1, '0', '1', 'true', 'false'].includes(flag)) {
+        throw new Error('聚水潭分类分页标记不合法，无法确认同步差异');
+      }
+      const pageCount = response.page_count == null ? null : Number(response.page_count);
+      if (flag == null && pageCount !== null && (!Number.isSafeInteger(pageCount) || pageCount < 0)) {
+        throw new Error('聚水潭分类总页数不合法，无法确认同步差异');
+      }
+      const hasNext = flag != null ? [true, 1, '1', 'true'].includes(flag)
+        : pageCount !== null ? page < pageCount : rows.length >= CATEGORY_PAGE_SIZE;
+      if (hasNext && !rows.length) throw new Error('聚水潭分类分页缺失，无法确认同步差异');
+      all.push(...rows);
+      if (!hasNext) return all;
+      await new Promise(resolve => setTimeout(resolve, 400));
+    }
+    throw new Error('聚水潭分类超过安全读取上限，无法确认同步差异');
+  }
+
 }
