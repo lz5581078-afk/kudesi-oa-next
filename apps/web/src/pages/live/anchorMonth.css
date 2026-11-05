@@ -31,3 +31,5 @@
 .anchor-period-picker { display:flex; flex-wrap:wrap; gap:6px; margin:12px 0; }
 .anchor-period-picker button { border:1px solid var(--border); background:white; color:var(--muted); padding:7px 12px; border-radius:7px; cursor:pointer; }
 .anchor-period-picker button[aria-pressed="true"] { color:#08676a; background:#e3f2ef; border-color:#8dbeb6; font-weight:600; }
+
+.anchor-period-status { min-height:18px; margin:4px 0; font-size:12px; color:var(--muted); }
