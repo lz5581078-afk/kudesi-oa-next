@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { api } from '../../api/client';
 import { categories, type Asset, type ScriptVersion } from './scriptCues';
 
@@ -33,8 +33,12 @@ export function ScriptPreview({
   // Keep each original paragraph together even when a cue starts mid-sentence.
   const stages = initialOutline(v),
     starts = offsets(stages);
-  const paragraphs = Array.from(v.body.matchAll(/[^\n]*\n|[^\n]+$/g), (m) => {
-    const start = m.index!,
+  const paragraphs = stages.flatMap((stage, chapter) => {
+    const text = v.body.slice(starts[chapter], starts[chapter] + stage.length);
+    const matches = Array.from(text.matchAll(/[^\n]*\n|[^\n]+$/g));
+    if (!matches.length) return [{ start: starts[chapter], end: starts[chapter], cues: [], points: [starts[chapter]], chapter, first: true }];
+    return matches.map((m, line) => {
+    const start = starts[chapter] + m.index!,
       end = start + m[0].length;
     const cues = v.cues.filter((c) => c.start < end && c.end > start);
     const points = [
@@ -45,7 +49,8 @@ export function ScriptPreview({
         ...cues.flatMap((c) => [Math.max(start, c.start), Math.min(end, c.end)]),
       ]),
     ].sort((a, b) => a - b);
-    return { start, end, cues, points };
+    return { start, end, cues, points, chapter, first: line === 0 };
+    });
   });
   const color = (id: number) => `hsl(${(v.assets.findIndex((a) => a.id === id) * 137 + 159) % 360} 55% 87%)`;
   function arrow(assetId: number, start: boolean, position: number) {
@@ -137,13 +142,25 @@ export function ScriptPreview({
               if (!selection?.rangeCount) return;
               const range = selection.getRangeAt(0);
               if (!e.currentTarget.contains(range.commonAncestorContainer)) return;
-              e.clipboardData.setData('text/plain', range.cloneContents().textContent ?? '');
+              const parts = Array.from(e.currentTarget.querySelectorAll('.sc-prose')).flatMap((prose) => {
+                if (!range.intersectsNode(prose)) return [];
+                const part = document.createRange();
+                part.selectNodeContents(prose);
+                if (range.compareBoundaryPoints(Range.START_TO_START, part) > 0)
+                  part.setStart(range.startContainer, range.startOffset);
+                if (range.compareBoundaryPoints(Range.END_TO_END, part) < 0)
+                  part.setEnd(range.endContainer, range.endOffset);
+                return [part.toString()];
+              });
+              e.clipboardData.setData('text/plain', parts.join(''));
               e.preventDefault();
             }}
           >
             {!v.body && <p className="muted">这个版本还没有正文。</p>}
-            {paragraphs.map(({ start, end, cues, points }) => (
-              <div className="sc-line" key={start}>
+            {paragraphs.map(({ start, end, cues, points, chapter, first }) => (
+              <Fragment key={chapter + ':' + start}>
+              {first && <h4 className="sc-reading-heading" data-stage={chapter}>第 {chapter + 1} 章 · {stages[chapter].name}</h4>}
+              {start === end ? <p className="muted">本章尚未填写</p> : <div className="sc-line">
                 <aside>
                   {cues.filter((c) => c.start >= start).map((c) => arrow(c.asset, true, c.start))}
                 </aside>
@@ -175,7 +192,8 @@ export function ScriptPreview({
                   })}
                 </span>
                 <aside>{cues.filter((c) => c.end <= end).map((c) => arrow(c.asset, false, c.end))}</aside>
-              </div>
+              </div>}
+              </Fragment>
             ))}
           </div>
           {active && (
