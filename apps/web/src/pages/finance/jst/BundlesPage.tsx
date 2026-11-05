@@ -154,11 +154,12 @@ function BundlesContent() {
   return (
     <div className="finance-code-page finance-bundle-reference">
       {applications&&<SkuApplicationCenter onClose={()=>setApplications(false)}/>}
-      <div className="page-head">
-        <div className="bundle-list-page-title"><div><h1>商品组合编码</h1><p>销售组合装，对标聚水潭组合装商品</p></div></div>
+      <div className="page-head finance-page-toolbar" aria-label="组合编码操作">
+        <div className="finance-toolbar-description"><h1>商品组合编码</h1><p>销售组合装，对标聚水潭组合装商品</p></div>
+        <div className="finance-page-actions">
         <button type="button" className="secondary-button" onClick={()=>setDialog('naming')}><ClipboardCheck size={16}/>组合品编码配置中心</button>
         <button type="button" className="secondary-button" onClick={()=>setApplications(true)}><ClipboardCheck size={16}/>SKU批量申请</button>
-
+        </div>
       </div>
       <BundleArchiveHistory>        <details className="bundle-extra-tools"><summary>更多操作</summary><div className="pill-row"><label>销售平台<select aria-label="销售平台筛选" value={platform} onChange={e=>setPlatform(e.target.value)}><option value="">全部平台</option>{platforms.map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</select></label><button type="button" className="secondary-button" onClick={()=>setUnknownInactive(true)}>验证状态待确认的停用记录</button>
           {tab!=='verified'&&canAny('finance.jst-sync.view') && <button type="button" className="secondary-button" onClick={() => setSync('')}>聚水潭同步维护</button>}
