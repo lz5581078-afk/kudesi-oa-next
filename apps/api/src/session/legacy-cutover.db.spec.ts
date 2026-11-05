@@ -57,6 +57,16 @@ suite('店铺登录模块与整库切换清单保护（新建隔离MySQL库）',
     }
   });
 
+  it('招聘二维码已有资料时拒绝整库清理', async () => {
+    await ds.query("INSERT INTO recruit_invites(company_id,label,token_hash,token_enc,created_by) VALUES(?,'保护测试',?,'test',1)", [companyId, 'd'.repeat(64)]);
+    try {
+      await expect(run()).rejects.toThrow('招聘模块已有资料');
+      expect(await ds.query('SELECT label FROM recruit_invites WHERE company_id=?',[companyId])).toEqual([{label:'保护测试'}]);
+    } finally {
+      await ds.query('DELETE FROM recruit_invites WHERE company_id=?',[companyId]);
+    }
+  });
+
   const occupiedCases = [
     { table: 'sm_legacy_session_workspaces', sql: "INSERT INTO sm_legacy_session_workspaces (company_id,workspace_key,name,permission_key) VALUES (?,'finance_withdrawal','合成登录工作区','finance.session-manager.manage')", params: () => [companyId] },
     { table: 'sm_legacy_company_adoptions', sql: 'INSERT INTO sm_legacy_company_adoptions (company_id,actor_id,applied_at,source_hash) VALUES (?,1,CURRENT_TIMESTAMP(3),?)', params: () => [companyId, 'c'.repeat(64)] },
