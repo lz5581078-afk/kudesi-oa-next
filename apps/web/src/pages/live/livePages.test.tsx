@@ -44,6 +44,8 @@ describe('我的直播', () => {
     expect(await screen.findByText('¥123.45')).toBeTruthy();
     expect(screen.getByText('¥200.00')).toBeTruthy();
     const week = screen.getByLabelText('本周排场');
+    expect(within(week).getByRole('heading', {name:/我的排场/})).toBeTruthy();
+    expect(week.compareDocumentPosition(screen.getByLabelText('本月提成明细')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const buttons = within(week).getAllByRole('button', { name: '上播' });
     expect((buttons[0] as HTMLButtonElement).disabled).toBe(false);
     expect((buttons[1] as HTMLButtonElement).disabled).toBe(true);
@@ -202,7 +204,8 @@ describe('直播管理', () => {
     fireEvent.click(await screen.findAllByRole('button', { name: '新增排场' }).then(b=>b[0]));
     const dlg = await screen.findByRole('dialog', { name: '新增排场' });
     fireEvent.click(within(dlg).getByRole('button', { name: '保存' }));
-    expect((await within(dlg).findByRole('alert')).textContent).toContain('请填写');
+    expect(await screen.findByRole('dialog', {name:'请选择本场主播'})).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', {name:'返回补选主播'}));
     await within(dlg).findByRole('option', { name: '直播间-北1' });
     fireEvent.change(within(dlg).getByLabelText('直播间'), { target: { value: '10' } });
     fireEvent.change(within(dlg).getByLabelText('开始时间'), { target: { value: '10:00' } });
@@ -212,6 +215,7 @@ describe('直播管理', () => {
     fireEvent.click(within(dlg).getByLabelText('抖音一号关联抖音店'));
     l.createSchedule.mockRejectedValueOnce(new Error('该直播间 10:00–14:00 已有排场，时间段不能重叠'));
     fireEvent.click(within(dlg).getByRole('button', { name: '保存' }));
+    fireEvent.click(await screen.findByRole('button', {name:'确认无中控并保存'}));
     expect((await within(dlg).findByRole('alert')).textContent).toContain('不能重叠');
     expect(l.createSchedule.mock.calls[0][0]).toMatchObject({ roomId: 10, startTime: '10:00', endTime: '12:00', anchorId: 3, controlId: null, douyinAccountId: 20 });
     fireEvent.click(within(dlg).getByRole('button', { name: '取消' }));

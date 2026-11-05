@@ -1,3 +1,4 @@
+vi.mock('../../auth/AuthContext',()=>({useAuth:()=>({user:{id:4,name:'登录中控'},can:()=>true})}));
 import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react';
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {StartDialog} from './StartDialog';
@@ -69,4 +70,13 @@ it('未安排本人的空缺中控场次默认收起，主动选择后才能加�
  await screen.findByRole('button',{name:'选择其他可加入场次'});expect(screen.queryByRole('button',{name:/直播中 · 加入本场/})).toBeNull();expect(api.start).not.toHaveBeenCalled();
  fireEvent.click(screen.getByRole('button',{name:'选择其他可加入场次'}));fireEvent.click(screen.getByRole('button',{name:/直播中 · 加入本场/}));
  await screen.findByRole('dialog',{name:'核对本场并确认本人上播'});expect(api.start).not.toHaveBeenCalled();
+});
+
+it('核对人员时显示排班中的姓名，候选列表缺少中控也不误显示登录人',async()=>{
+ const options=await api.options();api.options.mockResolvedValue({...options,controls:[]});
+ render(<StartDialog {...props}/>);
+ await screen.findByDisplayValue('旧计划产品');
+ expect(screen.getByLabelText('本场主播').textContent).toBe('主播');
+ expect(screen.getByLabelText('本场中控').textContent).toBe('中控');
+ expect(screen.getByLabelText('请核对本场主播和中控').className).toContain('live-identity-cards');
 });

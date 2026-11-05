@@ -1,3 +1,4 @@
+import './liveStart.css';
 import { PersonPhotoName } from './PersonPhotoName';
 import { useState } from 'react';
 import { liveApi, type CheckinContext, type CheckinSession } from './liveApi';
@@ -22,7 +23,10 @@ export function CheckinRoleDialog({context,onClose,onControl,onDone}:{context:Ch
       <label><input type="radio" name="checkin-role" value="operator" checked={role==='operator'} disabled={!operators.length} onChange={()=>{setRole('operator');setSelected('');}}/><span><strong>运营</strong><small>本场有中控时才可选择运营身份</small>{!operators.length&&<small>当前没有可加入的运营场次</small>}</span></label>
     </fieldset>
     {!!candidates.length&&<label className="live-field">本场直播<select value={chosen?.id??''} onChange={e=>setSelected(e.target.value)}>{candidates.map(s=><option key={s.id} value={s.id}>{s.roomName} · 主播 {s.anchor.name}{s.control?` · 中控 ${s.control.name}`:''}</option>)}{role==='control'&&<option value="new">按本人排班开播</option>}</select></label>}
-    {chosen&&<p className="muted">{chosen.roomName} · 主播 <PersonPhotoName personId={chosen.anchor.id} name={chosen.anchor.name}/> · 中控 {chosen.control?.name??'待本人确认'}{chosen.operator?` · 运营 ${chosen.operator.name}`:''}</p>}
+    {chosen&&<><p>{chosen.roomName}</p><dl className="live-start-people-summary live-identity-cards">
+      <div className="live-identity-anchor"><dt>主播</dt><dd><PersonPhotoName personId={chosen.anchor.id} name={chosen.anchor.name}/></dd></div>
+      <div className="live-identity-control"><dt>中控</dt><dd>{chosen.control?.name??'待本人确认'}</dd></div>
+    </dl>{chosen.operator&&<p className="muted">运营 {chosen.operator.name}</p>}</>}
     {role==='operator'&&chosen&&<p className="muted">{chosen.channels?.map(c=>`${c.accountName} / ${c.stores.map(s=>s.name).join('、')}`).join('；')}</p>}
   </Modal>;
 }
