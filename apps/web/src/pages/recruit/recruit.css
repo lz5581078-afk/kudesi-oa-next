@@ -1,0 +1,51 @@
+/* 招聘管理：后台页、求职者填表页、A4 打印 */
+.recruit-stats { margin: 0 0 12px; color: var(--muted); }
+.recruit-qr-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; margin-top: 16px; }
+.recruit-qr { display: flex; gap: 14px; padding: 14px; border: 1px solid var(--border); border-radius: 12px; align-items: flex-start; }
+.recruit-qr.revoked { opacity: .55; }
+.recruit-qr small { display: block; color: var(--muted); margin: 6px 0; }
+.recruit-qr-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.recruit-dl { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px 20px; margin: 16px 0; }
+.recruit-dl div { display: grid; gap: 2px; } .recruit-dl dt { color: var(--muted); font-size: 13px; } .recruit-dl dd { margin: 0; overflow-wrap: anywhere; }
+.recruit-text { white-space: pre-wrap; } .recruit-events { color: var(--muted); padding-left: 18px; }
+.recruit-history-view { padding-left: 18px; } .recruit-history-view p { margin: 2px 0; color: var(--muted); }
+
+.recruit-apply { min-height: 100dvh; padding: 24px 12px; background: #edf5f5; display: flex; justify-content: center; color: #19333a; }
+.recruit-apply-card { width: min(100%, 720px); background: #fff; border: 1px solid #d8e7e7; border-radius: 18px; padding: 28px; align-self: flex-start; }
+.recruit-apply-card h1 { font-size: 24px; margin: 12px 0; }
+.recruit-choice { display: grid; gap: 12px; }
+.recruit-choice button { min-height: 72px; display: grid; gap: 4px; text-align: left; padding: 12px 16px; white-space: normal; }
+.recruit-choice small { font-weight: 400; opacity: .8; }
+.recruit-busy { padding: 32px 0; text-align: center; }
+.recruit-done { text-align: center; padding: 24px 0; }
+.recruit-fields { display: grid; gap: 16px; }
+.recruit-fields label { display: grid; gap: 6px; font-size: 14px; font-weight: 600; }
+.recruit-fields input, .recruit-fields select, .recruit-fields textarea { width: 100%; min-width: 0; font: inherit; border: 1px solid #cbdada; border-radius: 8px; padding: 10px 12px; box-sizing: border-box; }
+.recruit-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.recruit-history { border: 1px solid #dbe6e6; border-radius: 10px; padding: 10px 12px; display: grid; gap: 10px; }
+.recruit-history-row { display: grid; gap: 8px; padding-bottom: 10px; border-bottom: 1px dashed #dbe6e6; }
+.recruit-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 18px; }
+.recruit-actions button { min-height: 44px; }
+@media (max-width: 560px) { .recruit-apply-card { padding: 20px 14px; } .recruit-grid { grid-template-columns: 1fr; } .recruit-actions { position: sticky; bottom: 0; background: #fff; padding: 10px 0; } .recruit-actions button { flex: 1; } }
+
+/* 打印：只输出 .recruit-print（面试登记表）或二维码卡片 */
+.recruit-print { display: none; }
+@media print {
+  body.recruit-printing * { visibility: hidden; }
+  body.recruit-printing .recruit-print, body.recruit-printing .recruit-print *, body.recruit-printing .recruit-qr.printing, body.recruit-printing .recruit-qr.printing * { visibility: visible; }
+  body.recruit-printing .recruit-qr.printing { position: absolute; left: 0; top: 0; border: 0; }
+  body.recruit-printing .recruit-qr-actions { display: none; }
+  .recruit-print { display: block; position: absolute; left: 0; top: 0; width: 100%; color: #000; font-size: 12pt; }
+  .recruit-print h1 { font-size: 18pt; text-align: center; margin: 0 0 6pt; }
+  .recruit-print h3 { font-size: 13pt; margin: 12pt 0 4pt; border-bottom: 1px solid #000; }
+  .recruit-print table { width: 100%; border-collapse: collapse; }
+  .recruit-print th, .recruit-print td { border: 1px solid #000; padding: 4pt 6pt; text-align: left; vertical-align: top; }
+  .recruit-print th { width: 14%; background: #f2f2f2; font-weight: 600; }
+  .recruit-print-meta { font-size: 10pt; text-align: center; margin: 0 0 8pt; }
+  .recruit-print-text { white-space: pre-wrap; margin: 0; }
+  .recruit-print-lines { height: 150pt; border: 1px solid #000; margin-top: 6pt; }
+  @page { size: A4; margin: 14mm; }
+}
+.recruit-apply button { border: 1px solid #b9cfcf; background: #fff; color: #19333a; border-radius: 8px; padding: 10px 14px; font: inherit; cursor: pointer; }
+.recruit-apply button.primary { background: #187978; border-color: #187978; color: #fff; }
+.recruit-apply button.primary:disabled { opacity: .6; }

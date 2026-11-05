@@ -81,6 +81,14 @@ export function permissionCatalog(): CatalogGroup[] {
     ],
   });
   groups.push({
+    id: 'recruit-actions',
+    label: '人事管理 · 招聘',
+    items: [
+      { key: SPECIAL_PERMISSIONS.recruitManage, label: '招聘：生成/停用招聘二维码、认领跟进求职者' },
+      { key: SPECIAL_PERMISSIONS.recruitIdView, label: '招聘：查看求职者身份证号明文（写审计）' },
+    ],
+  });
+  groups.push({
     id: 'product-sensitive',
     label: '商品敏感数据',
     items: [
