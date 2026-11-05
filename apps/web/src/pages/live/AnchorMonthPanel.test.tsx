@@ -28,3 +28,19 @@ it('排班候选和选中后的摘要使用服务器本月数据，保留兼职�
  const option=await screen.findByRole('option',{name:/主播甲（兼职）.*业绩 ¥18,600.00.*提成 ¥930.00/});expect(option).toBeTruthy();expect(batch).toHaveBeenCalledWith([7]);fireEvent.change(screen.getByLabelText('主播'),{target:{value:'7'}});expect(change).toHaveBeenCalled();
  v.rerender(<AnchorMonthSelect people={[{id:7,name:'主播甲',detail:'',partTime:true}]} value="7" onChange={change}/>);await screen.findByText('2026-11 本月汇总 · 含未审核');expect(screen.getByText('本月直播时长')).toBeTruthy();
 });
+
+it('周期切换更新汇总和场次，慢响应不能覆盖新周期',async()=>{
+ let resolve!:(d:AnchorMonthData)=>void;
+ const read=vi.spyOn(anchorMonthApi,'read').mockImplementation((id,period)=>period==='3d'?new Promise(r=>resolve=r):Promise.resolve({...data(),from:'2026-10-06',through:'2026-11-04'}));
+ render(<AnchorMonthPanel userId={7}/>);
+ await screen.findByText('本月营业额');
+ fireEvent.click(screen.getByRole('button',{name:'本月业绩'}));
+ expect(screen.getByText('本月营业额')).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'近 3 天业绩'}));
+ fireEvent.click(screen.getByRole('button',{name:'近 30 天业绩'}));
+ await screen.findByText('近 30 天营业额');
+ expect(read).toHaveBeenLastCalledWith(7,'30d');
+ resolve({...data(),items:[{...data().items[0],sessions:[]}]});
+ await waitFor(()=>expect(screen.getByText('南7')).toBeTruthy());
+ expect(screen.getByText('2026-10-06 至 2026-11-04')).toBeTruthy();
+});
