@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, Optional } from '@nestjs/common';
-import { createChecker } from '@kudesi/shared';
+import { createChecker, normalizeRecruitForm, type RecruitForm } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { AiProviderService, type AiScope } from './ai-providers.service';
 import { IntegrationSettingsService } from './integration-settings.service';
@@ -18,6 +18,14 @@ const EXPRESS_PROMPT = `你是快递报价表识别助手。请识别图片里�
  {"province":"目的省份（全国统一价写 全国）","weightMin":重量下限kg数字,"weightMax":重量上限kg数字或null,"firstWeight":首重kg数字或null,"firstPrice":首重价（元）或null,"extraPrice":续重每kg价（元）或null,"fixedPrice":固定价（元）或null}
 ]}
 省份只写简称（如 广东、内蒙古）；价格单位是元，数字不要带单位；看不清的字段填 null，不要猜。`;
+
+const RESUME_PROMPT = `你是简历信息提取助手。请识别图片中的个人简历或登记表，只输出一个 JSON 对象，不要任何解释。识别不到的字段填空字符串或空数组，不要猜测。字段：
+name 姓名；gender 性别（男/女）；ethnicity 民族；birthDate 出生日期（YYYY-MM-DD，只有年月写 YYYY-MM-01）；marital 婚否（未婚/已婚/离异/其他）；
+education 最高学历（初中及以下/高中/中专/大专/本科/硕士/博士，高中和中专统一写 高中/中专）；school 最高学历的毕业院校；graduationDate 毕业时间（YYYY-MM）；
+expectedSalary 期望薪资（原文）；idNo 身份证号码；phone 手机号；achievements 工作成果/主要业绩；selfEvaluation 自我评价；
+educationHistory 教育经历数组，每项 {"period":"起止时间","org":"学校","title":"专业","note":"说明"}；
+workHistory 工作经历数组，每项 {"period":"起止时间","org":"公司","title":"职位","note":"工作内容"}。
+图片不是简历时，所有字段都留空。`;
 
 const FIELDS = ['companyName', 'creditCode', 'legalPerson', 'licenseType', 'registeredCapital', 'address', 'businessScope', 'foundedAt', 'approvedAt', 'registrar'] as const;
 
@@ -91,6 +99,29 @@ export class OcrService {
     const { fields, warnings } = normalizeLicenseFields(parsed);
     if (Object.keys(fields).length === 0) throw new BadRequestException('没有识别出任何内容，请换一张更清晰的图片重试');
     return { fields, warnings, rawText: reply.slice(0, 4000) };
+  }
+
+  /** 求职者上传的简历图片 → 待本人确认的登记表字段（不入库）。调用方必须已校验二维码令牌，这里只认公司。 */
+  async recognizeResume(companyId: number, file: UploadedFile | undefined): Promise<{ form: RecruitForm; filled: number }> {
+    const cfg = await this.visionFor(companyId, 'resume_recognition');
+    if (!cfg || !cfg.enabled) throw new BadRequestException('图片识别暂未开通，请改用手工填写');
+    if (!file || file.size === 0) throw new BadRequestException('没有收到图片');
+    if (file.size > 8 * 1024 * 1024) throw new BadRequestException('图片不能超过 8MB');
+    const kind = sniffFile(file.buffer);
+    if (!kind?.image) throw new BadRequestException('只能识别图片（png、jpg、webp）');
+    let reply: string;
+    try {
+      reply = await this.visionFactory(cfg).recognize(RESUME_PROMPT, `data:${kind.mime};base64,${file.buffer.toString('base64')}`);
+    } catch {
+      throw new BadRequestException('识别失败，请稍后重试或改用手工填写');
+    }
+    const parsed = extractJson(reply);
+    if (!parsed) throw new BadRequestException('识别结果无法解析，请换一张更清晰的图片或改用手工填写');
+    const form = normalizeRecruitForm(parsed);
+    const { educationHistory, workHistory, ...simple } = form;
+    const filled = Object.values(simple).filter(Boolean).length + educationHistory.length + workHistory.length;
+    if (filled === 0) throw new BadRequestException('没有识别出内容，请换一张更清晰的简历图片或改用手工填写');
+    return { form, filled };
   }
 
   /** 快递价格表图片 → 待确认的价格行；不入库，确认后才逐行建“快递价格表”记录 */

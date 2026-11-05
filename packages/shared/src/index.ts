@@ -23,6 +23,7 @@ export * from './express-engine';
 export * from './sku-apply';
 export * from './remote-assist';
 export * from './platform';
+export * from './recruit';
 
 export * from './unit-price';
 export * from './archive-similarity';
