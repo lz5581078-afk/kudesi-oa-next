@@ -30,6 +30,24 @@ describe('24号分类管理：逐级维护与保存失败保护', () => {
     expect(within(dialog).queryByRole('textbox',{name:'商品编码分类'})).toBeNull();
   });
 
+  it('弹窗脱离吸顶目录，分类保存不触发外层档案表单', async () => {
+    const outerSubmit = vi.fn(event => event.preventDefault());
+    render(<form onSubmit={outerSubmit}><aside className="cat-tree">
+      <FinanceCategoryManager target="finance-categories" archiveType="raw" selectedId={3} onChanged={vi.fn()} onClose={vi.fn()} />
+    </aside></form>);
+    await screen.findByRole('button', { name: '编辑籼稻' });
+    const manager = screen.getByRole('dialog', { name: '管理原料分类' });
+    expect(manager.closest('.cat-tree, form')).toBeNull();
+    fireEvent.click(within(manager).getByRole('button', { name: '编辑籼稻' }));
+    const editor = screen.getByRole('dialog', { name: '编辑分类' });
+    expect(editor.parentElement?.closest('form, .cat-tree')).toBeNull();
+    fireEvent.change(within(editor).getByRole('textbox', { name: /分类名称/ }), { target: { value: '已改名的籼稻' } });
+    fireEvent.click(within(editor).getByRole('button', { name: '保存修改' }));
+    await waitFor(() => expect(resourceApi.update).toHaveBeenCalledWith('finance-categories', 3, expect.objectContaining({ name: '已改名的籼稻' })));
+    expect(outerSubmit).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '编辑分类' })).toBeNull());
+  });
+
   it('在选中父级下新增，带所属类型、父级和标识，不会建到一级目录', async () => {
     show();
     await screen.findByRole('button', { name: '编辑籼稻' });

@@ -4,6 +4,7 @@ import {FeeCategoryEditor} from './FeeCategoryEditor';
 import {FeeCategoryManagerView} from './FeeCategoryManagerView';
 import { Check, ChevronRight, FolderTree, GripVertical, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import { ARCHIVE_TYPE_CODE, getResourceDef, resourcePermission, permissionOwner, createChecker } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError } from '../api/client';
@@ -16,8 +17,18 @@ import {CodeCategorySync} from './CodeCategorySync';
 import { matchesProductCategoryFamily } from './productCategoryFamily';
 import {loadResourceDirectory} from './resourceDirectory';
 
+/** 分类窗口须脱离目录的滚动和层叠范围，也可能从另一张表单内打开。 */
+export function FinanceCategoryManager(props: Parameters<typeof FinanceCategoryManagerContent>[0]) {
+  return createPortal(
+    <div className="fcm-portal" onSubmit={event => event.stopPropagation()}>
+      <FinanceCategoryManagerContent {...props} />
+    </div>,
+    document.body,
+  );
+}
+
 /** 财务档案的分类设置：逐级选中、独立编辑层、同级排序。所有写入仍走资料权限和校验。 */
-export function FinanceCategoryManager({ target, archiveType, rootId, selectedId, editorOnlyParentId, maxDepth = 3, counts = {}, directCounts = {}, context, presentation, locked = false, allowDelete = true, guardDeleteReferences = true, confirmation = 'reason', onPick, onChanged, onClose }: {
+function FinanceCategoryManagerContent({ target, archiveType, rootId, selectedId, editorOnlyParentId, maxDepth = 3, counts = {}, directCounts = {}, context, presentation, locked = false, allowDelete = true, guardDeleteReferences = true, confirmation = 'reason', onPick, onChanged, onClose }: {
   directCounts?:Record<number,number>;
   editorOnlyParentId?:number;
   target: string; archiveType?: string; rootId?: number; selectedId?: number; maxDepth?: number;
