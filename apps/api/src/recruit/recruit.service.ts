@@ -72,6 +72,66 @@ export class RecruitService {
     return { ok: true };
   }
 
+  // ───────────── 后台：招聘岗位 ─────────────
+  async listOpenings(actor: AuthUser) {
+    const rows = await this.ds.query(`SELECT o.*, (SELECT COUNT(*) FROM recruit_applications a WHERE a.company_id=o.company_id AND a.opening_id=o.id) application_count
+      FROM recruit_openings o WHERE o.company_id=? ORDER BY o.status='open' DESC, o.id DESC`, [actor.companyId]);
+    return rows.map((r: Record<string, unknown>) => ({ id: Number(r.id), positionId: r.position_id == null ? null : Number(r.position_id), title: r.title, departmentName: r.department_name ?? '',
+      headcount: r.headcount == null ? null : Number(r.headcount), requirements: r.requirements ?? '', status: r.status as 'open' | 'closed', applicationCount: Number(r.application_count) }));
+  }
+  /** 可导入的部门岗位：本公司启用的岗位（所在部门也要启用），标出已导入的 */
+  async positionCandidates(actor: AuthUser) {
+    this.manage(actor);
+    const rows = await this.ds.query(`SELECT p.id, p.name, d.name department_name, (SELECT 1 FROM recruit_openings o WHERE o.company_id=p.company_id AND o.position_id=p.id) imported
+      FROM positions p LEFT JOIN departments d ON d.id=p.department_id AND d.company_id=p.company_id
+      WHERE p.company_id=? AND p.status='active' AND (p.department_id IS NULL OR d.status='active') ORDER BY d.sort_order, d.id, p.sort_order, p.id`, [actor.companyId]);
+    return rows.map((r: Record<string, unknown>) => ({ id: Number(r.id), name: r.name, departmentName: r.department_name ?? '', imported: !!r.imported }));
+  }
+  async importOpenings(actor: AuthUser, positionIds: number[]) {
+    this.manage(actor);
+    const ids = [...new Set(positionIds)];
+    if (!ids.length) throw new BadRequestException('请选择要导入的岗位');
+    return this.ds.transaction(async em => {
+      const rows = await em.query(`SELECT p.id, p.name, d.name department_name FROM positions p LEFT JOIN departments d ON d.id=p.department_id AND d.company_id=p.company_id
+        WHERE p.company_id=? AND p.status='active' AND p.id IN (${ids.map(() => '?').join(',')})`, [actor.companyId, ...ids]);
+      if (rows.length !== ids.length) throw new BadRequestException('有岗位已停用或不属于本公司，请刷新后重选');
+      let added = 0, reopened = 0;
+      for (const p of rows) {
+        const [old] = await em.query('SELECT id, status FROM recruit_openings WHERE company_id=? AND position_id=? FOR UPDATE', [actor.companyId, p.id]);
+        if (!old) {
+          await em.query('INSERT INTO recruit_openings (company_id, position_id, title, department_name, created_by) VALUES (?,?,?,?,?)', [actor.companyId, p.id, p.name, p.department_name ?? null, actor.id]);
+          added++;
+        } else if (old.status === 'closed') { await em.query("UPDATE recruit_openings SET status='open' WHERE company_id=? AND id=?", [actor.companyId, old.id]); reopened++; }
+      }
+      await this.audit(em, actor, 'recruit.opening.import', 0, { positionIds: ids, added, reopened });
+      return { added, reopened, skipped: rows.length - added - reopened };
+    });
+  }
+  async createOpening(actor: AuthUser, input: { title: string; headcount?: number; requirements?: string }) {
+    this.manage(actor);
+    const title = input.title.trim();
+    if (!title) throw new BadRequestException('请填写岗位名称');
+    const [dup] = await this.ds.query("SELECT id FROM recruit_openings WHERE company_id=? AND title=? AND status='open'", [actor.companyId, title]);
+    if (dup) throw new ConflictException('已有同名的在招岗位');
+    const res = await this.ds.query('INSERT INTO recruit_openings (company_id, title, headcount, requirements, created_by) VALUES (?,?,?,?,?)',
+      [actor.companyId, title, input.headcount ?? null, input.requirements?.trim() || null, actor.id]);
+    await this.audit(this.ds.manager, actor, 'recruit.opening.create', Number(res.insertId), { title });
+    return { id: Number(res.insertId) };
+  }
+  async updateOpening(actor: AuthUser, id: number, input: { headcount?: number | null; requirements?: string; status?: 'open' | 'closed' }) {
+    this.manage(actor);
+    const [row] = await this.ds.query('SELECT id FROM recruit_openings WHERE company_id=? AND id=?', [actor.companyId, id]);
+    if (!row) throw new NotFoundException('没有这个招聘岗位');
+    const sets: string[] = [], args: unknown[] = [];
+    if (input.headcount !== undefined) { sets.push('headcount=?'); args.push(input.headcount); }
+    if (input.requirements !== undefined) { sets.push('requirements=?'); args.push(input.requirements.trim() || null); }
+    if (input.status) { sets.push('status=?'); args.push(input.status); }
+    if (!sets.length) return { ok: true };
+    await this.ds.query(`UPDATE recruit_openings SET ${sets.join(',')} WHERE company_id=? AND id=?`, [...args, actor.companyId, id]);
+    await this.audit(this.ds.manager, actor, 'recruit.opening.update', id, input as Record<string, unknown>);
+    return { ok: true };
+  }
+
   // ───────────── 后台：求职者 ─────────────
   async listApplications(actor: AuthUser, q: { keyword?: string; handler?: 'mine' | 'none' | 'any'; page?: number }) {
     const where = ['a.company_id=?']; const args: unknown[] = [actor.companyId];
@@ -82,7 +142,7 @@ export class RecruitService {
     const page = Math.max(1, Math.floor(q.page ?? 1)), size = 30;
     const [{ n }] = await this.ds.query(`SELECT COUNT(*) n FROM recruit_applications a WHERE ${where.join(' AND ')}`, args);
     const rows = await this.ds.query(`SELECT a.id, a.name, a.gender, a.education, a.school, a.expected_salary, a.phone, a.source_channel, a.source_mode, a.status,
-        a.handler_id, a.handled_at, a.created_at, h.name handler_name,
+        a.handler_id, a.handled_at, a.created_at, a.opening_title, h.name handler_name,
         (SELECT COUNT(*) FROM recruit_applications b WHERE b.company_id=a.company_id AND b.phone=a.phone) same_phone
       FROM recruit_applications a LEFT JOIN users h ON h.id=a.handler_id AND h.company_id=a.company_id
       WHERE ${where.join(' AND ')} ORDER BY a.id DESC LIMIT ? OFFSET ?`, [...args, size, (page - 1) * size]);
@@ -90,7 +150,7 @@ export class RecruitService {
       id: Number(r.id), name: r.name, gender: r.gender, education: r.education, school: r.school, expectedSalary: r.expected_salary, phone: r.phone,
       sourceChannel: r.source_channel, sourceMode: r.source_mode, status: r.status, statusLabel: RECRUIT_STATUSES[r.status as keyof typeof RECRUIT_STATUSES] ?? String(r.status),
       handlerId: r.handler_id == null ? null : Number(r.handler_id), handlerName: r.handler_name ?? null, handledAt: iso(r.handled_at as Date | null),
-      createdAt: iso(r.created_at as Date), samePhoneCount: Number(r.same_phone),
+      createdAt: iso(r.created_at as Date), samePhoneCount: Number(r.same_phone), openingTitle: (r.opening_title as string | null) ?? '',
     })) };
   }
   async getApplication(actor: AuthUser, id: number) {
@@ -103,7 +163,7 @@ export class RecruitService {
       LEFT JOIN users u ON u.id=e.actor_id AND u.company_id=e.company_id WHERE e.company_id=? AND e.application_id=? ORDER BY e.id DESC LIMIT 100`, [actor.companyId, id]);
     return {
       id: Number(r.id), status: r.status, statusLabel: RECRUIT_STATUSES[r.status as keyof typeof RECRUIT_STATUSES] ?? String(r.status),
-      sourceMode: r.source_mode, inviteLabel: r.invite_label ?? '', handlerId: r.handler_id == null ? null : Number(r.handler_id), handlerName: r.handler_name ?? null,
+      sourceMode: r.source_mode, openingTitle: r.opening_title ?? '', inviteLabel: r.invite_label ?? '', handlerId: r.handler_id == null ? null : Number(r.handler_id), handlerName: r.handler_name ?? null,
       handledAt: iso(r.handled_at), createdAt: iso(r.created_at),
       canViewId: createChecker(actor.permissions)(SPECIAL_PERMISSIONS.recruitIdView),
       form: {
@@ -167,14 +227,15 @@ export class RecruitService {
   }
   async preview(token: unknown) {
     const r = await this.resolve(this.ds.manager, token);
-    return { companyName: r.companyName, channel: r.channel };
+    const openings = await this.ds.query("SELECT id, title, department_name, requirements FROM recruit_openings WHERE company_id=? AND status='open' ORDER BY id", [r.companyId]);
+    return { companyName: r.companyName, channel: r.channel, openings: openings.map((o: Record<string, unknown>) => ({ id: Number(o.id), title: o.title, departmentName: o.department_name ?? '', requirements: o.requirements ?? '' })) };
   }
   async recognize(token: unknown, file: UploadedFile | undefined) {
     const r = await this.resolve(this.ds.manager, token);
     const out = await this.ocr.recognizeResume(r.companyId, file);
     return { form: { ...out.form, sourceChannel: out.form.sourceChannel || r.channel }, filled: out.filled };
   }
-  async submit(token: unknown, requestKey: string, sourceMode: 'manual' | 'image', input: unknown) {
+  async submit(token: unknown, requestKey: string, sourceMode: 'manual' | 'image', input: unknown, openingId?: number) {
     const form: RecruitForm = normalizeRecruitForm(input);
     const problems = recruitFormProblems(form);
     if (problems.length) throw new BadRequestException(problems.join('；'));
@@ -182,18 +243,25 @@ export class RecruitService {
     const id = await this.ds.transaction(async em => {
       const [dup] = await em.query('SELECT id FROM recruit_applications WHERE company_id=? AND request_key=?', [r.companyId, requestKey]);
       if (dup) return Number(dup.id); // 网络重试，不重复登记
+      // 有在招岗位时必须选一个；岗位只认本公司在招的，名称存快照
+      const open = await em.query("SELECT id, title FROM recruit_openings WHERE company_id=? AND status='open'", [r.companyId]);
+      let opening: { id: number; title: string } | null = null;
+      if (open.length) {
+        opening = open.find((o: { id: number }) => Number(o.id) === openingId) ?? null;
+        if (!opening) throw new BadRequestException('请选择应聘岗位（该岗位可能已停止招聘，请刷新后重选）');
+      }
       const res = await em.query(`INSERT INTO recruit_applications (company_id,invite_id,request_key,source_mode,name,gender,ethnicity,birth_date,marital,education,school,graduation_date,
-          expected_salary,id_no_enc,id_no_masked,phone,education_json,work_json,achievements,self_evaluation,source_channel) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          expected_salary,id_no_enc,id_no_masked,phone,education_json,work_json,achievements,self_evaluation,source_channel,opening_id,opening_title) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [r.companyId, r.inviteId, requestKey, sourceMode, form.name, form.gender, form.ethnicity || null, form.birthDate, form.marital || null, form.education, form.school || null,
           form.graduationDate || null, form.expectedSalary || null, this.crypto.encrypt(form.idNo), maskIdNo(form.idNo), form.phone,
-          JSON.stringify(form.educationHistory), JSON.stringify(form.workHistory), form.achievements || null, form.selfEvaluation || null, form.sourceChannel]);
+          JSON.stringify(form.educationHistory), JSON.stringify(form.workHistory), form.achievements || null, form.selfEvaluation || null, form.sourceChannel, opening ? Number(opening.id) : null, opening?.title ?? null]);
       const appId = Number(res.insertId);
       await this.event(em, r.companyId, appId, 'submitted', null, { mode: sourceMode, invite: r.label });
       const { hr, management } = await liveManagementRecipients(em, r.companyId);
       let recipients = [...new Set([...hr, ...management])];
       if (!recipients.length) recipients = (await em.find(User, { where: { companyId: r.companyId, isCompanyAdmin: true, status: 'active' }, select: ['id'] })).map(u => u.id);
       for (const userId of recipients) {
-        await writeNotification(em, { companyId: r.companyId, userId, kind: 'recruit', title: `新的面试登记：${form.name}`,
+        await writeNotification(em, { companyId: r.companyId, userId, kind: 'recruit', title: `新的面试登记：${form.name}${opening ? `（应聘${opening.title}）` : ''}`,
           body: [form.education, form.school, form.expectedSalary && `期望 ${form.expectedSalary}`, `渠道：${form.sourceChannel}`].filter(Boolean).join(' · ').slice(0, 480),
           link: `/features/recruit?id=${appId}` }, { key: `recruit:${appId}`, resourceType: 'recruit', resourceId: appId });
       }

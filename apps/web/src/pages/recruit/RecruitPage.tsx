@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { RECRUIT_FIELD_LABELS, SPECIAL_PERMISSIONS } from '@kudesi/shared';
 import { useAuth } from '../../auth/AuthContext';
 import { qrMatrix, qrSvgPath } from '../../lib/qr';
+import { RecruitOpenings } from './RecruitOpenings';
 import { recruitApi, type RecruitDetail, type RecruitInvite, type RecruitRow, type RecruitStats } from './recruitApi';
 import { RecruitPrintSheet } from './RecruitPrintSheet';
 import './recruit.css';
@@ -92,7 +93,7 @@ function Detail({ id, onChanged, onClose }: { id: number; onChanged: () => void;
   };
   const rows: Array<[string, string]> = [
     [L.name, form.name], [L.gender, form.gender], [L.ethnicity, form.ethnicity], [L.birthDate, form.birthDate], [L.marital, form.marital], [L.phone, form.phone],
-    [L.education, form.education], [L.school, form.school], [L.graduationDate, form.graduationDate], [L.expectedSalary, form.expectedSalary], [L.sourceChannel, form.sourceChannel],
+    ['应聘岗位', detail.openingTitle], [L.education, form.education], [L.school, form.school], [L.graduationDate, form.graduationDate], [L.expectedSalary, form.expectedSalary], [L.sourceChannel, form.sourceChannel],
   ];
   return (
     <section className="card recruit-detail">
@@ -141,12 +142,13 @@ function Applications({ openId, onOpen }: { openId: number | null; onOpen: (id: 
         </select>
       </div>
       <table className="data-table cards-narrow">
-        <thead><tr><th>登记时间</th><th>姓名</th><th>学历/院校</th><th>期望薪资</th><th>手机号</th><th>渠道</th><th>跟进人事</th><th /></tr></thead>
+        <thead><tr><th>登记时间</th><th>姓名</th><th>应聘岗位</th><th>学历/院校</th><th>期望薪资</th><th>手机号</th><th>渠道</th><th>跟进人事</th><th /></tr></thead>
         <tbody>
           {rows.map((r) => (
             <tr key={r.id}>
               <td data-label="登记时间">{fmt(r.createdAt)}</td>
               <td data-label="姓名">{r.name}（{r.gender}）{r.samePhoneCount > 1 && <span className="tag warn"> 重复登记 {r.samePhoneCount} 次</span>}</td>
+              <td data-label="应聘岗位">{r.openingTitle || '—'}</td>
               <td data-label="学历/院校">{r.education}{r.school ? ` · ${r.school}` : ''}</td>
               <td data-label="期望薪资">{r.expectedSalary ?? '—'}</td>
               <td data-label="手机号">{r.phone}</td>
@@ -155,7 +157,7 @@ function Applications({ openId, onOpen }: { openId: number | null; onOpen: (id: 
               <td><button onClick={() => onOpen(r.id)}>查看 / 打印</button></td>
             </tr>
           ))}
-          {rows.length === 0 && <tr><td colSpan={8} className="muted">还没有登记。到“招聘二维码”生成二维码，让求职者扫码填写。</td></tr>}
+          {rows.length === 0 && <tr><td colSpan={9} className="muted">还没有登记。到“招聘二维码”生成二维码，让求职者扫码填写。</td></tr>}
         </tbody>
       </table>
       {pages > 1 && <div className="toolbar"><button disabled={page <= 1} onClick={() => setPage(page - 1)}>上一页</button><span>{page} / {pages}</span><button disabled={page >= pages} onClick={() => setPage(page + 1)}>下一页</button></div>}
@@ -166,17 +168,18 @@ function Applications({ openId, onOpen }: { openId: number | null; onOpen: (id: 
 export function RecruitPage() {
   const [params, setParams] = useSearchParams();
   const openId = Number(params.get('id')) || null;
-  const [tab, setTab] = useState<'applications' | 'invites'>('applications');
+  const [tab, setTab] = useState<'applications' | 'openings' | 'invites'>('applications');
   return (
     <div className="recruit-page">
       <div className="page-head"><h1>招聘管理</h1></div>
       <div className="tabs" role="tablist">
         <button role="tab" aria-selected={tab === 'applications'} className={tab === 'applications' ? 'active' : ''} onClick={() => setTab('applications')}>求职者登记</button>
+        <button role="tab" aria-selected={tab === 'openings'} className={tab === 'openings' ? 'active' : ''} onClick={() => setTab('openings')}>招聘岗位</button>
         <button role="tab" aria-selected={tab === 'invites'} className={tab === 'invites' ? 'active' : ''} onClick={() => setTab('invites')}>招聘二维码</button>
       </div>
       {tab === 'applications'
         ? <Applications openId={openId} onOpen={(id) => setParams(id === null ? {} : { id: String(id) })} />
-        : <InvitePanel />}
+        : tab === 'openings' ? <RecruitOpenings /> : <InvitePanel />}
     </div>
   );
 }
