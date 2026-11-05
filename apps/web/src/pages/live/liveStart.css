@@ -74,3 +74,15 @@
   .live-start-body .live-start-edit-area .live-fields { gap:14px; }
   .live-start-edit-area > .live-start-change { margin-top:14px; }
 }
+
+.live-start-people-summary.live-identity-cards { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; width:100%; }
+.live-identity-cards > div.live-identity-anchor,
+.live-identity-cards > div.live-identity-control { display:flex; flex-direction:column; align-items:flex-start; gap:8px; padding:16px; border:2px solid #9dc9c1; border-radius:12px; background:#edf8f5; min-width:0; }
+.live-identity-cards > div.live-identity-control { border-color:#aac3e0; background:#f0f5fc; }
+.live-identity-cards .live-identity-anchor dt,
+.live-identity-cards .live-identity-control dt { font-size:14px; font-weight:700; color:#284b52; }
+.live-identity-cards .live-identity-anchor dd,
+.live-identity-cards .live-identity-control dd,
+.live-identity-cards dd button { font-size:24px; font-weight:750; line-height:1.4; color:#122e39; }
+.live-schedule-people { white-space:normal; overflow-wrap:anywhere; }
+@media(max-width:400px) { .live-identity-cards .live-identity-anchor dd,.live-identity-cards .live-identity-control dd,.live-identity-cards dd button { font-size:21px; } }

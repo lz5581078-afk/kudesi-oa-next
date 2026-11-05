@@ -44,6 +44,8 @@ describe('我的直播', () => {
     expect(await screen.findByText('¥123.45')).toBeTruthy();
     expect(screen.getByText('¥200.00')).toBeTruthy();
     const week = screen.getByLabelText('本周排场');
+    expect(within(week).getByRole('heading', {name:/我的排场/})).toBeTruthy();
+    expect(week.compareDocumentPosition(screen.getByLabelText('本月提成明细')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const buttons = within(week).getAllByRole('button', { name: '上播' });
     expect((buttons[0] as HTMLButtonElement).disabled).toBe(false);
     expect((buttons[1] as HTMLButtonElement).disabled).toBe(true);

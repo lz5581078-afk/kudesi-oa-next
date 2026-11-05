@@ -65,6 +65,19 @@ export function LiveDeskPage() {
         <button type="button" role="tab" aria-selected={tab === 'desk'} className={tab === 'desk' ? 'chip active' : 'chip'} onClick={() => setTab('desk')}>工作台</button>
         <button type="button" role="tab" aria-selected={tab === 'history'} className={tab === 'history' ? 'chip active' : 'chip'} onClick={() => setTab('history')}>我的场次历史</button>
       </div>
+      {tab === 'desk' && d && (
+          <section className="card live-section" aria-label="本周排场">
+            <h2>我的排场 <small className="muted">今天及未来 7 天 · {d.schedules.length} 场</small></h2>
+            {d.schedules.length === 0 && <p className="muted pad">这几天没有安排你的排场。</p>}
+            <ul className="live-list">{d.schedules.map((s) => (
+              <li key={s.id}>
+                <div className="main"><strong>{s.date} {s.startTime}–{s.endTime} · {s.roomName}</strong><small>我的身份：{s.mineRole === 'anchor' ? '主播' : s.mineRole === 'control' ? '中控' : '运营'} · 主播 <PersonPhotoName personId={s.anchor.id} name={s.anchor.name}/> · 中控 {s.control?.name ?? '未安排'} · {s.douyinAccount.name}{s.note ? ` · ${s.note}` : ''}</small></div>
+                {d.active.find(session => session.id === s.sessionId)?.myCheckin?.endAt ? <span className="pill ok">本人已下播</span> : <SchedulePill status={s.status} label={s.statusLabel} />}
+                {!d.identity.isOperations && s.status === 'scheduled' && s.mineRole !== 'operator' && <button type="button" className="primary-button" disabled={!s.canStart} title={s.canStart ? '' : '排班已过结束时间'} onClick={() => setStarting({ schedule: s })}>上播</button>}
+              </li>
+            ))}</ul>
+          </section>
+      )}
       <LiveCheckinPanel roomId={roomId} companyId={companyId} token={params.get('token') ?? undefined} onChanged={load}/>
       <DailyWorkPanel personal/>
       <SourceStatusNotice />
@@ -89,17 +102,7 @@ export function LiveDeskPage() {
               </li>;
             })}</ul>
           </section>
-          <section className="card live-section" aria-label="本周排场">
-            <h2>本周排场（今天起 7 天）</h2>
-            {d.schedules.length === 0 && <p className="muted pad">这几天没有安排你的排场。</p>}
-            <ul className="live-list">{d.schedules.map((s) => (
-              <li key={s.id}>
-                <div className="main"><strong>{s.date} {s.startTime}–{s.endTime} · {s.roomName}</strong><small>我是{s.mineRole === 'anchor' ? '主播' : s.mineRole === 'control' ? '中控' : '运营'} · 主播 <PersonPhotoName personId={s.anchor.id} name={s.anchor.name}/>{s.control ? `，中控 ${s.control.name}` : ''} · {s.douyinAccount.name}{s.note ? ` · ${s.note}` : ''}</small></div>
-                {d.active.find(session => session.id === s.sessionId)?.myCheckin?.endAt ? <span className="pill ok">本人已下播</span> : <SchedulePill status={s.status} label={s.statusLabel} />}
-                {!d.identity.isOperations && s.status === 'scheduled' && s.mineRole !== 'operator' && <button type="button" className="primary-button" disabled={!s.canStart} title={s.canStart ? '' : '排班已过结束时间'} onClick={() => setStarting({ schedule: s })}>上播</button>}
-              </li>
-            ))}</ul>
-          </section>
+
           <section className="card live-section" aria-label="本月提成明细">
             <h2>本月提成明细（已审核）</h2>
             {d.commissionRows.length === 0 && <p className="muted pad">本月还没有已审核的提成。</p>}

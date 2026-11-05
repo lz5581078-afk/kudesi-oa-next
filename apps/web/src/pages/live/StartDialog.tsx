@@ -1,3 +1,4 @@
+import { useAuth } from '../../auth/AuthContext';
 import { PersonPhotoName } from './PersonPhotoName';
 import type { LiveProductSnapshot } from '@kudesi/shared';
 import { ManualProductEditor } from './ManualProductEditor';
@@ -13,6 +14,7 @@ import { ApiError } from '../../api/client';
 
 /** 报上播：从排场带出（人、房间已定），或临时加场；必须选有直播权限的账号、关联店铺，并至少填写或选择 1 个在卖产品。 */
 function StartForm({ schedule, identity, joining, role:checkinRole, roomId: fixedRoomId, onClose, onDone, onExisting }: { onExisting?:(s:CheckinSession)=>void; role?:'anchor'|'control'; joining?:CheckinSession; roomId?:number; schedule: ScheduleRow | null; identity: { isAnchor: boolean; isControl: boolean; canManage: boolean }; onClose: () => void; onDone: (sessionId: number) => void }) {
+  const {user} = useAuth();
   const [opts, setOpts] = useState<Options | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -89,9 +91,9 @@ function StartForm({ schedule, identity, joining, role:checkinRole, roomId: fixe
             {editingRoom&&!schedule&&!fixedRoomId&&<label className="live-field live-start-edit-area">选择直播间<select value={roomId} onChange={e=>{setRoomId(e.target.value);if(e.target.value)setEditingRoom(false);}}><option value="">请选择</option>{opts.rooms.map(r=><option key={r.id} value={r.id} disabled={r.live}>{r.name}{r.live?'（正在直播）':''}</option>)}</select></label>}
           </div>}
           <div className={`live-start-people${schedule?' wide':''}`}>
-            <dl className="live-start-people-summary">
-              <div><dt>主播</dt><dd aria-label="本场主播"><PersonPhotoName personId={Number(anchorId)||schedule?.anchor.id} name={String(schedule?.anchor.id)===anchorId?schedule?.anchor.name??'待选择':opts.anchors.find(p=>String(p.id)===anchorId)?.name??(identity.isAnchor?'本人':'待选择')}/></dd></div>
-              <div><dt>中控</dt><dd>{opts.controls.find(p=>String(p.id)===controlId)?.name??(identity.isControl&&!identity.isAnchor?'本人':'未安排')}</dd></div>
+            <dl className="live-start-people-summary live-identity-cards" aria-label="请核对本场主播和中控">
+              <div className="live-identity-anchor"><dt>主播</dt><dd aria-label="本场主播"><PersonPhotoName personId={Number(anchorId)||schedule?.anchor.id} name={String(schedule?.anchor.id)===anchorId?schedule?.anchor.name??'待选择':opts.anchors.find(p=>String(p.id)===anchorId)?.name??(identity.isAnchor?user?.name??'本人':'待选择')}/></dd></div>
+              <div className="live-identity-control"><dt>中控</dt><dd aria-label="本场中控">{opts.controls.find(p=>String(p.id)===controlId)?.name??(controlId===String(schedule?.control?.id)?schedule?.control?.name:undefined)??(identity.isControl&&!identity.isAnchor?user?.name??'本人':'未安排')}</dd></div>
               {operatorId&&<div><dt>运营</dt><dd>{opts.operators.find(p=>String(p.id)===operatorId)?.name??schedule?.operator?.name??'待核对'}</dd></div>}
             </dl>
             <button type="button" className="secondary-button live-start-change" aria-expanded={editingPeople} onClick={()=>setEditingPeople(v=>!v)}>{editingPeople?'收起人员选择':'调整本场人员'}</button>
@@ -152,7 +154,7 @@ export function StartDialog(props:Parameters<typeof StartForm>[0]){
   if(!loaded)return <Modal bodyClassName="live-start-body" title="读取本人排班" onClose={props.onClose}>{error?<p role="alert">{error}</p>:<p role="status">正在读取排班和实际场次…</p>}</Modal>;
   if(existing)return <JoinDialog session={existing} role={props.role??(existing.canJoinAnchor?'anchor':'control')} onClose={props.onClose} onDone={props.onDone}/>;
   const visibleSessions=showOtherSessions?joinable:joinable.filter(s=>s.canJoinAnchor||!!s.control);
-  if(!props.schedule&&!chosen)return <Modal bodyClassName="live-start-body live-start-selection" title="选择本次排班" onClose={props.onClose}><p>{plans.length||visibleSessions.length?'请选择本次要播的场次。':'当前没有已安排给你的待上播场次。'}</p><div className="live-checkin-actions">{visibleSessions.map(s=><div className="live-checkin-choice" key={`session-${s.id}`}><button type="button" className="primary-button live-clock-button" aria-label={`直播中 · 加入本场 ${s.roomName} · 主播 ${s.anchor.name}`} onClick={()=>setExisting(s)}><small>直播中 · 加入本场</small><strong>{s.roomName}</strong></button><span>主播 <PersonPhotoName personId={s.anchor.id} name={s.anchor.name}/></span></div>)}{!showOtherSessions&&visibleSessions.length<joinable.length&&<button type="button" className="secondary-button live-clock-button" onClick={()=>setShowOtherSessions(true)}>选择其他可加入场次</button>}{plans.map(s=><button className="primary-button live-clock-button" key={s.id} onClick={()=>setChosen(s)}><small>待上播 · 我的排班</small><strong>{s.roomName}</strong><span>{s.date} · {s.startTime}–{s.endTime}</span></button>)}{!plans.length&&!joinable.length&&<p>没有可开播的排班，请联系人事安排。</p>}</div></Modal>;
+  if(!props.schedule&&!chosen)return <Modal bodyClassName="live-start-body live-start-selection" title="选择本次排班" onClose={props.onClose}><p>{plans.length||visibleSessions.length?'请选择本次要播的场次。':'当前没有已安排给你的待上播场次。'}</p><div className="live-checkin-actions">{visibleSessions.map(s=><div className="live-checkin-choice" key={`session-${s.id}`}><button type="button" className="primary-button live-clock-button" aria-label={`直播中 · 加入本场 ${s.roomName} · 主播 ${s.anchor.name}`} onClick={()=>setExisting(s)}><small>直播中 · 加入本场</small><strong>{s.roomName}</strong></button><span>主播 <PersonPhotoName personId={s.anchor.id} name={s.anchor.name}/></span></div>)}{!showOtherSessions&&visibleSessions.length<joinable.length&&<button type="button" className="secondary-button live-clock-button" onClick={()=>setShowOtherSessions(true)}>选择其他可加入场次</button>}{plans.map(s=><button className="primary-button live-clock-button" key={s.id} onClick={()=>setChosen(s)}><small>待上播 · 我的排班</small><strong>{s.roomName}</strong><span>{s.date} · {s.startTime}–{s.endTime}</span><span className="live-schedule-people">主播 <b>{s.anchor.name}</b> · 中控 <b>{s.control?.name??'未安排'}</b></span></button>)}{!plans.length&&!joinable.length&&<p>没有可开播的排班，请联系人事安排。</p>}</div></Modal>;
   return <StartForm {...props} schedule={chosen} onExisting={setExisting}/>;
 }
 

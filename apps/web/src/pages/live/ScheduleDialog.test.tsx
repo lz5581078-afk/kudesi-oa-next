@@ -1,3 +1,4 @@
+vi.mock('../../auth/AuthContext',()=>({useAuth:()=>({user:{id:4,name:'登录中控'},can:()=>true})}));
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ScheduleDialog } from './ScheduleDialog';
