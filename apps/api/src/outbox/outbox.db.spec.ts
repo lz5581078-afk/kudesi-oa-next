@@ -160,6 +160,15 @@ d('聚水潭同步队列（真实数据库）', () => {
     expect((await ds.manager.findOneByOrFail(OutboxJob,{id:second.id})).status).toBe('cancelled');expect(sentKeys).toHaveLength(before);
   });
 
+  it('改码后迟到入队的旧编号包在发送前取消，不产生上传历史',async()=>{
+    const bc=await mkBc('合成迟到入队','LATE-OLD'),writes=jest.fn();outbox.setSender(sender({send:async j=>{writes(j);}}));
+    await svc.update(boss,'finance-base-codes',bc.id,{code:'LATE-NEW',codeChangeReason:'先完成未上传改码'});
+    await ds.query("INSERT INTO outbox_jobs(company_id,channel,kind,resource_type,resource_id,idempotency_key,payload_json,created_by) VALUES(?,'jushuitan','base_code_upsert','finance-base-codes',?,'late-old-code',?,?)",[boss.companyId,bc.id,JSON.stringify({code:'LATE-OLD'}),boss.id]);
+    await outbox.setSwitch(boss,true,'仅合成发送器');expect(await outbox.processCompany(boss.companyId)).toMatchObject({sent:0,failed:1});expect(writes).not.toHaveBeenCalled();
+    expect(await ds.manager.findOneByOrFail(OutboxJob,{companyId:boss.companyId,idempotencyKey:'late-old-code'})).toMatchObject({status:'cancelled',lastError:expect.stringContaining('编码已变化')});
+    expect((await svc.get(boss,'finance-base-codes',bc.id)).data).toMatchObject({code:'LATE-NEW'});expect((await svc.get(boss,'finance-base-codes',bc.id)).data._financeCodeUploaded).not.toBe(true);
+  });
+
   it('历史改码替换队列也不再执行，不能绕过已上传编码保护',async()=>{
     const bc=await mkBc('历史改码任务合成','LEGACY-REPLACE'),writes=jest.fn();outbox.setSender(sender({send:async j=>{writes(j);}}));
     await ds.query("INSERT INTO outbox_jobs(company_id,channel,kind,resource_type,resource_id,idempotency_key,payload_json,created_by) VALUES(?,'jushuitan','base_code_replace','finance-base-codes',?,'legacy-replace-guard',?,?)",[boss.companyId,bc.id,JSON.stringify({code:'LEGACY-REPLACE',oldCode:'UPLOADED-OLD'}),boss.id]);

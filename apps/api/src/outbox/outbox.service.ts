@@ -602,6 +602,11 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
       const hook = { ...this.hookCtx, sys };
       try {
       if(['base_code_replace','bundle_replace'].includes(job.kind)){await em.update(OutboxJob,{id:job.id},{status:'cancelled',lastError:'已上传聚水潭的编码不可替换，请核对历史任务'});failed++;continue;}
+      if(['base_code_upsert','bundle_upsert'].includes(job.kind)&&['finance-base-codes','finance-bundles'].includes(job.resourceType)){
+        const current=await em.findOneBy(ResourceRecord,{companyId,id:job.resourceId,type:job.resourceType});
+        const queuedCode=str(job.payloadJson.sku_id)||str(job.payloadJson.code);
+        if(!current||!queuedCode||queuedCode!==str(current.data.code)){await em.update(OutboxJob,{id:job.id,status:'sending'},{status:'cancelled',lastError:'资料不存在或编码已变化，旧任务取消，请重新核对后入队'});failed++;continue;}
+      }
       if(job.payloadJson.approvalIntent){
         const record=await em.findOneBy(ResourceRecord,{companyId,id:job.resourceId,type:'finance-bundles'});
         const runId=Number((job.payloadJson.approvalIntent as {runId?:number}).runId);
