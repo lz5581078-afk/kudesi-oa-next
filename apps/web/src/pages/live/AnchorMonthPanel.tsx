@@ -195,6 +195,7 @@ export function AnchorMonthPanel({
                     <th>实际直播时间</th>
                     <th>时长</th>
                     <th>营业额</th>
+                    <th>工资</th>
                     <th>提成</th>
                     <th>状态</th>
                     <th>
@@ -212,6 +213,7 @@ export function AnchorMonthPanel({
                       <ActualLiveTime session={s} />
                       <td>{s.minutes === null ? '待修复' : minutesText(s.minutes)}</td>
                       <td>{s.turnoverCents === null ? '待补充' : money(s.turnoverCents)}</td>
+                      <td>{!data!.canViewCommission ? '无查看权限' : s.wageCents == null ? '待核定' : money(s.wageCents)}</td>
                       <td>
                         {!data!.canViewCommission
                           ? '无查看权限'
