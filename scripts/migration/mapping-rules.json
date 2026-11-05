@@ -1872,8 +1872,7 @@
         "finance_express_catalogs"
       ],
       "aliases": {},
-      "policy": "exclude-derived",
-      "reason": "OCR识别过程历史，不是有效价格规则",
+      "reason": "保留原识别记录及版本归属，不重放识别结果",
       "json": {
         "column": "carriers_json",
         "path": "$[].branches[].versions[].recognitions[]"

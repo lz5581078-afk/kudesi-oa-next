@@ -888,7 +888,11 @@ export class ResourcesService implements RuleHost {
   /** 仅服务器迁移CLI调用，无HTTP入口；保留与手工录入相同的字段/引用/加密校验。 */
   async importRecord(em: EntityManager, user: AuthUser, type: string, values: Record<string, unknown>, status?: string,legacyRegistration?:LegacyRegistration) {
     if (em.queryRunner?.data.legacyImport !== true || !user.permissions.isCompanyAdmin) throw new ForbiddenException('仅允许受控迁移事务');
-    return this.saveRecord(em, user, this.def(type), null, values, { status,legacyRegistration, note: '旧系统资料迁入，来源对照见迁移账本' });
+    const definition = this.def(type);
+    const importDefinition = type === 'finance-express-recognitions'
+      ? { ...definition, fields: definition.fields.map(field => ({ ...field, readonly: false })) }
+      : definition;
+    return this.saveRecord(em, user, importDefinition, null, values, { status,legacyRegistration, note: '旧系统资料迁入，来源对照见迁移账本' });
   }
 
   async importPatch(em: EntityManager, user: AuthUser, type: string, id: number, values: Record<string, unknown>) {

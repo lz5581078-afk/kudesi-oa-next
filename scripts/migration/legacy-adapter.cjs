@@ -11,6 +11,7 @@ const { collectSourceRows } = require('./source-row-catalog.cjs');
 const { readSourceCoverage, uncoveredSourceTables } = require('./source-coverage.cjs');
 const { readLegacyAssignments, readCurrentSkuAssignments } = require('./legacy-assignments.cjs');
 const { readLegacyVerification } = require('./legacy-verification.cjs');
+const { recognitionHistory } = require('./express-recognition-history.cjs');
 const { readJstCategoryHistory } = require('./jst-category-history.cjs');
 const { readLegacyWorkspaces } = require('./legacy-workspaces.cjs');
 /** 直播管理的旧表（全部带 company_id，由通用公司范围读取；只读） */
@@ -63,7 +64,7 @@ function codingCategoryRecords(tables) {
       ...(row.parent_id?{parentId:ref('finance-code-dictionaries',row.parent_id)}:{}),sort:ranks.get(String(row.id))}};
   });
 }
-exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHistory=false,preserveLegacyStates=false,includeWorkflowContinuations=false,jstCategoriesOnly=false})=>{
+exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHistory=false,preserveLegacyStates=false,includeWorkflowContinuations=false,jstCategoriesOnly=false,expressRecognitionsOnly=false})=>{
   const app=process.env.LEGACY_APP_DIR;if(!app||!path.isAbsolute(app))throw Error('LEGACY_APP_DIR required');
   const req=createRequire(path.join(app,'package.json'));const env=req('dotenv').parse(fs.readFileSync(path.join(app,'.env')));
   const codec=req(path.join(app,'server/core/business-secrets.js')).createBusinessSecretCodec({primarySecret:env.SECRET_KEY||env.SESSION_SECRET||env.JWT_SECRET});
@@ -77,6 +78,15 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHi
     await c.query('SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ');
     await c.query('SET SESSION TRANSACTION READ ONLY');await c.beginTransaction();
     const [cols]=await c.query('SELECT TABLE_NAME t,COLUMN_NAME c,COLUMN_KEY pk,ORDINAL_POSITION ordinal,COLUMN_TYPE type,IS_NULLABLE nullable FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()');
+    if(expressRecognitionsOnly){
+      const [companies]=await c.query('SELECT t.id,t.name FROM `companies` t WHERE t.id=?',[sourceCompanyId]);
+      if(companies.length!==1)throw legacyError('旧快递识别历史缺少唯一来源公司');
+      out.company={id:Number(companies[0].id),name:companies[0].name};
+      const [catalogs]=await c.query('SELECT t.carriers_json FROM `finance_express_catalogs` t WHERE t.company_id=?',[sourceCompanyId]);
+      Object.assign(out,recognitionHistory(catalogs));
+      out.loadFile=async()=>{throw legacyError('快递识别历史补迁不读取附件');};
+      return out;
+    }
     if(jstCategoriesOnly){
       const [companies]=await c.query('SELECT t.id,t.name FROM `companies` t WHERE t.id=?',[sourceCompanyId]);
       if(companies.length!==1)throw legacyError('旧分类迁移缺少唯一来源公司');
@@ -175,6 +185,13 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHi
     }
     const composedLines=[];
     for(const [type,rule] of Object.entries(rules.resources)){
+      if(type==='finance-express-recognitions'){
+        if(defs.has(type)){
+          const history=recognitionHistory(tables.finance_express_catalogs||[]);
+          out.records.push(...history.records);out.exclusions.push(...history.exclusions);
+        }
+        continue;
+      }
       if(type==='finance-bundle-naming-rules'){const mapped=skuMapping.namingRules(tables,categoryKey,categoryFamilies);out.records.push(...mapped.records);out.exclusions.push(...mapped.exclusions);continue;}
       if(!defs.has(type)||['finance-brands','finance-scenarios','finance-bundle-lines','finance-product-boms','finance-product-units','finance-base-code-lines'].includes(type))continue;
       const def=defs.get(type);

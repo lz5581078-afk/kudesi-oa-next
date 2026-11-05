@@ -702,6 +702,8 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       text('fileName', '文件名', '基础', { list: true, maxLength: 200 }),
       text('modelName', 'AI 模型', '基础', { list: true, maxLength: 120 }),
       text('resultText', '结果', '基础', { list: true, maxLength: 100 }),
+      { key: 'resultCount', label: '结果数', type: 'number', group: '基础', readonly: true },
+      { key: 'resultStatus', label: '原识别状态', type: 'text', group: '基础', readonly: true, maxLength: 40 },
       { key: 'createdAtKey', label: '时间', type: 'text', group: '基础', readonly: true, maxLength: 40 },
     ],
   },
