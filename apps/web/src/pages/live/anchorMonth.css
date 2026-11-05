@@ -3,7 +3,7 @@
 .anchor-month-panel h3 { margin:0; font-size:16px; }
 .anchor-month-panel h3 small { color:var(--muted); font-size:13px; }
 .anchor-month-panel header p, .anchor-month-panel > .muted { margin:6px 0; color:var(--muted); font-size:12px; }
-.anchor-month-totals { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin:10px 0; }
+.anchor-month-totals { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; margin:10px 0; }
 .anchor-month-totals > div { padding:12px; border:1px solid var(--border); border-radius:10px; background:var(--bg); min-width:0; }
 .anchor-month-totals dt { color:var(--muted); font-size:12px; margin-bottom:6px; }
 .anchor-month-totals dd { margin:0; font-size:18px; font-weight:650; overflow-wrap:anywhere; }
@@ -27,3 +27,7 @@
  .live-person-photo-popover .live-person-photo-view > .anchor-month-panel { grid-column:2; grid-row:1 / span 4; }
  .live-person-photo-popover .live-person-photo-view > .live-person-photo-upload { grid-column:1; }
 }
+
+.anchor-period-picker { display:flex; flex-wrap:wrap; gap:6px; margin:12px 0; }
+.anchor-period-picker button { border:1px solid var(--border); background:white; color:var(--muted); padding:7px 12px; border-radius:7px; cursor:pointer; }
+.anchor-period-picker button[aria-pressed="true"] { color:#08676a; background:#e3f2ef; border-color:#8dbeb6; font-weight:600; }
