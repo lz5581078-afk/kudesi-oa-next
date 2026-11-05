@@ -16,9 +16,19 @@ describe('账号名称改名流程', () => {
   it('运营、直播、综合（人事）、老板工作台有快捷入口，没有申请中心权限则不显示', () => {
     const can = (p: string) => p === 'flow.apply.view';
     for (const type of ['operations', 'live_anchor', 'live_control', 'general', 'boss']) {
-      expect(deskFlows(deskFor(type), can).map((f) => f.key)).toEqual(['account-rename']);
+      expect(deskFlows(deskFor(type), can).map((f) => f.key)).toEqual(['account-rename', 'store-rename']);
     }
     expect(deskFlows(deskFor('finance'), can)).toEqual([]);
     expect(deskFlows(deskFor('operations'), () => false)).toEqual([]);
+  });
+
+  it('店铺改名：人事部在聚水潭改名这一步由部门办理，申请人只办平台改名这一步', () => {
+    const st = getFlowTemplate('store-rename')!;
+    expect(st.steps.map((x) => x.key)).toEqual(['apply', 'approve_boss', 'approve_hr', 'rename', 'jst_rename', 'end']);
+    const ok = st.steps.map((x) => (x.key === 'approve_boss' ? { ...x, assignee: { source: 'employee' as const, id: 1 } }
+      : x.key === 'approve_hr' || x.key === 'jst_rename' ? { ...x, assignee: { source: 'department' as const, id: 2 } } : x));
+    expect(validateSteps(st, ok, [])).toEqual([]);
+    const bad = ok.map((x) => (x.key === 'jst_rename' ? { ...x, assignee: { source: 'requester' as const } } : x));
+    expect(validateSteps(st, bad, []).join()).toContain('要指定办理人');
   });
 });
