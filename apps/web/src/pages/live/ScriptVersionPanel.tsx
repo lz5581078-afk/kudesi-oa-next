@@ -3,7 +3,7 @@ import { api } from '../../api/client';
 import { ScriptAssetLibrary } from './ScriptAssetLibrary';
 import { initialOutline, labelRange } from './scriptOutline';
 import { ScriptArticleEditor } from './ScriptArticleEditor';
-import { ProductQuestionArticle } from './ProductQuestionArticle';
+import { PondQuestionArticle, ProductQuestionArticle } from './ProductQuestionArticle';
 import { ScriptPreview } from './ScriptPreview';
 import { categories, type Asset, type ScriptVersion } from './scriptCues';
 
@@ -22,11 +22,13 @@ export function ScriptVersionPanel({
 }) {
   const [v, setV] = useState({ ...initial, outline: initialOutline(initial) }),
     [edit, setEdit] = useState(manage && !initial.body);
-  const [section, setSection] = useState<'script' | 'questions' | 'info' | 'assets'>('script');
+  const [section, setSection] = useState<'script' | 'questions' | 'pond' | 'info' | 'assets'>('script');
   const [versionDirty, setVersionDirty] = useState(false);
   const [questionDirty, setQuestionDirty] = useState(false);
-  useEffect(() => onDirty(versionDirty || questionDirty), [versionDirty, questionDirty, onDirty]);
+  const [pondDirty, setPondDirty] = useState(false);
+  useEffect(() => onDirty(versionDirty || questionDirty || pondDirty), [versionDirty, questionDirty, pondDirty, onDirty]);
   const [openedQuestions, setOpenedQuestions] = useState(false);
+  const [openedPond, setOpenedPond] = useState(false);
   const [asset, setAsset] = useState(0),
     [busy, setBusy] = useState(false),
     [msg, setMsg] = useState('');
@@ -97,12 +99,12 @@ export function ScriptVersionPanel({
       <div className="sc-bar sc-version-head">
         <h2>{v.name}</h2>
         {versionDirty && <small>尚未保存</small>}
-        {section !== 'questions' && (versionDirty || edit) && manage && (
+        {section !== 'questions' && section !== 'pond' && (versionDirty || edit) && manage && (
           <button className="primary-button" disabled={!v.name.trim()} onClick={save}>
             保存版本
           </button>
         )}
-        {section !== 'questions' && manage && (
+        {section !== 'questions' && section !== 'pond' && manage && (
           <button
             className="secondary-button"
             onClick={() => {
@@ -119,11 +121,12 @@ export function ScriptVersionPanel({
           [
             ['script', '正文与标注'],
             ['questions', '问题库'],
+            ['pond', '鱼塘问题库'],
             ['assets', '素材库'],
             ['info', '版本资料'],
           ] as const
         )
-          .filter(([key]) => edit || key === 'script' || key === 'questions')
+          .filter(([key]) => edit || key === 'script' || key === 'questions' || key === 'pond')
           .map(([key, label]) => (
             <button
               key={key}
@@ -131,6 +134,7 @@ export function ScriptVersionPanel({
               onClick={() => {
                 setSection(key);
                 if (key === 'questions') setOpenedQuestions(true);
+                if (key === 'pond') setOpenedPond(true);
               }}
             >
               {label}
@@ -145,6 +149,11 @@ export function ScriptVersionPanel({
             manage={manage}
             onDirty={setQuestionDirty}
           />
+        </div>
+      )}
+      {openedPond && (
+        <div hidden={section !== 'pond'}>
+          <PondQuestionArticle manage={manage} onDirty={setPondDirty} />
         </div>
       )}
       {edit ? (

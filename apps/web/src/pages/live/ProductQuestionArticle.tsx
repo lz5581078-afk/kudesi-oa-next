@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
-import { RouterLeaveBlocker } from '../../resources/grid/LeaveGuard';
 
 type ArticleProps = { manage: boolean; onDirty: (dirty: boolean) => void };
 
@@ -20,34 +19,15 @@ export function ProductQuestionArticle({
   );
 }
 
-export function PondQuestionArticle({ manage }: { manage: boolean }) {
-  const [dirty, setDirty] = useState(false);
-  useEffect(() => {
-    if (!dirty) return;
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = '';
-    };
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [dirty]);
+export function PondQuestionArticle({ manage, onDirty = () => undefined }: Partial<Pick<ArticleProps, 'onDirty'>> & Pick<ArticleProps, 'manage'>) {
   return (
-    <section className="sc-center card pad">
-      <RouterLeaveBlocker
-        when={dirty}
-        onBlocked={(request) => {
-          if (window.confirm('鱼塘问题库有未保存的修改，放弃修改并离开？')) request.go();
-          else request.cancel?.();
-        }}
-      />
-      <QuestionArticleEditor
-        manage={manage}
-        onDirty={setDirty}
-        heading="鱼塘问题库"
-        caption="公司共享"
-        path="/live/scripts/pond-question-article"
-      />
-    </section>
+    <QuestionArticleEditor
+      manage={manage}
+      onDirty={onDirty}
+      heading="鱼塘问题库"
+      caption="公司共享"
+      path="/live/scripts/pond-question-article"
+    />
   );
 }
 

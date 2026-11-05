@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ScriptVersionPanel } from './ScriptVersionPanel';
 import { PondQuestionArticle } from './ProductQuestionArticle';
@@ -102,4 +102,23 @@ it('鱼塘文章允许管理员直接填写保存，普通查看者只能阅读'
   expect(screen.getByText('鱼塘答疑')).toBeTruthy();
   expect(screen.queryByRole('textbox')).toBeNull();
   expect(screen.queryByRole('button',{name:'保存问题库'})).toBeNull();
+});
+
+
+it('鱼塘问题库位于版本问题库之后，切换分区保留鱼塘草稿并纳入离开保护', async () => {
+  const dirty = openEditor();
+  expect(within(screen.getByRole('group', {name:'编辑分区'})).getAllByRole('button').map(b => b.textContent))
+    .toEqual(['正文与标注', '问题库', '鱼塘问题库', '素材库', '版本资料']);
+  fireEvent.click(screen.getByRole('button', {name:'鱼塘问题库'}));
+  const input = await screen.findByRole('textbox', {name:'鱼塘问题库正文'});
+  fireEvent.change(input, {target:{value:'保留的鱼塘草稿'}});
+  expect(dirty).toHaveBeenLastCalledWith(true);
+  expect(screen.queryByRole('button', {name:'保存版本'})).toBeNull();
+  fireEvent.click(screen.getByRole('button', {name:'正文与标注'}));
+  fireEvent.click(screen.getByRole('button', {name:'鱼塘问题库'}));
+  expect((screen.getByRole('textbox', {name:'鱼塘问题库正文'}) as HTMLTextAreaElement).value).toBe('保留的鱼塘草稿');
+  fireEvent.click(screen.getByRole('button', {name:'保存问题库'}));
+  await screen.findByText('问题库已保存');
+  expect(api).toHaveBeenCalledWith('/live/scripts/pond-question-article', {method:'PUT', body:{body:'保留的鱼塘草稿', revision:1}});
+  expect(dirty).toHaveBeenLastCalledWith(false);
 });
