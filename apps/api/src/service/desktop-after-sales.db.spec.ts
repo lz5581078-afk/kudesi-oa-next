@@ -48,7 +48,16 @@ d('桌面售后（真实 MySQL）',()=>{
   await expect(svc.fileUrl(b,id,v.files[0].id)).rejects.toThrow(/不存在/);
   const second=await svc.import(a,store,{...snapshot(),afterSaleId:'85110002'});await expect(svc.fileUrl(a,second.id,v.files[0].id)).rejects.toThrow(/附件不存在/);
  });
- it('有售后建档时拒绝破坏性整库重迁',async()=>{await expect(cutoverTables(ds)).rejects.toThrow(/桌面售后已有/);});
+ it('售后建档与店铺登录资料并存时，整库重迁仍提示售后保护', async () => {
+  const workspaceKey = 'after-sales-cutover-guard';
+  await ds.query('INSERT INTO sm_legacy_session_workspaces (company_id, workspace_key, name, permission_key) VALUES (?, ?, ?, ?)',
+    [a.companyId, workspaceKey, '测试工作区', 'finance.session.view']);
+  try {
+    await expect(cutoverTables(ds)).rejects.toThrow(/桌面售后已有/);
+  } finally {
+    await ds.query('DELETE FROM sm_legacy_session_workspaces WHERE company_id=? AND workspace_key=?', [a.companyId, workspaceKey]);
+  }
+ });
  it('同时首次读取只产生一个档案，不串单',async()=>{
   const input={...snapshot(),afterSaleId:'85110003'};const [x,y]=await Promise.all([svc.import(a,store,input),svc.import(a,store,input)]);expect(x.id).toBe(y.id);const [r]=await ds.query('SELECT COUNT(*) AS n FROM desktop_after_sales WHERE company_id=? AND after_sale_id=?',[a.companyId,input.afterSaleId]);expect(Number(r.n)).toBe(1);
  });
