@@ -53,13 +53,13 @@ export async function cutoverTables(ds:DataSource){
   const rows:Array<{name:string}>=await ds.query("SELECT TABLE_NAME name FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_TYPE='BASE TABLE' ORDER BY TABLE_NAME");
   const compatibleKnown=new Set([...known,...LEGACY_SESSION_TABLES,...scriptTables,...recruitTables,...desktopSaleTables]);
   if(rows.some(r=>!compatibleKnown.has(r.name))||rows.length!==compatibleKnown.size)throw new MigrationError('目标结构与切换清单不同，禁止清理未知表');
+  await guardDesktopSales(ds.manager, false);
   // A newly migrated empty session schema must not disable the existing importer.
   // Once these two modules have data, refuse destructive full remigration rather
   // than silently deleting or orphaning their devices, mappings and credentials.
   for(const table of LEGACY_SESSION_TABLES){const [row]=await ds.query(`SELECT 1 occupied FROM ${qi(table)} LIMIT 1`);if(row)throw new MigrationError('店铺登录兼容模块已有数据，禁止整库重新迁入；需先单独核对这两个模块');}
   await guardScripts(ds.manager,false);
   await guardRecruitment(ds.manager,false);
-  await guardDesktopSales(ds.manager, false);
   return rows.map(r=>r.name);
 }
 /** Sequence DDL is deliberately outside the business transaction. It never
@@ -85,9 +85,9 @@ export async function runCutover(ds:DataSource,resources:ResourcesService,files:
     await q.startTransaction('REPEATABLE READ');q.data.cutoverPrepareOnly=!opts.apply;const em=q.manager;
     // Recheck under current locks before any deletion. Empty-table supremum
     // locks also prevent adoption/candidate inserts racing this full cutover.
+    await guardDesktopSales(em, true);
     await guardScripts(em,true);
     await guardRecruitment(em,true);
-    await guardDesktopSales(em, true);
     for(const table of LEGACY_SESSION_TABLES){const [row]=await em.query(`SELECT 1 occupied FROM ${qi(table)} LIMIT 1 FOR UPDATE`);if(row)throw new MigrationError('店铺登录兼容模块已有数据，禁止整库重新迁入；需先单独核对这两个模块');}
     const companies=await em.find(Company),oldUsers=await em.find(User);
     const oldUserLinks:Array<{companyId:number;sourceCompanyId:number;sourceKey:string;targetId:number}>=await em.query("SELECT company_id companyId,source_company_id sourceCompanyId,source_key sourceKey,target_id targetId FROM legacy_import_links WHERE source_system='legacy-oa' AND target_type='user'");
