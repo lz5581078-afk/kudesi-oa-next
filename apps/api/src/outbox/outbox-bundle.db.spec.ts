@@ -65,6 +65,7 @@ d('组合装出站（真实数据库 + 假发送器）', () => {
     expect(String(job.payload.i_id)).not.toBe('');
     expect(String(job.payload.properties_value)).not.toBe('');
     expect((await svc.get(boss, 'finance-bundles', ids.bundle)).data.jstStatus).toBe('synced');
+    expect((await svc.get(boss, 'finance-bundles', ids.bundle)).data._financeCodeUploaded).toBe(true);
   });
 
   it('归档守卫：有待发送任务或待发布修订时不能归档', async () => {

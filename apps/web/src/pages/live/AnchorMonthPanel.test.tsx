@@ -1,4 +1,4 @@
-import { cleanup,fireEvent,render,screen,waitFor } from '@testing-library/react';
+import { cleanup,fireEvent,render,screen,waitFor,within } from '@testing-library/react';
 import { afterEach,expect,it,vi } from 'vitest';
 import { AnchorMonthPanel } from './AnchorMonthPanel';
 import { AnchorMonthSelect } from './AnchorMonthSelect';
@@ -16,7 +16,7 @@ it('同一资料组件展示自然月汇总、未审核场次和每场实际时�
 it('未知金额不显示为零，无提成权限不能显示金额，读取失败可刷新',async()=>{
  const x=data();x.canViewCommission=false;x.items[0].summary.commissionCents=null;x.items[0].summary.missingSalesSessions=1;x.items[0].sessions![0].turnoverCents=null;
  vi.spyOn(anchorMonthApi,'read').mockRejectedValueOnce(new Error('网络失败')).mockResolvedValue(x);
- render(<AnchorMonthPanel userId={7}/>);await screen.findByText(/本月直播资料读取失败|网络失败/);fireEvent.click(screen.getByRole('button',{name:'刷新业绩'}));await screen.findByText(/1场营业额待补充/);expect(screen.getAllByText('无查看权限')).toHaveLength(3);expect(screen.queryByText('¥930.00')).toBeNull();expect(screen.getByText('待补充')).toBeTruthy();
+ render(<AnchorMonthPanel userId={7}/>);await screen.findByText(/本月直播资料读取失败|网络失败/);fireEvent.click(screen.getByRole('button',{name:'刷新业绩'}));await screen.findByText(/1场营业额待补充/);expect(screen.getAllByText('无查看权限')).toHaveLength(4);expect(screen.queryByText('¥930.00')).toBeNull();expect(screen.getByText('待补充')).toBeTruthy();
 });
 it('人员变化时旧响应不能串入新人员资料',async()=>{
  let resolve!:(d:AnchorMonthData)=>void;vi.spyOn(anchorMonthApi,'read').mockImplementation(id=>id===7?new Promise(r=>resolve=r):Promise.resolve({...data(8),items:[{...data(8).items[0],sessions:[]}]}));
@@ -63,4 +63,11 @@ it('切换请求期间保留原汇总和表格，成功后一同切换标题，�
  expect(screen.getByText('近 3 天营业额')).toBeTruthy();
  expect(screen.getByRole('table')).toBe(table);
  expect(read).toHaveBeenLastCalledWith(7,'7d');
+});
+
+it('每场营业额后展示核定工资，待核定与零工资分开，表头和每行列数一致',async()=>{
+ const x=data();const row=x.items[0].sessions![0];x.items[0].sessions=[{...row,id:11,wageCents:12345,status:'approved'},{...row,id:12,wageCents:0,status:'approved'},{...row,id:13,wageCents:null}];
+ vi.spyOn(anchorMonthApi,'read').mockResolvedValue(x);render(<AnchorMonthPanel userId={7}/>);await screen.findByText('¥123.45');
+ const rows=screen.getAllByRole('row');expect(within(rows[0]).getAllByRole('columnheader').map(c=>c.textContent)).toEqual(['日期 / 直播间','实际直播时间','时长','营业额','工资','提成','状态','操作']);
+ expect(within(rows[1]).getAllByRole('cell')).toHaveLength(8);expect(within(rows[1]).getAllByRole('cell')[4].textContent).toBe('¥123.45');expect(within(rows[2]).getAllByRole('cell')[4].textContent).toBe('¥0.00');expect(within(rows[3]).getAllByRole('cell')[4].textContent).toBe('待核定');
 });

@@ -1,3 +1,4 @@
+import {uploadedFinanceCode} from '@kudesi/shared';
 import {inBaseCodeForm} from './base-code-form-scope';
 import { codeVerificationState, codeVerificationSignature } from './finance-code-lifecycle';
 import { trustedResourceImport } from './resource-import-capability';
@@ -53,7 +54,7 @@ export async function inspectBaseCodeReferences(em: EntityManager, companyId: nu
     : null;
   if (mirror && mirror.data.goodsType !== 'combine') {
     items.push({ source: 'jushuitan', sourceLabel: '聚水潭普通商品镜像', level: 'effective', sourceId: mirror.id, name: str(mirror.data.name) || mirror.title, detail: `SKU ${str(mirror.data.skuId)}` });
-  } else if (str(bc.data.jstUploadedCode)) {
+  } else if (uploadedFinanceCode(bc)) {
     items.push({ source: 'jushuitan', sourceLabel: '已上传聚水潭', level: 'effective', sourceId: bc.id, name: str(bc.data.name) || bc.title, detail: `聚水潭编码 ${str(bc.data.jstUploadedCode)}` });
   }
   const level = items.some((i) => i.level === 'effective') ? 'effective' : items.some((i) => i.level === 'draft') ? 'draft' : 'none';
@@ -65,26 +66,27 @@ export async function inspectBaseCodeReferences(em: EntityManager, companyId: nu
     permissions: {
       editAll: level !== 'effective',
       editDisplayFields: true,
-      editIdentityFields: level !== 'effective',
+      editIdentityFields: !uploadedFinanceCode(bc)&&!items.some(i=>i.source==='jushuitan'),
       editComponents: level !== 'effective',
       canDeactivate: !items.some((i) => i.source === 'bundle' && i.level === 'effective'),
     },
   };
 }
 
-const LOCK_MSG = '该商品编码已有生效引用，只允许修改商品名称、简称、颜色及规格和启停状态';
+const LOCK_MSG = '该商品编码已有生效引用，来源关系需通过原构成和版本流程调整';
 /** 身份字段：编码、款式编码、来源商品、多构成的分类/品牌/规格 */
 export const BASE_CODE_IDENTITY_FIELDS = ['code', 'styleCode', 'productId', 'canonicalId', 'origin', 'varietyName', 'codeCategoryId', 'codeBrandId', 'codeSpecQty', 'codeSpecUnit', 'codeDictionaryCategoryId','varietyDictionaryId','externalCost','externalPurchasePrice'] as const;
 const IDENTITY: readonly string[] = BASE_CODE_IDENTITY_FIELDS;
 
-/** 保存基础编码前：已有生效引用时，身份字段不能变；被已验证组合引用时不能停用。 */
+/** 已上传只锁编码；生效引用的来源关系、停用和构成仍保留原流程保护。 */
 export async function guardReferenced(em: EntityManager, user: AuthUser, existing: ResourceRecord | null, data: Data, status: string): Promise<void> {
   if (!existing || em.queryRunner?.data.legacyImport) return;
   const stopping = status !== existing.status && ['disabled', 'deleted'].includes(status);
   const identityChanged = IDENTITY.some((k) => JSON.stringify(existing.data[k] ?? null) !== JSON.stringify(data[k] ?? null));
   if (!identityChanged && !stopping) return;
   const refs = await inspectBaseCodeReferences(em, user.companyId, existing);
-  if (identityChanged && refs.level === 'effective') throw new BadRequestException(LOCK_MSG);
+  if(existing.data.code!==data.code&&!refs.permissions.editIdentityFields)throw new BadRequestException('已上传聚水潭的编码已固定，不能修改');
+  if(['productId','canonicalId','origin'].some(k=>JSON.stringify(existing.data[k]??null)!==JSON.stringify(data[k]??null))&&refs.level==='effective')throw new BadRequestException(LOCK_MSG);
   if (stopping && !refs.permissions.canDeactivate) throw new BadRequestException('该商品编码正在被已验证的组合商品引用，不能停用');
 }
 

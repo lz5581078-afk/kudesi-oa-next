@@ -67,7 +67,7 @@ d('基础编码验证事件历史（真实数据库）', () => {
     const eff = await bc.references(boss, codeId);
     expect(eff.level).toBe('effective');
     expect(eff.items[0].sourceLabel).toMatch(/聚水潭/);
-    expect(eff.lockedFields).toContain('code');
+    expect(eff.lockedFields).toEqual(['code']);
     expect(eff.permissions.editDisplayFields).toBe(true);
     await expect(svc.update(boss, 'finance-base-codes', codeId, { code: 'SG-PG-NEW', codeChangeReason: '改' })).rejects.toThrow(/生效引用|固定/);
     await ds.manager.query("UPDATE resource_records SET data = JSON_REMOVE(data, '$.jstUploadedCode') WHERE id = ?", [codeId]);

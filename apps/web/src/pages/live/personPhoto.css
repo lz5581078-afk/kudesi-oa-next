@@ -42,9 +42,19 @@
 .live-person-photo-view > p {
   margin: 8px 0;
 }
-.live-person-photo-popover {
+.live-person-profile-overlay {
   position: fixed;
+  inset: 0;
   z-index: 1200;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  padding: 16px;
+  background: #142b4059;
+}
+.live-person-photo-popover {
+  position: relative;
+  max-height: calc(100dvh - 32px);
   width: min(300px, calc(100vw - 16px));
   box-sizing: border-box;
   overflow-y: auto;
