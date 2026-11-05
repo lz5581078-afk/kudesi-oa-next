@@ -94,8 +94,9 @@ d('商品档案与基础编码（真实数据库）', () => {
     expect(saved.data.basicInfoFullName).toContain('00500克-01.00千克');
     const updated = await svc.update(boss, 'finance-products', saved.id, { capacities: '250G\n2KG' });
     expect(updated.data.code).toBe(saved.data.code);
-    await expect(svc.update(boss, 'finance-products', saved.id, { code: '' })).rejects.toThrow(/固定/);
-    expect((await svc.get(boss,'finance-products',saved.id)).data.code).toBe(saved.data.code);
+    const automatic = await svc.update(boss, 'finance-products', saved.id, { code: '' });
+    expect(automatic.data.code).toMatch(/-250G-2KG$/);
+    expect(automatic.data.code).not.toBe(saved.data.code);
     const emptyName = await previewProductCode(ds.manager, svc, boss, { archiveType: 'package', categoryId: leaf.id }, null);
     expect(emptyName.code).toBe('BZ-PACK-LEAF-X');
     expect((await svc.list(boss, 'finance-products', { fieldKey: 'categoryId', fieldValue: leaf.id, pageSize: 20 } as never)).total).toBe(1);
@@ -218,7 +219,7 @@ d('商品档案与基础编码（真实数据库）', () => {
     ids.composed = bc.id;
   });
 
-  it('基础编码被引用锁定：有已验证组合引用后，编码和构成不能改，只能改名称简称；被已验证组合引用不能停用', async () => {
+  it('未上传基础编码被本地组合引用仍可改码及规格；构成和停用保留原流程保护', async () => {
     await svc.changeStatus(boss, 'finance-base-codes', ids.composed, 'verified');
     const plat = await svc.create(boss, 'finance-platforms', { code: 'TB', name: '淘宝' });
     const scen = await svc.create(boss, 'finance-scenarios', { code: 'standard', name: '标准' });
@@ -230,14 +231,14 @@ d('商品档案与基础编码（真实数据库）', () => {
     if ((await svc.get(boss, 'finance-base-codes', ids.composed)).status !== 'verified') await svc.changeStatus(boss, 'finance-base-codes', ids.composed, 'verified');
     await svc.changeStatus(boss, 'finance-bundles', bundle.id, 'verified');
     expect((await svc.get(boss, 'finance-bundles', bundle.id)).status).toBe('verified');
-    await expect(svc.update(boss, 'finance-base-codes', ids.composed, { code: 'NEW-CODE', codeChangeReason: '改' })).rejects.toThrow(/生效引用|固定/);
-    await expect(svc.update(boss, 'finance-base-codes', ids.composed, { codeSpecQty: 2 })).rejects.toThrow(/生效引用|固定/);
+    expect((await svc.update(boss, 'finance-base-codes', ids.composed, { code: 'NEW-CODE', codeChangeReason: '改' })).data.code).toBe('NEW-CODE');
+    expect((await svc.update(boss, 'finance-base-codes', ids.composed, { codeSpecQty: 2 })).data.codeSpecQty).toBe(2);
     await svc.update(boss, 'finance-base-codes', ids.composed, { name: '甲乙礼盒再改名', shortName: '礼盒简称' });
     await expect(svc.changeStatus(boss, 'finance-base-codes', ids.composed, 'disabled', '停用')).rejects.toThrow(/已验证的组合/);
     const lines = (await svc.list(boss, 'finance-base-code-lines', { fieldKey: 'baseCodeId', fieldValue: ids.composed, pageSize: 50 } as never)).items as Array<{ id: number; data: Record<string, unknown> }>;
     const aux = lines.find((l) => l.data.role === 'auxiliary')!;
-    await expect(svc.update(boss, 'finance-base-code-lines', aux.id, { qty: 5 })).rejects.toThrow(/生效引用|固定/);
-    await expect(svc.remove(boss, 'finance-base-code-lines', aux.id, '去掉')).rejects.toThrow(/生效引用|固定/);
+    await expect(svc.update(boss, 'finance-base-code-lines', aux.id, { qty: 5 })).rejects.toThrow(/生效引用/);
+    await expect(svc.remove(boss, 'finance-base-code-lines', aux.id, '去掉')).rejects.toThrow(/生效引用/);
   });
 
   it('档案成本记录：按成本类型和生效日期保存，启用记录日期不能重叠，手工锁定要写原因，最新成本显示在档案上', async () => {
