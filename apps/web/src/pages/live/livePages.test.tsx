@@ -150,7 +150,7 @@ describe('直播管理', () => {
     wrap(<LiveManagePage />);
     expect(await screen.findByText('还没有直播间')).toBeTruthy();
     const tabs = screen.getAllByRole('tab').map((t) => t.textContent);
-    expect(tabs).toEqual(['全览', '排场', '日常工作', '场次记录', '待审核', '主播工资', '中控工资', '运营提成', '提成规则', '话术中心', '鱼塘问题库']);
+    expect(tabs).toEqual(['全览', '排场', '日常工作', '场次记录', '待审核', '主播工资', '中控工资', '运营提成', '提成规则', '话术中心']);
     cleanup();
     allow = ['features.live.view', 'live.commissions.view'];
     wrap(<LiveManagePage />);
@@ -352,10 +352,10 @@ describe('直播管理', () => {
     fireEvent.click(within(dlg).getByRole('button',{name:'保存房间信息'}));
     await waitFor(()=>expect(l.roomSettings).toHaveBeenCalledWith(11,{ownerId:5,products:'牙刷\n花育25'}));
     const tabs=screen.getAllByRole('tab');
-    expect(tabs[tabs.length-1].textContent).toBe('鱼塘问题库');
-    expect(tabs[tabs.length-2].textContent).toBe('话术中心');
-    expect(tabs[tabs.length-3].textContent).toBe('上下播二维码');
-    expect(tabs[tabs.length-4].textContent).toBe('通知设置');
+    expect(screen.queryByRole('tab',{name:'鱼塘问题库'})).toBeNull();
+    expect(tabs[tabs.length-1].textContent).toBe('话术中心');
+    expect(tabs[tabs.length-2].textContent).toBe('上下播二维码');
+    expect(tabs[tabs.length-3].textContent).toBe('通知设置');
     expect(screen.queryByRole('button',{name:'上下播二维码'})).toBeNull();
     fireEvent.click(screen.getByRole('tab',{name:'上下播二维码'}));
     expect(await screen.findByText('所有直播间共用此码，上播、下播通用。长期有效，重新生成后旧码立即失效。')).toBeTruthy();
