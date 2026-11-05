@@ -51,7 +51,7 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
   });
   afterAll(async () => { await ds?.destroy(); });
 
-  it('基础编码：款式编码和编码用横线连接，相邻重复的分类码去掉；已存编码不再重编', async () => {
+  it('基础编码：款式编码和编码用横线连接，相邻重复的分类码去掉；旧格式的编码自动换成新格式', async () => {
     const p = await mkProduct({ name: '红富士', rawFinishedNames: '精品红富士\n礼盒红富士', materialCode: 'SC01' });
     ids.p1 = p.id;
     const c1 = await svc.create(boss, 'finance-base-codes', { productId: p.id });
@@ -60,9 +60,9 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
     expect(c1.data.code).toBe('SG-PG-HFS-1KG');
     expect(c1.data.spec).toBe('1KG');
     // 旧格式编码（连在一起）当作自动生成，重新生成成新格式，不要求写原因
-    await expect(svc.update(boss,'finance-base-codes',c1.id,{code:'SGPGHFS-1KG'})).rejects.toThrow(/固定/);
-    expect((await svc.get(boss,'finance-base-codes',c1.id)).data.code).toBe('SG-PG-HFS-1KG');
-    await expect(svc.update(boss, 'finance-base-codes', c1.id, { styleCode: 'MYSTYLE' })).rejects.toThrow(/固定/);
+    const old = await svc.update(boss, 'finance-base-codes', c1.id, { code: 'SGPGHFS-1KG' });
+    expect(old.data.code).toBe('SG-PG-HFS-1KG');
+    await expect(svc.update(boss, 'finance-base-codes', c1.id, { styleCode: 'MYSTYLE' })).rejects.toThrow(/原因/);
   });
 
   it('马甲：原料的成品名自动生成别名编码，别名不能手工新增，被引用或同步过的别名不能去掉', async () => {
@@ -134,13 +134,14 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
     await bc.verify(boss, [{ id: ids.c1, signature: again.signature }], { confirmed: true, syncToJst: false });
   });
 
-  it('改码：上传过的编码和现在不同，必须确认旧码已处理才能再次入队', async () => {
+  it('改码：上传过的编码不可替换，确认旧码也不能绕过', async () => {
     await ds.manager.query("UPDATE resource_records SET data = JSON_SET(data, '$.jstUploadedCode', 'OLD-CODE') WHERE id = ?", [ids.c1]);
-    await expect(outbox.enqueue(boss, 'finance-base-codes', [ids.c1])).rejects.toThrow(/不同/);
-    const r = await outbox.enqueue(boss, 'finance-base-codes', [ids.c1], { replaceConfirmed: true });
+    await expect(outbox.enqueue(boss, 'finance-base-codes', [ids.c1])).rejects.toThrow(/不可替换/);
+    await expect(outbox.enqueue(boss, 'finance-base-codes', [ids.c1], { replaceConfirmed: true })).rejects.toThrow(/不可替换/);
+    // 清除本用例制造的历史不一致，后续继续覆盖正常首次上传。
+    await ds.manager.query("UPDATE resource_records SET data = JSON_REMOVE(data, '$.jstUploadedCode') WHERE id = ?", [ids.c1]);
+    const r = await outbox.enqueue(boss, 'finance-base-codes', [ids.c1]);
     expect(r.queued).toBe(1);
-    const jobs = await outbox.jobs(boss, { page: 1, pageSize: 20, kind: 'base_code_replace' });
-    expect(jobs.rows[0].payload).toMatchObject({ oldCode: 'OLD-CODE', sku_id: 'SG-PG-HFS-1KG' });
     const plain = await outbox.jobs({ ...ops, permissions: { isCompanyAdmin: false, allow: ['finance.jst-sync.view'], deny: [] } }, { page: 1, pageSize: 20 });
     expect(JSON.stringify(plain.rows)).not.toContain('cost_price');
   });
@@ -325,7 +326,7 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
     const row = list.rows.find((r) => r.id === ids.c1)!;
     expect(row.state).toBe('queued');
     expect(row.records.length).toBeGreaterThan(0);
-    expect(row.replacing).toBe(true);
+    expect(row.replacing).toBe(false);
     expect(row.current).toHaveProperty('cost_price');
     const plain = await outbox.items({ ...ops, permissions: { isCompanyAdmin: false, allow: ['finance.jst-sync.view'], deny: [] } }, { type: 'finance-base-codes', page: 1, pageSize: 20 });
     expect(JSON.stringify(plain)).not.toContain('cost_price');

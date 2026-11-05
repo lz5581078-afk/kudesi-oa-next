@@ -8,12 +8,12 @@ afterEach(()=>{cleanup();vi.clearAllMocks();});
 describe('组合编码固定、资料可维护',()=>{
  it('已验证并上传组合的编码只读，名称可改；提交不请求改号',async()=>{
   render(<BundleManualDialog bundle={bundle('verified',{jstUploadedCode:'SKU-ORIGINAL'})} onClose={vi.fn()} onDone={vi.fn()}/>);
-  expect((screen.getByLabelText('组合编码') as HTMLInputElement).readOnly).toBe(true);expect((screen.getByLabelText('款式编码') as HTMLInputElement).readOnly).toBe(true);
+  expect((screen.getByLabelText('组合编码') as HTMLInputElement).readOnly).toBe(true);expect((screen.getByLabelText('款式编码') as HTMLInputElement).readOnly).toBe(false);
   expect((screen.getByLabelText('组合名称') as HTMLInputElement).readOnly).toBe(false);fireEvent.change(screen.getByLabelText('组合名称'),{target:{value:'新名称'}});fireEvent.change(screen.getByLabelText('改码改名原因'),{target:{value:'更新资料名称'}});fireEvent.click(screen.getByRole('button',{name:'保存'}));
   await waitFor(()=>expect(resourceApi.update).toHaveBeenCalled());expect(vi.mocked(resourceApi.update).mock.calls[0][2]).toMatchObject({manualName:'新名称',manualCode:'',manualStyleCode:''});
   expect(screen.queryByText(/禁用旧编码、创建新编码/)).toBeNull();
  });
- it('尚未验证或上传的创建草稿允许完成首次编码',()=>{
-  render(<BundleManualDialog bundle={bundle('pending')} onClose={vi.fn()} onDone={vi.fn()}/>);expect((screen.getByLabelText('组合编码') as HTMLInputElement).readOnly).toBe(false);
+ it('已验证但未上传的组合仍可改编码和款式',()=>{
+  render(<BundleManualDialog bundle={bundle('verified',{_financeCodeFrozen:true,snapshot:'{}'})} onClose={vi.fn()} onDone={vi.fn()}/>);expect((screen.getByLabelText('组合编码') as HTMLInputElement).readOnly).toBe(false);
  });
 });

@@ -3,7 +3,7 @@ import {beginSourceBomCopy,bindSourceBomCopy,applySourceBomCopy,finishSourceBomC
 import {assertSourceFinishedProductInput,beginSourceFinishedNameForm,endSourceFinishedNameForm,finishSourceFinishedNameForm,sourceFinishedAliasPlans,trustedSourceFinishedAlias,withSourceFinishedAliasWrite} from './source-product-finished-names';
 import {beginSourceUnitForm,finishSourceUnitForm,beginSourceProductForm,sourceProductFormKind,endSourceProductForm} from './source-unit-form';
 import type {ResourceFormInput} from '@kudesi/shared';
-import {frozenBundleCode} from '@kudesi/shared';
+import {frozenBundleCode,fixedFinanceCodeFields} from '@kudesi/shared';
 import {sourceBrandCode} from './finance-dictionary-codes';
 import {assertBrandReferenceChanges} from './brand-references';
 import {beforeIndependentBaseCode,beginIndependentBaseForm,finishIndependentBaseForm} from './independent-base-code';
@@ -1306,8 +1306,9 @@ async function syncProductBaseCode(host: RuleHost, em: EntityManager, user: Auth
     if(bc.data.origin==='archive_sync'&&bc.data.profileManual!==true&&!['disabled'].includes(bc.status))Object.assign(patch,{
       name:full,shortName:full,varietyName:str(p.data.name),
       spec:`${p.data.specQty??''}${str(p.data.specUnit)}`,
-      categoryId:bc.data.profileCategoryOverride??p.data.categoryId,
+      categoryId:bc.data.profileCategoryOverride??p.data.categoryId,...archiveIdentity,
     });
+    if(fixedFinanceCodeFields('finance-base-codes',bc).includes('code')||(patch.code!==undefined&&patch.code!==bc.data.code&&!(await inspectBaseCodeReferences(em,user.companyId,bc)).permissions.editIdentityFields))delete patch.code;
     if (Object.entries(patch).some(([key, value]) => bc.data[key] !== value)) {
       await host.patchData(em, user, 'finance-base-codes', bc.id, patch, '商品档案变化，同步基础编码资料');
     }
@@ -1517,7 +1518,8 @@ export async function composeBundleFor(host: RuleHost, em: EntityManager, user: 
   const composed = composeBundle(rule, input);
   const manualCode = bundle.data.recordOrigin==='external_import' ? str(bundle.data.manualCode).trim() : str(bundle.data.manualCode).trim().toUpperCase();
   // 手改了编码，其余自动生成的部分信息不全也不拦（旧系统同样允许人工覆盖）
-  const fixed=frozenBundleCode(bundle);
+  const mirror=!frozenBundleCode(bundle)&&str(bundle.data.code)?await em.findOne(ResourceRecord,{where:{companyId:user.companyId,type:'finance-jst-skus',uniqueKey:str(bundle.data.code).toLowerCase()},select:['data']}):null;
+  const fixed=frozenBundleCode(bundle)||mirror?.data.goodsType==='combine';
   if (composed.errors.length && !fixed && !(manualCode && str(bundle.data.manualName).trim())) throw new BadRequestException(composed.errors.join('；'));
   const code = fixed ? str(bundle.data.code) : manualCode || composed.code;
   if (code.length > 120) throw new BadRequestException('组合编码太长了（超过 120 位），请减少主品或赠品');
@@ -1528,7 +1530,7 @@ export async function composeBundleFor(host: RuleHost, em: EntityManager, user: 
   const first = input.mains[0];
   return {
     patch: {
-      mainStyleCode: fixed ? bundle.data.mainStyleCode : resolvedMainStyleCode(composed,str(bundle.data.manualStyleCode)), code, name, styleCode: fixed ? bundle.data.styleCode : str(bundle.data.manualStyleCode).trim() || composed.styleCode || undefined, shortName: str(bundle.data.manualShortName).trim() || (composed.errors.length ? bundle.data.shortName : composed.shortName),
+      mainStyleCode: resolvedMainStyleCode(composed,str(bundle.data.manualStyleCode)), code, name, styleCode: str(bundle.data.manualStyleCode).trim() || composed.styleCode || undefined, shortName: str(bundle.data.manualShortName).trim() || (composed.errors.length ? bundle.data.shortName : composed.shortName),
       propertiesValue: str(bundle.data.manualPropertiesValue).trim() || composed.propertiesValue,
       // 品牌、品种、计量单位没填时取第一个主品的
       varietyName: str(bundle.data.varietyName).trim() || first.varietyName || undefined,

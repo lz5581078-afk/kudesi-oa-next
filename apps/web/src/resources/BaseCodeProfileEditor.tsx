@@ -50,7 +50,7 @@ function Profile({record,onClose,onSaved}:BaseProfileProps){
     <header><div><small>商品基础编码 · 专属资料</small><h2>编辑商品基础编码</h2><p>上方字段独立维护，保存后不再被来源商品档案覆盖。</p></div><button type="button" className="base-profile-close" aria-label="关闭" disabled={busy} onClick={onClose}><X size={22} /></button></header>
     <div className="base-profile-scroll">
       {error && <div role="alert" className="notice error">{error}</div>}
-      {locked && locked.length > 0 && <p className="notice warn">该商品编码已有生效引用，编码、分类和重量已锁定；可修改名称、简称和颜色及规格。</p>}
+      {locked && locked.length > 0 && <p className="notice warn">该商品编码有聚水潭上传记录，编码不可修改；其他资料按原规则维护。</p>}
       <section><div className="base-profile-section-title"><h3>商品编码专属信息</h3><span>{record.data.profileManual ? '已人工维护' : '等待人工确认'}</span></div>
         <div className="base-profile-edit-grid">
           {(Object.keys(LABELS) as Array<keyof typeof LABELS>).map(key => <label key={key}><span>{LABELS[key]}{key !== 'spec' && <b>必填</b>}</span><input value={String(values[key] ?? '')} disabled={busy || isLocked(key)} onChange={e => change(key, e.target.value)} maxLength={getResourceDef('finance-base-codes')?.fields.find(field => field.key === key)?.maxLength} /></label>)}
