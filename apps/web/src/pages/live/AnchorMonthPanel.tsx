@@ -91,22 +91,33 @@ export function AnchorMonthPanel({
     { value: '30d', label: '近 30 天' },
   ];
   const [period, setPeriod] = useState<AnchorPeriod>('month');
-  const label = periods.find((item) => item.value === period)!.label;
-  const [data, setData] = useState<AnchorMonthData | null>(null),
-    [error, setError] = useState(''),
+  const [result, setResult] = useState<{
+    userId: number;
+    period: AnchorPeriod;
+    data: AnchorMonthData;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const data = result?.userId === userId ? result.data : null;
+  const displayedPeriod = data ? result!.period : period;
+  const label = periods.find((item) => item.value === displayedPeriod)!.label;
+  const requestedLabel = periods.find((item) => item.value === period)!.label;
+  const [error, setError] = useState(''),
     [retry, setRetry] = useState(0),
     [session, setSession] = useState<number | null>(null);
   useEffect(() => {
     let alive = true;
-    setData(null);
+    setLoading(true);
     setError('');
     if (Number.isSafeInteger(userId) && userId > 0)
       (period === 'month' ? anchorMonthApi.read(userId) : anchorMonthApi.read(userId, period))
         .then((x) => {
-          if (alive) setData(x);
+          if (alive) setResult({ userId, period, data: x });
         })
         .catch((e) => {
           if (alive) setError(errText(e, '直播资料读取失败'));
+        })
+        .finally(() => {
+          if (alive) setLoading(false);
         });
     return () => {
       alive = false;
@@ -128,7 +139,9 @@ export function AnchorMonthPanel({
         <div>
           <h3>
             {label}直播业绩{' '}
-            {data && <small>{period === 'month' ? data.month : `${data.from} 至 ${data.through}`}</small>}
+            {data && (
+              <small>{displayedPeriod === 'month' ? data.month : `${data.from} 至 ${data.through}`}</small>
+            )}
           </h3>
           <p>北京时间 · 按场次开播日统计 · 含今天 · 包含未审核场次</p>
         </div>
@@ -144,7 +157,7 @@ export function AnchorMonthPanel({
             aria-pressed={period === item.value}
             onClick={() => {
               if (period === item.value) return;
-              setData(null);
+              setLoading(true);
               setError('');
               setPeriod(item.value);
             }}
@@ -153,13 +166,12 @@ export function AnchorMonthPanel({
           </button>
         ))}
       </div>
-      {error ? (
-        <p className="notice" role="status">
-          {error}
-        </p>
-      ) : !person ? (
+      <p className="anchor-period-status" role="status" aria-live="polite">
+        {error || (loading && person ? `正在读取${requestedLabel}业绩…` : ' ')}
+      </p>
+      {!person ? (
         <p className="muted" role="status">
-          正在读取直播资料…
+          {error ? '请点击刷新业绩重试' : '正在读取直播资料…'}
         </p>
       ) : (
         <>
