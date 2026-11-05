@@ -1,0 +1,36 @@
+/* 财务主页面由顶栏提供唯一一级标题；弹窗、手工开单票据及登录管理工作区的独立业务标题保留。 */
+.finance-page-content h1:not([role="dialog"] h1):not(.slip-title h1):not(.session-hero h1):not([data-preserve-page-title]) { display: none; }
+.finance-page-content { min-width: 0; }
+.finance-page-content > * { min-width: 0; }
+.finance-page-content .page-head { justify-content: flex-start; gap: 12px; }
+.finance-page-content .page-head > :first-child:is(div, p):not(.code-verification-tabs) { min-width: 0; margin-inline-end: auto; }
+.finance-page-content .page-head p { margin-top: 0; }
+.finance-page-toolbar { align-items: center; }
+.finance-toolbar-description { flex: 1 1 260px; min-width: 0; }
+.finance-page-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; margin-inline-start: auto; }
+.finance-page-actions > button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 38px; flex-shrink: 0; }
+.finance-page-content .toolbar { min-width: 0; flex-wrap: wrap; }
+.finance-page-content .toolbar > input.grow { min-width: min(200px, 100%); max-width: 100%; flex: 1 1 240px; }
+.finance-page-content .toolbar button { flex-shrink: 0; white-space: nowrap; }
+.finance-page-content .toolbar > label { min-width: 0; max-width: 100%; }
+.host-maintenance { display: block; position: relative; width: fit-content; max-width: calc(100% - 56px); margin: 8px 28px 0 auto; color: var(--muted); font-size: 13px; }
+.host-maintenance > summary { cursor: pointer; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 7px 10px; background: var(--surface); }
+.host-maintenance > div { display: flex; flex-wrap: wrap; gap: 6px; max-width: 100%; padding: 8px 0; }
+.host-maintenance button { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 7px 10px; background: var(--surface); color: var(--ink); font: inherit; }
+.host-maintenance button[aria-selected="true"] { color: var(--accent-ink); border-color: var(--accent); }
+@media (max-width: 700px) {
+  .finance-page-content .finance-page-toolbar { gap: 10px; }
+  .finance-page-actions { width: 100%; justify-content: flex-start; margin-inline-start: 0; }
+  .finance-page-actions > button { flex: 1 1 auto; max-width: 100%; white-space: normal; }
+  .host-maintenance { max-width: calc(100% - 32px); margin: 8px 16px 0 auto; }
+}
+/* 组合列表的固定输入宽度会撑破中等宽度卡片；让网格在可用区域内收缩。 */
+.finance-page-content .finance-code-page #bundle-verification-workspace form.toolbar { grid-template-columns: minmax(0, 1fr) minmax(120px, 180px) max-content; }
+.finance-page-content .finance-code-page #bundle-verification-workspace form.toolbar > input { width: 100%; min-width: 0; }
+@media (max-width: 700px) {
+  .finance-page-content .finance-code-page #bundle-verification-workspace form.toolbar { grid-template-columns: minmax(0, 1fr) max-content; }
+  .finance-page-content .finance-code-page #bundle-verification-workspace form.toolbar > input { grid-column: 1 / -1; }
+  .finance-page-content .finance-code-page #bundle-verification-workspace form.toolbar > select { width: 100%; min-width: 0; }
+}
+.finance-page-content .finance-code-page { padding-top: 16px; }
+.finance-page-content .base-code-reference > .page-head > div:first-child:not(.code-verification-tabs) { padding: 0; }

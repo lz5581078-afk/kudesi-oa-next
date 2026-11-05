@@ -1,7 +1,7 @@
 import { FeishuBindingReminder } from '../auth/FeishuBindingReminder';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { directPage, findPageByPath, splitMobileSections, visibleSections, withDeskNavigation, isNavPathCurrent, type DeskCatalog, type VisibleSection } from '@kudesi/shared';
+import { PAGE_TABS, directPage, findPageByPath, splitMobileSections, visibleSections, withDeskNavigation, isNavPathCurrent, type DeskCatalog, type VisibleSection } from '@kudesi/shared';
 import { useAuth } from '../auth/AuthContext';
 import { AppbarContext, useAppbarState } from './AppbarSlot';
 import { CommandPalette } from './CommandPalette';
@@ -9,6 +9,7 @@ import { ModulePanel } from './ModulePanel';
 import { MoreIcon, NavIcon, SearchIcon } from './NavIcons';
 import { NotificationBell } from './NotificationBell';
 import { NavigationContext } from './NavigationContext';
+import './financeChrome.css';
 import { workspaceApi } from '../pages/workspace/workspaceApi';
 
 /**
@@ -55,7 +56,10 @@ export function Shell() {
 
   if (!user) return null;
 
-  const pageTitle = current?.page.label ?? (location.pathname === '/account/password' ? '修改密码' : '');
+  const financePage = current?.section.id === 'finance' && can(current.page.permission);
+  const requestedTab = new URLSearchParams(location.search).get('tab');
+  const financeTab = financePage && current ? PAGE_TABS[`finance/${current.page.id}`]?.find((tab, index) => index > 0 && tab.id === requestedTab && can(tab.permission)) : undefined;
+  const pageTitle = financeTab?.label ?? current?.page.label ?? (location.pathname === '/account/password' ? '修改密码' : '');
   const openPanel = (section: VisibleSection) => setPanelId(section.id);
   const moreActive = Boolean(activeSection && mobile.more.some((s) => s.id === activeSection.id));
 
@@ -98,7 +102,7 @@ export function Shell() {
           <div className="appbar-lead">
             <div className="appbar-title" aria-label="当前位置">
               {activeSection && !appbar.bare && <small>{activeSection.label}</small>}
-              <span className="appbar-page">{pageTitle || '小白全流程系统'}</span>
+              <span className="appbar-page" role={financePage ? 'heading' : undefined} aria-level={financePage ? 1 : undefined}>{pageTitle || '小白全流程系统'}</span>
             </div>
             <span className="appbar-slot" ref={appbar.setSlot} />
           </div>
@@ -129,7 +133,7 @@ export function Shell() {
           </div>
         </header>
 
-        <main className="content">
+        <main className={`content${financePage ? ' finance-page-content' : ''}`}>
           {user.mustChangePassword && location.pathname !== '/account/password' && (
             <div role="alert" className="notice warn">
               当前是初始密码，请先<Link to="/account/password">修改密码</Link>。
