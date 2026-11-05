@@ -497,6 +497,34 @@ export const FLOW_TEMPLATES: readonly FlowTemplate[] = [
       { key: 'end', name: '结束', type: 'end', locked: true },
     ],
   },
+  {
+    key: 'store-rename',
+    label: '店铺改名',
+    description: '店铺改名申请。刘振先审批、人事部门审批后，申请人到平台后台改店铺名并上传截图，人事部门再到聚水潭手动改名并上传截图、通过；通过时 OA 自动改店铺档案名称，并同步聚水潭店铺名快照、记下曾用名。',
+    fields: [
+      ref('storeId', '店铺', '改名', 'stores', { required: true, help: '要改名的店铺档案' }),
+      text('newName', '新店铺名', '改名', { required: true, maxLength: 100, help: '要改成的名称；同一平台下不能和别的店铺重名' }),
+      textarea('reason', '改名原因', '改名', { required: true, maxLength: 500 }),
+    ],
+    stepFields: {
+      rename: [
+        files('screenshots', '平台改名成功截图', '平台改名', { required: true, help: '在平台后台改名成功后的截图（平台要审核的，请等审核通过后再提交）' }),
+        textarea('note', '说明', '平台改名', { maxLength: 500 }),
+      ],
+      jst_rename: [
+        files('screenshots', '聚水潭改名截图', '聚水潭改名', { required: true, help: '聚水潭后台该店铺已改成新名称的截图' }),
+        textarea('note', '说明', '聚水潭改名', { maxLength: 500 }),
+      ],
+    },
+    steps: [
+      { key: 'apply', name: '提交申请', type: 'submit', assignee: { source: 'requester' }, locked: true },
+      { key: 'approve_boss', name: '刘振先审批', type: 'approval', dueMinutes: 1440, locked: true },
+      { key: 'approve_hr', name: '人事部门审批', type: 'approval', dueMinutes: 1440, locked: true },
+      { key: 'rename', name: '申请人平台改名并上传截图', type: 'execute', assignee: { source: 'requester' }, requesterHandles: true, dueMinutes: 4320, locked: true },
+      { key: 'jst_rename', name: '人事部聚水潭改名、通过并自动改OA', type: 'execute', dueMinutes: 1440, locked: true },
+      { key: 'end', name: '结束', type: 'end', locked: true },
+    ],
+  },
 ];
 
 export const getFlowTemplate = (key: string): FlowTemplate | undefined => FLOW_TEMPLATES.find((t) => t.key === key);

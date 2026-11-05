@@ -546,6 +546,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
       text('migrationNotice', '迁移核对提示', '店铺基础信息', { readonly: true }),
       text('name', '店铺名', '店铺基础信息', { required: true, list: true, search: true }),
       text('storeNo', '店铺编号', '店铺基础信息', { list: true, search: true }),
+      text('formerNames', '曾用名', '店铺基础信息', { readonly: true, search: true, maxLength: 1000, help: '店铺改名流程办完后自动记下旧名称，搜旧名也能找到这家店' }),
       text('platformStoreId', '平台店铺 ID', '店铺基础信息', { list: true, search: true, maxLength: 255 }),
       ref('licenseId', '所属执照', '店铺基础信息', 'licenses', { list: true }),
       select('operatingStatus', '经营状态', '店铺基础信息', o('operating:运营中', 'not_operating:未运营'), { list: true }),
