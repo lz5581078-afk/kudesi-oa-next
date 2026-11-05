@@ -28,6 +28,15 @@ d('主播本月业绩真实MySQL、未审核纳入及权限隔离',()=>{
  it('直播查看者和档案查看者可见业绩，但服务器不返回无权限的提成金额',async()=>{
   for(const user of [viewer,hr]){const r=await service.read(user,[personId],true);expect(r.items[0].summary.commissionCents).toBeNull();expect(r.canViewCommission).toBe(false);expect(r.items[0].sessions?.every(s=>s.commissionCents===null)).toBe(true);}
  });
+ it('详情切换周期时从数据库取完整范围，跨月旧场次包含在近30天',async()=>{
+  const recent=await service.read(boss,[personId],true,'3d');
+  expect(recent.items[0].sessions?.map(s=>s.date)).toEqual(['2026-11-03']);
+  const week=await service.read(boss,[personId],true,'7d');
+  expect(week.items[0].sessions?.map(s=>s.date)).toEqual(['2026-11-03','2026-11-01','2026-10-31']);
+  const month=await service.read(boss,[personId],true,'30d');
+  expect(month.items[0].summary.sessionCount).toBe(3);
+  expect(month).toMatchObject({from:'2026-10-06',through:'2026-11-04'});
+ });
  it('拒绝跨公司编号、无权限读取、档案权限不能扩大到没有档案的员工',async()=>{
   await expect(service.read(foreign,[personId])).rejects.toThrow('人员不存在');
   await expect(service.read({...viewer,permissions:{allow:[],deny:[],isCompanyAdmin:false}},[personId])).rejects.toThrow('没有查看');
