@@ -70,3 +70,4 @@ export * from './resource-import-profiles';
 export * from './bundle-naming';
 export * from './base-code-definition';
 export * from './finance-code-identity';
+export * from './desktop-after-sales';
