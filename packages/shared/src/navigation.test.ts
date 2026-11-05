@@ -29,6 +29,15 @@ describe('导航分组与搜索', () => {
     expect(directPage(all[0])).toBeNull();
   });
 
+  it('仅开通实时售后时仍从功能菜单的售后处理分组进入', () => {
+    const sections = visibleSections((permission) => permission === 'after-sales.workspace.view');
+    const features = sections.find((section) => section.id === 'features')!;
+    expect(groupPages(features)).toEqual([
+      { title: '售后处理', pages: [expect.objectContaining({ label: '实时售后处理', path: '/after-sales/workspace' })] },
+    ]);
+    expect(directPage(features)).toBeNull();
+  });
+
   it('搜索：多个关键词都要命中；能按分组名或一级菜单名找；空关键词不出结果', () => {
     expect(searchNav(all, '')).toEqual([]);
     expect(searchNav(all, '  ,  ')).toEqual([]);

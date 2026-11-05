@@ -5,6 +5,9 @@ import { json, urlencoded } from 'express';
  * Nest ExpressAdapter's default parser for every other route. */
 export function configureBodyParsers(app: Pick<INestApplication, 'use'>) {
   app.use('/api/collector/file', json({ limit: '6mb' }));
+  // A complete source page can exceed the normal JSON body limit.
+  app.use('/api/desktop-after-sales-collection', json({ limit: '6mb' }));
+  app.use('/api/desktop-after-sales/import', json({ limit: '1mb' }));
   // Original shop assistant's JPEG fallback uses base64 JSON (max 900000 chars).
   // Keep this allowance local to its authenticated remote-report path.
   app.use('/api/session-manager/agent/remote', json({ limit: '1mb' }));
