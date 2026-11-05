@@ -123,7 +123,7 @@ export function ScriptVersionPanel({
             ['info', '版本资料'],
           ] as const
         )
-          .filter(([key]) => edit || key === 'script' || key === 'questions')
+          .filter(([key]) => edit || key !== 'info')
           .map(([key, label]) => (
             <button
               key={key}
@@ -147,6 +147,12 @@ export function ScriptVersionPanel({
           />
         </div>
       )}
+      {section === 'assets' && (
+        <div className="sc-section">
+          <h3>本版素材库</h3>
+          <ScriptAssetLibrary version={v.id} assets={v.assets} canUpload={manage} onAdded={mergeAssets} />
+        </div>
+      )}
       {edit ? (
         <>
           <div hidden={section !== 'info'} className="sc-section">
@@ -164,12 +170,6 @@ export function ScriptVersionPanel({
                 placeholder="适用人群、讲解重点、与上一版的区别…"
               />
             </label>
-          </div>
-          <div hidden={section !== 'assets'} className="sc-section">
-            <h3>本版素材库</h3>
-            {section === 'assets' && (
-              <ScriptAssetLibrary version={v.id} assets={v.assets} onAdded={mergeAssets} />
-            )}
           </div>
           <div hidden={section !== 'script'} className="sc-section">
             <ScriptArticleEditor
@@ -272,7 +272,6 @@ export function ScriptVersionPanel({
           </form>
           {!v.assets.length && <p>请先到素材库上传素材。</p>}
           {Object.entries(categories)
-            .filter(([key]) => edit || key === 'script' || key === 'questions')
             .map(([key, label]) => {
               const items = v.assets.filter((a) => a.category === key);
               return (
