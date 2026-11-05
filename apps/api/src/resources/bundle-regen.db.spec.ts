@@ -80,7 +80,8 @@ d('分类排序与批量重生成编码（真实数据库）', () => {
     const pv = await tools.regeneratePreview(boss);
     expect(pv.rows).toHaveLength(1);
     expect(pv.rows[0]).toMatchObject({ id: bundleId, oldCode, blocked: null, error: null });
-    expect(pv.rows[0].newCode.startsWith('QQ-')).toBe(true);
+    expect(pv.rows[0].newCode).toBe(oldCode);
+    expect(pv.rows[0].newName.startsWith('套-')).toBe(true);
     // 预览不改任何东西
     expect(String((await svc.get(boss, 'finance-bundles', bundleId)).data.code)).toBe(oldCode);
     await expect(tools.regenerateExecute(boss, [{ id: bundleId, token: pv.rows[0].token }], '', true)).rejects.toThrow(/原因/);
@@ -91,6 +92,7 @@ d('分类排序与批量重生成编码（真实数据库）', () => {
     expect(done.done).toBe(1);
     const after = await svc.get(boss, 'finance-bundles', bundleId);
     expect(after.data.code).toBe(pv.rows[0].newCode);
+    expect(after.data.name).toBe(pv.rows[0].newName);
     expect(after.status).toBe('reverify');
     expect((await tools.regeneratePreview(boss)).rows).toHaveLength(0);
   });

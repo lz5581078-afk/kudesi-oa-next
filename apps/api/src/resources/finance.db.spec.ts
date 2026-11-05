@@ -333,11 +333,11 @@ d('财务资料（真实数据库）', () => {
     expect((await svc.get(boss, 'finance-bundles', bundle.id)).data.code).toBe('ZH-TB-HFSPGG-5KG-GYL+ZP-APPLE*1');
     const verified = await svc.changeStatus(boss, 'finance-bundles', bundle.id, 'verified');
     expect(verified.status).toBe('verified');
-    // 构成一变，就要重新验证；删除赠品后编码回到只有主品
+    // 构成一变，就要重新验证；已验证的编码身份保持原值。
     await svc.remove(boss, 'finance-bundle-lines', gift.id, '不要赠品了');
     const back = await svc.get(boss, 'finance-bundles', bundle.id);
     expect(back.status).toBe('reverify');
-    expect(back.data.code).toBe('ZH-TB-HFSPGG-5KG-GYL');
+    expect(back.data.code).toBe(verified.data.code);
     // 手工重量/运费/利润率覆盖必须写原因
     await expect(svc.update(boss, 'finance-bundles', bundle.id, { manualFreight: 800 })).rejects.toThrow(/原因/);
     await svc.update(boss, 'finance-bundles', bundle.id, { manualFreight: 800, overrideReason: '特殊线路' });

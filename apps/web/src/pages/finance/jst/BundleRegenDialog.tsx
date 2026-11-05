@@ -6,7 +6,7 @@ const msg = (e: unknown) => (e instanceof ApiError ? e.message : (e as Error).me
 
 /**
  * 改了命名规则之后：列出按新规则会变的编码/名称（只预览），选哪些、写原因、确认后才改。
- * 已验证的会回到“需重新验证”；上传过聚水潭的，下次同步会按“改码”处理。
+ * 已验证的会回到“需重新验证”；已验证或上传的编码保持不变。
  */
 export function BundleRegenDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const [rows, setRows] = useState<RegenRow[] | null>(null);
@@ -32,15 +32,15 @@ export function BundleRegenDialog({ onClose, onDone }: { onClose: () => void; on
   return (
     <div className="modal-backdrop" role="presentation">
       <div className="modal card wide" role="dialog" aria-label="按新规则批量重生成编码">
-        <div className="modal-head between"><strong>按新命名规则重生成编码</strong><button type="button" className="icon-button" aria-label="关闭" onClick={onClose}>✕</button></div>
+        <div className="modal-head between"><strong>按新命名规则更新组合资料</strong><button type="button" className="icon-button" aria-label="关闭" onClick={onClose}>✕</button></div>
         <div className="modal-body">
           {error && <div role="alert" className="notice error">{error}</div>}
           {notice && <div role="status" className="notice ok">{notice}</div>}
-          <p className="muted">下面是按“现在的命名规则”重新算出来、和已有不一样的组合（手改过编码的不会变）。不会自动修改，选好、写原因、确认后才执行。</p>
+          <p className="muted">下面是按“现在的命名规则”重新算出来、和已有不一样的组合。已验证或已上传的编码保持不变。不会自动修改，选好、写原因、确认后才执行。</p>
           <div className="table-scroll"><table className="data-table">
             <thead><tr><th style={{ width: 28 }}><input type="checkbox" aria-label="全选" checked={usable.length > 0 && picked.length === usable.length} onChange={(e) => setPicked(e.target.checked ? usable.map((r) => r.id) : [])} /></th><th>现在的编码 / 名称</th><th>新的编码 / 名称</th><th>提醒</th></tr></thead>
             <tbody>
-              {rows?.length === 0 && <tr><td colSpan={4} className="muted center">所有组合的编码都和现在的规则一致</td></tr>}
+              {rows?.length === 0 && <tr><td colSpan={4} className="muted center">所有组合资料都和现在的规则一致</td></tr>}
               {rows?.map((r) => (
                 <tr key={r.id}>
                   <td><input type="checkbox" aria-label={`选择 ${r.oldCode}`} disabled={!!r.error || !!r.blocked} checked={picked.includes(r.id)} onChange={(e) => { setOk(false); setPicked(e.target.checked ? [...picked, r.id] : picked.filter((x) => x !== r.id)); }} /></td>
@@ -50,7 +50,7 @@ export function BundleRegenDialog({ onClose, onDone }: { onClose: () => void; on
                     {r.error && <div className="bad-text">{r.error}</div>}
                     {r.blocked && <div className="bad-text">{r.blocked}，暂不能改</div>}
                     {r.status === 'verified' && !r.error && !r.blocked && <div className="muted">已验证，改完回到“需重新验证”</div>}
-                    {r.uploadedCode && <div className="warn-text">已上传聚水潭（{r.uploadedCode}），之后同步会走“改码”</div>}
+                    {r.uploadedCode && <div className="warn-text">已上传聚水潭（{r.uploadedCode}），沿用原编码同步资料</div>}
                   </td>
                 </tr>
               ))}
