@@ -11,6 +11,8 @@ import { BundleToolsService } from '../resources/bundle-tools.service';
 import { ResourcesService } from '../resources/resources.service';
 import type { OutboxService } from '../outbox/outbox.service';
 import { skuBatchApply } from './sku-apply';
+import { accountRename } from './account-rename';
+import { storeRename } from './store-rename';
 import { productExclusive } from './product-exclusive';
 import { purchase } from './purchase';
 import { afterSalesAdapter, appealAdapter } from '../service/service-adapters';
@@ -239,4 +241,4 @@ export async function postDeclared(ctx: StepContext, t: FlowTemplate): Promise<v
   payload._docNo = finalDoc.docNo;
 }
 
-export const FLOW_ADAPTERS: Record<string, FlowAdapter> = { [dailyWorkReview.key]: dailyWorkReview, [licenseBorrow.key]: licenseBorrow, [expenseRequest.key]: expenseRequest, [skuBatchApply.key]: skuBatchApply, [productExclusive.key]: productExclusive, [afterSalesAdapter.key]: afterSalesAdapter, [appealAdapter.key]: appealAdapter, [liveSessionReview.key]: liveSessionReview, [liveSettlement.key]: liveSettlement, [purchase.key]: purchase };
+export const FLOW_ADAPTERS: Record<string, FlowAdapter> = { [dailyWorkReview.key]: dailyWorkReview, [licenseBorrow.key]: licenseBorrow, [accountRename.key]: accountRename, [storeRename.key]: storeRename, [expenseRequest.key]: expenseRequest, [skuBatchApply.key]: skuBatchApply, [productExclusive.key]: productExclusive, [afterSalesAdapter.key]: afterSalesAdapter, [appealAdapter.key]: appealAdapter, [liveSessionReview.key]: liveSessionReview, [liveSettlement.key]: liveSettlement, [purchase.key]: purchase };

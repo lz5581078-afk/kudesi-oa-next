@@ -78,6 +78,8 @@ export interface StepDef {
   nodeTemplateKey?: string | null;
   /** 并行分支：相邻、分支编号相同的步骤同时办理，全部办完（汇合）才进入后面的步骤 */
   parallel?: string | null;
+  /** 模板声明：这一步（仅办理类）必须由发起人本人办理（如“申请人去平台改名并上传截图”）。普通审批步骤仍不允许把发起人设为办理人。 */
+  requesterHandles?: boolean;
   /** 异常连线：办理人可以“上报异常”，流程转到这个步骤（必须是仅异常步骤）；不写则不能上报异常 */
   exceptionToKey?: string | null;
   /** 仅异常步骤：正常流转时自动跳过，只有被异常连线指到才办理 */
@@ -471,6 +473,58 @@ export const FLOW_TEMPLATES: readonly FlowTemplate[] = [
       { key: 'end', name: '结束', type: 'end', locked: true },
     ],
   },
+  {
+    key: 'account-rename',
+    label: '账号名称改名',
+    description: '自媒体账号改名申请。刘振先审批、人事部门审批后，申请人到平台改名并上传改名截图，人事部通过时 OA 自动把资料里的自媒体账号名称改成新名称。',
+    fields: [
+      ref('accountId', '自媒体账号', '改名', 'self-media', { required: true, help: '要改名的自媒体账号档案' }),
+      text('newName', '新账号名称', '改名', { required: true, maxLength: 100, help: '要改成的名称；同一平台下不能和别的账号重名' }),
+      textarea('reason', '改名原因', '改名', { required: true, maxLength: 500 }),
+    ],
+    stepFields: {
+      rename: [
+        files('screenshots', '改名成功截图', '改名', { required: true, help: '在平台后台改名成功后的截图，人事部据此核对' }),
+        textarea('note', '说明', '改名', { maxLength: 500 }),
+      ],
+    },
+    steps: [
+      { key: 'apply', name: '提交申请', type: 'submit', assignee: { source: 'requester' }, locked: true },
+      { key: 'approve_boss', name: '刘振先审批', type: 'approval', dueMinutes: 1440, locked: true },
+      { key: 'approve_hr', name: '人事部门审批', type: 'approval', dueMinutes: 1440, locked: true },
+      { key: 'rename', name: '申请人改名并上传截图', type: 'execute', assignee: { source: 'requester' }, requesterHandles: true, dueMinutes: 2880, locked: true },
+      { key: 'hr_confirm', name: '人事部通过并自动改名', type: 'approval', dueMinutes: 1440, locked: true },
+      { key: 'end', name: '结束', type: 'end', locked: true },
+    ],
+  },
+  {
+    key: 'store-rename',
+    label: '店铺改名',
+    description: '店铺改名申请。刘振先审批、人事部门审批后，申请人到平台后台改店铺名并上传截图，人事部门再到聚水潭手动改名并上传截图、通过；通过时 OA 自动改店铺档案名称，并同步聚水潭店铺名快照、记下曾用名。',
+    fields: [
+      ref('storeId', '店铺', '改名', 'stores', { required: true, help: '要改名的店铺档案' }),
+      text('newName', '新店铺名', '改名', { required: true, maxLength: 100, help: '要改成的名称；同一平台下不能和别的店铺重名' }),
+      textarea('reason', '改名原因', '改名', { required: true, maxLength: 500 }),
+    ],
+    stepFields: {
+      rename: [
+        files('screenshots', '平台改名成功截图', '平台改名', { required: true, help: '在平台后台改名成功后的截图（平台要审核的，请等审核通过后再提交）' }),
+        textarea('note', '说明', '平台改名', { maxLength: 500 }),
+      ],
+      jst_rename: [
+        files('screenshots', '聚水潭改名截图', '聚水潭改名', { required: true, help: '聚水潭后台该店铺已改成新名称的截图' }),
+        textarea('note', '说明', '聚水潭改名', { maxLength: 500 }),
+      ],
+    },
+    steps: [
+      { key: 'apply', name: '提交申请', type: 'submit', assignee: { source: 'requester' }, locked: true },
+      { key: 'approve_boss', name: '刘振先审批', type: 'approval', dueMinutes: 1440, locked: true },
+      { key: 'approve_hr', name: '人事部门审批', type: 'approval', dueMinutes: 1440, locked: true },
+      { key: 'rename', name: '申请人平台改名并上传截图', type: 'execute', assignee: { source: 'requester' }, requesterHandles: true, dueMinutes: 4320, locked: true },
+      { key: 'jst_rename', name: '人事部聚水潭改名、通过并自动改OA', type: 'execute', dueMinutes: 1440, locked: true },
+      { key: 'end', name: '结束', type: 'end', locked: true },
+    ],
+  },
 ];
 
 export const getFlowTemplate = (key: string): FlowTemplate | undefined => FLOW_TEMPLATES.find((t) => t.key === key);
@@ -496,7 +550,8 @@ export function validateSteps(template: FlowTemplate, steps: readonly StepDef[],
     if ((s.ccUserIds?.length ?? 0) > 20) errors.push(`${label}最多抄送 20 人`);
     if (s.type !== 'submit' && s.type !== 'end') {
       const a = s.assignee;
-      if (!a || a.source === 'requester') errors.push(`${label}要指定办理人`);
+      const requesterAllowed = s.type === 'execute' && template.steps.some((x) => x.key === s.key && x.requesterHandles);
+      if (!a || (a.source === 'requester' && !requesterAllowed)) errors.push(`${label}要指定办理人`);
       else if (!ASSIGNEE_SOURCE_LABEL[a.source]) errors.push(`${label}的办理人类型不支持`);
       else if (a.source === 'position_type') { if (!a.key || !POSITION_TYPE_LABEL[a.key]) errors.push(`${label}要选择岗位类型`); }
       else if (a.source === 'related_owner') {

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { emptyRecruitForm, normalizeRecruitForm, recruitFormProblems, type RecruitForm } from '@kudesi/shared';
 import { RecruitFormFields } from './RecruitFormFields';
-import { recruitApplyApi } from './recruitApi';
+import { recruitApplyApi, type PublicOpening } from './recruitApi';
 import './recruit.css';
 
 type Step = 'choose' | 'recognizing' | 'fill' | 'done';
@@ -10,13 +10,14 @@ type Step = 'choose' | 'recognizing' | 'fill' | 'done';
 /** 求职者扫码进入（免登录）：先选手工填写或简历图片识别，识别后本人确认再提交 */
 export function RecruitApplyPage() {
   const token = useLocation().hash.slice(1);
-  const [info, setInfo] = useState<{ companyName: string; channel: string } | null>(null);
+  const [info, setInfo] = useState<{ companyName: string; channel: string; openings: PublicOpening[] } | null>(null);
   const [error, setError] = useState('');
   const [step, setStep] = useState<Step>('choose');
   const [mode, setMode] = useState<'manual' | 'image'>('manual');
   const [form, setForm] = useState<RecruitForm>(emptyRecruitForm());
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
+  const [openingId, setOpeningId] = useState('');
   const requestKey = useRef(crypto.randomUUID());
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -43,12 +44,13 @@ export function RecruitApplyPage() {
 
   async function submit() {
     if (busy) return;
+    if (info?.openings.length && !openingId) { setError('请选择应聘岗位'); return; }
     const clean = normalizeRecruitForm(form);
     const problems = recruitFormProblems(clean);
     if (problems.length) { setError(problems.join('；')); return; }
     setBusy(true); setError('');
     try {
-      await recruitApplyApi.submit({ token, requestKey: requestKey.current, sourceMode: mode, form: clean });
+      await recruitApplyApi.submit({ token, requestKey: requestKey.current, sourceMode: mode, form: clean, ...(openingId ? { openingId: Number(openingId) } : {}) });
       setStep('done');
     } catch (e) { setError(e instanceof Error ? e.message : '提交失败，请重试'); } finally { setBusy(false); }
   }
@@ -74,6 +76,17 @@ export function RecruitApplyPage() {
         {info && step === 'fill' && (
           <>
             {notice && <div className="notice warn">{notice}</div>}
+            {info.openings.length > 0 && (
+              <div className="recruit-fields recruit-opening">
+                <label>应聘岗位
+                  <select value={openingId} onChange={(e) => setOpeningId(e.target.value)}>
+                    <option value="">请选择应聘岗位</option>
+                    {info.openings.map((o) => <option key={o.id} value={o.id}>{o.title}{o.departmentName ? `（${o.departmentName}）` : ''}</option>)}
+                  </select>
+                </label>
+                {info.openings.find((o) => String(o.id) === openingId)?.requirements && <p className="muted recruit-text">{info.openings.find((o) => String(o.id) === openingId)?.requirements}</p>}
+              </div>
+            )}
             <RecruitFormFields form={form} onChange={(patch) => setForm((f) => ({ ...f, ...patch }))} />
             <div className="recruit-actions">
               <button type="button" className="ghost" onClick={() => { setStep('choose'); setError(''); }}>返回重选</button>

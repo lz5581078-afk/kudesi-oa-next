@@ -105,4 +105,26 @@ d('招聘管理：真实 MySQL', () => {
     const invite = (await svc.listInvites(hr)).find((i: { label: string }) => i.label === '识别');
     expect(invite.applicationCount).toBe(0); // 识别不入库，等求职者确认提交
   });
+
+  it('招聘岗位：从部门岗位导入、重复导入不重复；有在招岗位时必须选岗位并记名称快照', async () => {
+    const [dept] = await ds.query('SELECT id FROM departments WHERE company_id=? LIMIT 1', [hr.companyId]);
+    const pos = await ds.manager.save(Position, ds.manager.create(Position, { companyId: hr.companyId, departmentId: dept.id, name: '客服专员', status: 'active', workspaceType: 'blank' } as never));
+    const foreign = await ds.manager.save(Position, ds.manager.create(Position, { companyId: outsider.companyId, name: '他司岗', status: 'active', workspaceType: 'blank' } as never));
+    expect((await svc.positionCandidates(hr)).find((p: { id: number }) => p.id === pos.id)).toMatchObject({ name: '客服专员', imported: false });
+    await expect(svc.importOpenings(hr, [foreign.id])).rejects.toThrow('不属于本公司');
+    await expect(svc.importOpenings(other, [pos.id])).resolves.toMatchObject({ added: 1 });
+    expect(await svc.importOpenings(hr, [pos.id])).toMatchObject({ added: 0, skipped: 1 });
+    const opening = (await svc.listOpenings(hr)).find((o: { positionId: number }) => o.positionId === pos.id);
+    const { token } = await svc.createInvite(hr, { label: '岗位' });
+    expect((await svc.preview(token)).openings.map((o: { title: string }) => o.title)).toContain('客服专员');
+    await expect(svc.submit(token, randomUUID(), 'manual', form())).rejects.toThrow('请选择应聘岗位');
+    await expect(svc.submit(token, randomUUID(), 'manual', form(), 999999)).rejects.toThrow('请选择应聘岗位');
+    const { id } = await svc.submit(token, randomUUID(), 'manual', form(), opening.id);
+    expect((await svc.getApplication(hr, id)).openingTitle).toBe('客服专员');
+    await svc.updateOpening(hr, opening.id, { status: 'closed' });
+    await ds.query("UPDATE recruit_openings SET status='closed' WHERE company_id=?", [hr.companyId]);
+    await expect(svc.submit(token, randomUUID(), 'manual', form(), opening.id)).resolves.toMatchObject({ ok: true }); // 没有在招岗位时不强制选岗
+    const note = await ds.query("SELECT title FROM notifications WHERE company_id=? AND kind='recruit' AND title LIKE '%应聘客服专员%'", [hr.companyId]);
+    expect(note.length).toBeGreaterThan(0);
+  });
 });

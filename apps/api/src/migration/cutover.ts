@@ -29,7 +29,7 @@ async function guardRecruitment(em: EntityManager, lock: boolean) {
 // User-specific preference rows are cleared only through the existing cutover transaction.
 known.add('user_preferences');
 // 招聘管理三张表：整库切换时和其他业务表一起由切换事务清理。
-for(const t of ['recruit_invites','recruit_applications','recruit_events'])known.add(t);
+for(const t of ['recruit_invites','recruit_applications','recruit_events','recruit_openings'])known.add(t);
 const technical=new Set(['companies','migrations','platform_admins','platform_integration_apps','agent_releases','integration_settings','ai_company_settings','ai_models','ai_providers','outbox_switches']);
 const qi=(n:string)=>{if(!/^[a-z_]+$/.test(n))throw new MigrationError('切换表名未核实');return '`'+n+'`';};
 const hash=(x:unknown)=>createHash('sha256').update(JSON.stringify(x)).digest('hex');

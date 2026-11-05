@@ -49,3 +49,6 @@
 .recruit-apply button { border: 1px solid #b9cfcf; background: #fff; color: #19333a; border-radius: 8px; padding: 10px 14px; font: inherit; cursor: pointer; }
 .recruit-apply button.primary { background: #187978; border-color: #187978; color: #fff; }
 .recruit-apply button.primary:disabled { opacity: .6; }
+.recruit-picker ul { list-style: none; padding: 0; max-height: 320px; overflow: auto; columns: 2 220px; }
+.recruit-picker li { padding: 4px 0; }
+.recruit-opening { margin-bottom: 16px; }

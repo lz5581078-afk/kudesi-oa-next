@@ -22,6 +22,14 @@ export function ApplyPage({initialTemplate,onClose,onSubmitted}:{initialTemplate
   const [keyword, setKeyword] = useState('');
   const [recent, setRecent] = useState<string[]>(readRecent);
   const keyRef = useRef(newRequestKey());
+  // 工作台快捷入口：/flow/apply?template=流程键 → 列表加载后直接选好这条流程（没配置好、不能发起的就留在列表）
+  const wantedKey = useRef(initialTemplate ? null : new URLSearchParams(window.location.search).get('template'));
+  useEffect(() => {
+    if (!templates || !wantedKey.current) return;
+    const hit = templates.find((t) => t.key === wantedKey.current && t.startable !== false);
+    wantedKey.current = null;
+    if (hit) setSel(hit);
+  }, [templates]);
   useEffect(() => { if(initialTemplate)return;flowApi.templates().then(setTemplates).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败')); }, []);
 
   const dirty = Object.values(values).some((v) => v !== '' && v !== undefined && v !== null && !(Array.isArray(v) && v.length === 0));

@@ -8,7 +8,7 @@ import { RecruitApplyPage } from './RecruitApplyPage';
 const token = 'b'.repeat(43);
 beforeEach(() => {
   window.history.replaceState(null, '', '/apply#' + token);
-  vi.spyOn(recruitApplyApi, 'preview').mockResolvedValue({ companyName: '测试公司', channel: '招聘网站' });
+  vi.spyOn(recruitApplyApi, 'preview').mockResolvedValue({ companyName: '测试公司', channel: '招聘网站', openings: [] });
   vi.spyOn(recruitApplyApi, 'submit').mockResolvedValue({ ok: true, id: 1 });
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -49,4 +49,19 @@ it('二维码无效时只提示，不显示表单', async () => {
   render(<MemoryRouter initialEntries={['/apply#bad']}><RecruitApplyPage /></MemoryRouter>);
   expect((await screen.findByRole('alert')).textContent).toContain('二维码无效');
   expect(screen.queryByRole('button', { name: /手工填写/ })).toBeNull();
+});
+
+it('有在招岗位时必须先选应聘岗位，并随表提交', async () => {
+  vi.mocked(recruitApplyApi.preview).mockResolvedValue({ companyName: '测试公司', channel: '招聘网站', openings: [{ id: 5, title: '客服专员', departmentName: '客服部', requirements: '会打字' }] });
+  page();
+  fireEvent.click(await screen.findByRole('button', { name: /手工填写/ }));
+  val('姓名', '张三'); val('性别', '男'); val('出生日期', '1990-05-01'); val('学历', '本科');
+  val('手机号', '13800138000'); val('身份证号码', '11010519491231002X');
+  fireEvent.click(screen.getByRole('button', { name: '确认无误，提交' }));
+  expect((await screen.findByRole('alert')).textContent).toContain('请选择应聘岗位');
+  val('应聘岗位', '5');
+  expect(screen.getByText('会打字')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '确认无误，提交' }));
+  await waitFor(() => expect(recruitApplyApi.submit).toHaveBeenCalled());
+  expect(vi.mocked(recruitApplyApi.submit).mock.calls[0][0].openingId).toBe(5);
 });

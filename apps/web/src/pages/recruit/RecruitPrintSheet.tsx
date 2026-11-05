@@ -24,7 +24,7 @@ export function RecruitPrintSheet({ detail, form, company }: { detail: RecruitDe
         <tr><th>{L.birthDate}</th><td>{form.birthDate}</td><th>{L.marital}</th><td>{dash(form.marital)}</td><th>{L.phone}</th><td>{form.phone}</td></tr>
         <tr><th>{L.education}</th><td>{form.education}</td><th>{L.school}</th><td>{dash(form.school)}</td><th>{L.graduationDate}</th><td>{dash(form.graduationDate)}</td></tr>
         <tr><th>{L.expectedSalary}</th><td>{dash(form.expectedSalary)}</td><th>{L.idNo}</th><td colSpan={3}>{form.idNo}</td></tr>
-        <tr><th>{L.sourceChannel}</th><td colSpan={5}>{form.sourceChannel}</td></tr>
+        <tr><th>应聘岗位</th><td colSpan={2}>{dash(detail.openingTitle)}</td><th>{L.sourceChannel}</th><td colSpan={2}>{form.sourceChannel}</td></tr>
       </tbody></table>
       {history(L.educationHistory, form.educationHistory, '学校', '专业')}
       {history(L.workHistory, form.workHistory, '公司', '职位')}
