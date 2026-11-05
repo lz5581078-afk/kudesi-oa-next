@@ -11,6 +11,7 @@ export function ScriptArticleEditor({ v, change, onSelect, onMark }: {
   onMark: (a: number, b: number) => void;
 }) {
   const id = useId();
+  const content = useRef<HTMLDivElement>(null);
   const inputs = useRef<(HTMLTextAreaElement | null)[]>([]);
   const [current, setCurrent] = useState(0);
   const [selection, setSelection] = useState({ chapter: 0, start: 0, end: 0 });
@@ -25,6 +26,19 @@ export function ScriptArticleEditor({ v, change, onSelect, onMark }: {
       if (el) { el.style.height = 'auto'; el.style.height = Math.max(132, el.scrollHeight) + 'px'; }
     });
   }, [v.body, v.outline]);
+  useEffect(() => {
+    if (!content.current || typeof ResizeObserver === 'undefined') return;
+    let previousWidth = -1;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry.contentRect.width === previousWidth) return;
+      previousWidth = entry.contentRect.width;
+      inputs.current.forEach((el) => {
+        if (el) { el.style.height = 'auto'; el.style.height = Math.max(132, el.scrollHeight) + 'px'; }
+      });
+    });
+    observer.observe(content.current);
+    return () => observer.disconnect();
+  }, []);
   function jump(i: number, caret = 0) {
     setCurrent(i);
     setSelection({ chapter: i, start: caret, end: caret });
@@ -56,7 +70,7 @@ export function ScriptArticleEditor({ v, change, onSelect, onMark }: {
           </button>
         ))}
       </nav>
-      <div className="sc-outline-content">
+      <div className="sc-outline-content" ref={content}>
         <div className="sc-article-head"><h3>按章节写话术</h3><small>{v.body.length} / 30000 字</small></div>
         <p className="sc-writing-help">在每个章节标题下填写正文，按目录顺序组成全文。已有整篇稿件可在光标处拆分，或选中文字调整归属。</p>
         <p className="sc-editing-status" role="status">正在编辑：{v.outline[index].name}</p>
