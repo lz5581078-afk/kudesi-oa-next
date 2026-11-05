@@ -149,6 +149,21 @@ d('分类排序与批量重生成编码（真实数据库）', () => {
     await svc.create(boss,'finance-bundle-naming-rules',{codeDictionaryCategoryId:cat.id,prefix:'OTHER-',namePrefix:'另一前缀-',codeFields:'baseCode',nameFields:'name'});const bad=await tools.preview(boss,[...lines,{role:'main',baseCodeId:next.id,qty:1}],[target]);expect(bad.targets[0].ok).toBe(false);expect(bad.targets[0].errors.join('；')).toContain('前缀不一致');
   });
 
+  it('独立来源赠品读取真实档案简称，预览与保存一致；改简称不重编已验证身份',async()=>{
+    const base=await svc.get(boss,'finance-base-codes',ids.namingBase),productId=Number(base.data.productId);
+    await svc.update(boss,'finance-products',productId,{giftShortName:'合成专用赠品',giftCodeShortName:'HCZP'});
+    await svc.changeStatus(boss,'finance-base-codes',base.id,'verified');
+    const platform=await svc.create(boss,'finance-platforms',{code:'GIFTCHK',name:'合成赠品简称平台'}),target={platformId:platform.id,scenarioId:ids.scen,bundleCategoryId:ids.bcat},lines=[{role:'main',baseCodeId:base.id,qty:5},{role:'gift',baseCodeId:base.id,qty:2}];
+    const preview=(await tools.preview(boss,lines,[target])).targets[0];expect(preview.code).toContain('+ZP-HCZP*2');expect(preview.name).toContain('+赠:合成专用赠品×2');
+    const made=await tools.generate(boss,lines,[target]),bundle=await svc.get(boss,'finance-bundles',made.created[0].id);expect(bundle.data).toMatchObject({code:preview.code,name:preview.name,styleCode:preview.styleCode});
+    await svc.changeStatus(boss,'finance-bundles',bundle.id,'verified');
+    await svc.update(boss,'finance-products',productId,{giftShortName:'合成改后赠品',giftCodeShortName:'HCNEW'});
+    expect((await svc.get(boss,'finance-base-codes',base.id)).data.code).toBe(base.data.code);
+    const stable=await svc.get(boss,'finance-bundles',bundle.id);expect(stable.data.code).toBe(bundle.data.code);expect(stable.data.styleCode).toBe(bundle.data.styleCode);
+    await svc.changeStatus(boss,'finance-base-codes',base.id,'verified');
+    const next=(await tools.preview(boss,[lines[0],{...lines[1],qty:3}],[target])).targets[0];expect(next.code).toContain('+ZP-HCNEW*3');expect(next.name).toContain('+赠:合成改后赠品×3');
+  });
+
   it('命名来源互斥、同公司/种类权限验证；没有独立分类的旧档案规则仍可预览',async()=>{
     const base=await svc.get(boss,'finance-base-codes',ids.namingBase),category=Number(base.data.codeDictionaryCategoryId);
     const sample=await tools.namingSample(boss,ids.namingBase,2.123456);expect(sample.input.mains[0].qty).toBe(2.123456);expect(JSON.stringify(sample)).not.toMatch(/unitPrice|purchasePrice|externalCost|snapshot|totalCost/);

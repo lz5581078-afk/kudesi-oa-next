@@ -153,7 +153,7 @@ export interface Composition { mains: ComposedGroup[]; gifts: ComposedGroup[]; s
 
 export function composeGroups(i: NamingInput): Composition {
   const mains = groupsOf(i.mains, false);
-  const gifts = groupsOf(i.gifts, true,new Set(Object.keys(i.itemRules??{}).map(Number)));
+  const gifts = groupsOf(i.gifts, true,new Set(i.gifts.filter(g=>giftAliasIssue(g)&&i.itemRules?.[g.id]).map(g=>g.id)));
   return { mains, gifts, specification: mains.map((g) => g.spec).join('+') };
 }
 
@@ -233,8 +233,9 @@ export function composeBundle(ruleIn: NamingRule | null, i: NamingInput): Compos
   const effective=mainRules[0]??rule;
   const mains = c.mains.map((g, idx) => ({ code: render(g, 'code', i, forGroup(g), idx, errors), style: render(g, 'code', i, forGroup(g), idx, errors, true), name: render(g, 'name', i, forGroup(g), idx, errors) }));
   const gifts = c.gifts.map((g) => {
-    if(i.itemRules?.[g.first.id])return{code:render(g,'code',i,forGroup(g),-1,errors),name:render(g,'name',i,forGroup(g),-1,errors)};
     const issue = giftAliasIssue(g.first);
+    // 对照站的专用赠品简称优先；没有完整简称的旧独立编码仍兼容来源规则。
+    if(issue&&i.itemRules?.[g.first.id])return{code:render(g,'code',i,forGroup(g),-1,errors),name:render(g,'name',i,forGroup(g),-1,errors)};
     if (issue) { errors.push(`${g.first.name || g.first.code}：${issue}`); return { code: '', name: '' }; }
     return { code: `${g.first.giftCode}*${g.quantity}`, name: `${g.first.giftName}×${g.quantity}` };
   });
