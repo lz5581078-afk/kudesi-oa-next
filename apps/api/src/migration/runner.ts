@@ -1,3 +1,4 @@
+import { importJstCategoryHistory } from './jst-category-import';
 import { importFinanceLedger } from './finance-ledger-import';
 import { withLegacyTax } from './legacy-tax-context';
 import { mapLegacyPermission } from './permissions';
@@ -51,7 +52,7 @@ export function safeFailure(e: unknown): string {
 }
 
 /** 无后台服务/外部worker；整个批次与对照账本同一事务，试跑完整回滚。 */
-export async function runLegacyImport(ds: DataSource, resources: ResourcesService, files: FilesService, source: LegacyArchive, opts: { companyId: number; actorId: number; expectedName: string; apply: boolean; preserveCostHistory?: boolean; preserveLegacyStates?: boolean; sourceRowsCrypto?: CryptoService; expectedReport?: ImportResult; prepareReport?: (result:ImportResult)=>void; rollbackReport?: (result:ImportResult)=>void;softwareFingerprint?:string;transaction?:QueryRunner;bootstrapUser?:{sourceId:string;targetId:number};deferredScope?:DeferredScope }): Promise<ImportResult> {
+export async function runLegacyImport(ds: DataSource, resources: ResourcesService, files: FilesService, source: LegacyArchive, opts: { companyId: number; actorId: number; expectedName: string; apply: boolean; jstCategoriesOnly?: boolean; preserveCostHistory?: boolean; preserveLegacyStates?: boolean; sourceRowsCrypto?: CryptoService; expectedReport?: ImportResult; prepareReport?: (result:ImportResult)=>void; rollbackReport?: (result:ImportResult)=>void;softwareFingerprint?:string;transaction?:QueryRunner;bootstrapUser?:{sourceId:string;targetId:number};deferredScope?:DeferredScope }): Promise<ImportResult> {
   for(const [rows,parent] of [[source.departments,'parent_department_id'],[source.positions,'supervisor_position_id'],[source.employees,'manager_id']] as Array<[Array<Record<string,any>>,string]>) {
     const parents=new Map(rows.map(r=>[String(r.id),r[parent]?String(r[parent]):null]));
     for(const r of rows){const seen=new Set<string>();let id:string|null=String(r.id);while(id){if(seen.has(id))throw new MigrationError('来源组织引用存在循环，不能直接迁入');seen.add(id);id=parents.get(id)??null;}}
@@ -82,7 +83,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     const raw=source.sourceRows?.find(row=>row.table==='phone_numbers'&&String(row.row.id)===r.id);
     if(raw)hashes.set(key('phone-registration-history',r.id),sourceRowHash(raw.row));
   }
-  out.sourceFingerprint=createHash('sha256').update(JSON.stringify(stable({hashes:[...hashes].sort(([a],[b])=>a.localeCompare(b)),company:source.company,exclusions:source.exclusions,sourceRows:(source.sourceRows??[]).map(r=>({table:r.table,key:r.key,hash:sourceRowHash(r.row)})),employeePositions:source.employeePositions,positionPermissions:source.positionPermissions,employeeOverrides:source.employeeOverrides??[],...(source.workflow?{workflow:source.workflow}:{})}))).digest('hex');
+  out.sourceFingerprint=createHash('sha256').update(JSON.stringify(stable({hashes:[...hashes].sort(([a],[b])=>a.localeCompare(b)),company:source.company,exclusions:source.exclusions,sourceRows:(source.sourceRows??[]).map(r=>({table:r.table,key:r.key,hash:sourceRowHash(r.row)})),employeePositions:source.employeePositions,positionPermissions:source.positionPermissions,employeeOverrides:source.employeeOverrides??[],...(source.workflow?{workflow:source.workflow}:{}),...(source.jstCategories?{jstCategories:source.jstCategories}:{})}))).digest('hex');
   const count = (which: 'created' | 'reused', type: string) => { out[which][type] = (out[which][type] ?? 0) + 1; };
   const lookup = (type: string, id: unknown) => ids.get(key(type, id));
   const required = (type: string, id: unknown) => { const n = lookup(type, id); if (!n) throw new MissingRef(key(type, id)); return n; };
@@ -110,8 +111,9 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     return [k, value];
   }));
   try {
-    const company = await em.findOneByOrFail(Company, { id: opts.companyId });
+    const company = await em.findOneOrFail(Company, { where:{id:opts.companyId}, ...(opts.jstCategoriesOnly?{lock:{mode:'pessimistic_write' as const}}:{}) });
     if(opts.preserveLegacyStates&&(company.name!==opts.expectedName||source.company.name!==opts.expectedName))throw new MigrationError('完整重迁必须匹配来源、目标与核对公司名，禁止将公司混导');
+    if (opts.jstCategoriesOnly && (company.name !== opts.expectedName || source.company.name !== opts.expectedName)) throw new MigrationError('分类补迁的来源公司与目标公司名称必须一致');
     if (company.name !== opts.expectedName && company.name !== source.company.name) throw new MigrationError('目标公司名与核对条件不符');
     const actor = await em.findOneByOrFail(User, { id: opts.actorId, companyId: opts.companyId, isCompanyAdmin: true, status: 'active' });
     const [database]=await em.query('SELECT DATABASE() databaseName,@@server_uuid serverUuid');
@@ -137,6 +139,11 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
       if(l.target_type==='feishu_identity'){
         const [row]=await em.query('SELECT id FROM feishu_identities WHERE id=? AND company_id=?',[l.target_id,company.id]);
         if(!row)throw new MigrationError('飞书身份迁移账本引用失效，禁止自动补造');
+        ids.set(l.source_key,Number(l.target_id));continue;
+      }
+      if(l.target_type==='jst-category-run'){
+        const [row]=await em.query('SELECT id FROM jst_category_runs WHERE id=? AND company_id=?',[l.target_id,company.id]);
+        if(!row)throw new MigrationError('旧聚水潭分类日志迁移账本引用失效');
         ids.set(l.source_key,Number(l.target_id));continue;
       }
       if (WORKFLOW_TARGET_TABLE[l.target_type]) {
@@ -289,7 +296,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
           const definition = getResourceDef(r.type);
           const deferred: Record<string,unknown> = {};
           const immediate = { ...r.data };
-          const structural = new Set(['parentId','canonicalId','productId','componentId','baseCodeId','laborId','schemeId','versionId','branchId','carrierId','supplierId','categoryId','bundleId','abnormalReason']);
+          const structural = new Set(['parentId','codeDictionaryCategoryId','canonicalId','productId','componentId','baseCodeId','laborId','schemeId','versionId','branchId','carrierId','supplierId','categoryId','bundleId','abnormalReason']);
           for (const [field,v] of Object.entries(immediate)) {
             const link = (v as LegacyRef)?.legacyRef;
             const fd = definition?.fields.find(f=>f.key===field);
@@ -301,6 +308,20 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
             const def = getResourceDef(r.type);
             if (!def) throw new MigrationError('目标资料类型不存在');
             let record: ResourceRecord | null = null;
+            if(opts.jstCategoriesOnly){
+              const candidates=(await em.findBy(ResourceRecord,{companyId:company.id,type:r.type})).filter(row=>
+                !row.archivedAt && (r.type==='finance-code-dictionaries'?row.data.kind==='product_category':row.data.archiveType==='bundle') &&
+                row.data.name===data.name && row.data.code===data.code && Number(row.data.parentId??0)===Number(data.parentId??0));
+              if(candidates.length>1)throw new MigrationError('目标目录有多条同名同码分类，需人工核对');
+              if(candidates.length===1){
+                const candidate=candidates[0];
+                const [claimed]=await em.query('SELECT source_key FROM legacy_import_links WHERE source_system=? AND source_company_id=? AND company_id=? AND target_type=? AND target_id=? LIMIT 1',
+                  [SOURCE,source.company.id,company.id,r.type,candidate.id]);
+                if(claimed)throw new MigrationError('目标分类已对应另一条旧分类，不能合并');
+                record=candidate;
+              }
+            }
+
             if (['finance-platforms','finance-scenarios'].includes(r.type) && def.uniqueField) {
               const v = data[def.uniqueField];
               record = typeof v === 'string' ? await resources.findByUnique(em, company.id, r.type, v.toLowerCase()) : null;
@@ -395,6 +416,21 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     if(opts.preserveLegacyStates){
       try{out.verified!['gift-alias-index-view']=await verifyGiftAliasIndex({em,resources,user,sourceCompanyId:source.company.id,lookup},(source.sourceRows??[]).filter(r=>r.table==='finance_product_gift_aliases').map(r=>r.row));}
       catch(e){out.failures.push({type:'gift-alias-index',id:'company',reason:e instanceof Error&&e.message.startsWith('旧赠品别名索引')?e.message:safeFailure(e)});}
+    }
+    if((opts.preserveLegacyStates||opts.jstCategoriesOnly)&&source.jstCategories){
+      if(!opts.sourceRowsCrypto)throw new MigrationError('旧聚水潭分类记录迁移缺少加密服务');
+      for(const assignment of source.jstCategories.baseAssignments??[]){
+        const id=lookup('finance-base-codes',assignment.id),category=lookup('finance-code-dictionaries',assignment.categoryId);
+        if(!id||!category){count('reused','jst-category-sku-unmapped');continue;}
+        const current=await em.findOneBy(ResourceRecord,{id,companyId:company.id,type:'finance-base-codes'});
+        if(!current||current.archivedAt||assignment.code&&current.data.code!==assignment.code){count('reused','jst-category-sku-changed');continue;}
+        if(current.data.codeDictionaryCategoryId!=null){
+          count('reused',current.data.codeDictionaryCategoryId===category?'jst-category-sku':'jst-category-sku-changed');continue;
+        }
+        await resources.patchData(em,user,'finance-base-codes',id,{codeDictionaryCategoryId:category},'补迁旧商品编码分类',true,true);
+        count('created','jst-category-sku');
+      }
+      await importJstCategoryHistory(em,opts.sourceRowsCrypto,company.id,source.company.id,source.jstCategories,lookup,register,count);
     }
     if (source.sourceRows?.some(r => r.table === 'legacy_verification_reports')) await restoreBaseVerifications({ em, companyId: company.id, sourceCompanyId: source.company.id, lookup, createdIds: resourceCreated, savepoint, count, fail: (type, id, reason) => out.failures.push({ type, id, reason }) }, source);
     if (source.sourceRows?.some(r => r.table === 'legacy_verification_reports')) await restoreBundleVerifications({ em, companyId: company.id, sourceCompanyId: source.company.id, lookup, createdIds: resourceCreated, savepoint, count, fail: (type, id, reason) => out.failures.push({ type, id, reason }) }, source);
@@ -551,7 +587,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
         if (!r.archive.fromStatus || !getResourceDef(r.type)!.statuses.some((x) => x.value === r.archive!.fromStatus)) out.excluded.push({ type: r.type + '.archivedFromStatus', id: r.id, reason: '旧归档前状态缺失或在新系统无对应值，恢复时将使用该资料的默认状态' });
       } catch (e) { out.failures.push({ type: r.type + '.archive', id: r.id, reason: safeFailure(e) }); }
     }
-    await em.update(Company, { id: company.id }, { name: source.company.name });
+    if(!opts.jstCategoriesOnly)await em.update(Company, { id: company.id }, { name: source.company.name });
     if(opts.preserveLegacyStates){
       out.fieldCoverage=sourceFieldCoverage(source.sourceRows,out.verified??{},source.workflow);
       if(out.fieldCoverage?.totals.pendingColumns)out.excluded.push({type:'source-fields.pending',id:'all',reason:`本公司范围及未读取表共${out.fieldCoverage.totals.pendingColumns}个来源字段尚待原生/历史逐字段验收；原文已保留的部分详见fieldCoverage，不把保留原文当作原生可用`});
@@ -566,7 +602,7 @@ export async function runLegacyImport(ds: DataSource, resources: ResourcesServic
     // Full remigration must account for skipped business data, not merely zero
     // insertion errors. Only these two notes already retain native data and
     // encrypted evidence. A rejected apply report must say rollback as well.
-    const rejection = opts.apply && (source.workflow || opts.preserveLegacyStates) ? out.failures.length ? '流程续办或资料仍有失败，禁止正式写入，整批回滚' : out.excluded.some(e => !['licenses.locationId', 'tax-profiles.identity'].includes(e.type))&&!(external&&q.data.cutoverPrepareOnly===true)&&!deferredScopeMatches(opts.deferredScope,opts.expectedReport) ? '全量迁移仍有未验收排除项或历史数据，禁止正式写入，整批回滚' : null : null;
+    const rejection = opts.apply && (source.workflow || opts.preserveLegacyStates || opts.jstCategoriesOnly) ? out.failures.length ? '流程续办或资料仍有失败，禁止正式写入，整批回滚' : out.excluded.some(e => !['licenses.locationId', 'tax-profiles.identity'].includes(e.type))&&!(external&&q.data.cutoverPrepareOnly===true)&&!deferredScopeMatches(opts.deferredScope,opts.expectedReport) ? '全量迁移仍有未验收排除项或历史数据，禁止正式写入，整批回滚' : null : null;
     if (rejection) out.phase = 'apply-rejected-rollback';
     opts.prepareReport?.(out);
     if (rejection) throw new MigrationError(rejection);

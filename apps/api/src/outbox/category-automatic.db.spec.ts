@@ -21,6 +21,45 @@ db('分类逐次自动同步沿统一计划/队列（合成隔离MySQL）',()=>{
  let ds:DataSource;
  beforeAll(async()=>{ds=new DataSource({...buildDataSourceOptions({...process.env,DB_NAME:process.env.TEST_DB_NAME??'kudesi_oa_test_finance_parity_phase74_final'}),migrationsRun:true} as never);await ds.initialize();});afterAll(async()=>{await ds?.destroy();});
  async function fixture(){const c=await ds.manager.save(Company,ds.manager.create(Company,{name:'合成分类自动公司',code:crypto.randomBytes(10).toString('hex'),status:'active'})),u=await ds.manager.save(User,ds.manager.create(User,{companyId:c.id,account:'synthetic',name:'合成管理员',passwordHash:'unused',status:'active',isCompanyAdmin:true,mustChangePassword:false})),actor:AuthUser={id:u.id,companyId:c.id,name:u.name,permissions:{isCompanyAdmin:true,allow:[],deny:[]}},s=buildServices(ds),fake=new CategorySender(),outbox=new OutboxService(ds,s.resources,fake),cat=new CategorySyncService(ds,outbox);fake.targetKey='synthetic-account-'+c.id;await outbox.setSwitch(actor,true);const root=await s.resources.create(actor,'finance-code-dictionaries',{kind:'product_category',name:'合成编码分类',code:'SYN-C'});return{...s,actor,fake,outbox,cat,root,align:async()=>{const plan=await cat.preview(actor,'product');await cat.execute(actor,'product',plan.signature,true);await outbox.processCompany(c.id);expect((await cat.preview(actor,'product')).changes).toHaveLength(0);},enable:()=>cat.automatic(actor,'product',true,true,fake.categoryTarget.key),policy:()=>categoryPolicy(ds.manager,c.id,'product')};}
+ it('商品在分类尚未同步时等待，原任务在映射就绪后继续上传',async()=>{
+  const f=await fixture(),sku='SYNTHETIC-JST-CATEGORY';
+  const product=await ds.manager.save(ResourceRecord,ds.manager.create(ResourceRecord,{
+   companyId:f.actor.companyId,type:'finance-base-codes',title:'合成待上传商品',uniqueKey:sku.toLowerCase(),status:'verified',
+   data:{origin:'external_import',code:sku,styleCode:'SYNTHETIC-CAT',name:'合成待上传商品',shortName:'合成商品',codeDictionaryCategoryId:f.root.id,
+    codeSpecQty:1,codeSpecUnit:'KG',weightG:1000,externalCost:1,externalPurchasePrice:1},createdBy:f.actor.id,updatedBy:f.actor.id,
+  }));
+  await f.outbox.enqueue(f.actor,'finance-base-codes',[product.id]);
+  await f.outbox.processCompany(f.actor.companyId);
+  const job=await ds.manager.findOneByOrFail(OutboxJob,{companyId:f.actor.companyId,kind:'base_code_upsert',resourceId:product.id});
+  expect(job.status).toBe('pending');expect(job.lastError).toContain('等待编码分类');expect(f.fake.sent).toHaveLength(0);
+  await f.align();
+  await ds.manager.update(OutboxJob,job.id,{nextAttemptAt:new Date(0)});
+  await f.outbox.processCompany(f.actor.companyId);
+  expect((await ds.manager.findOneByOrFail(OutboxJob,{id:job.id})).status).toBe('done');
+  expect(f.fake.sent.map(entry=>entry.kind)).toEqual(['category_sync','base_code_upsert']);
+ });
+ it('新增回执丢失后，原任务回查成功并保留同一个远端ID',async()=>{
+  const f=await fixture(),plan=await f.cat.preview(f.actor,'product');
+  await f.cat.execute(f.actor,'product',plan.signature,true);
+  const write=f.fake.send.bind(f.fake);
+  const send=jest.spyOn(f.fake,'send').mockImplementationOnce(async input=>{
+   const result=await write(input);
+   const job=await ds.manager.findOneByOrFail(OutboxJob,{companyId:f.actor.companyId,idempotencyKey:input.idempotencyKey});
+   await ds.manager.update(OutboxJob,job.id,{payloadJson:{...job.payloadJson,transport:{stage:'category-write-intent'}}});
+   throw Object.assign(new Error('合成回执丢失'),{outcomeUnknown:true});
+  }).mockImplementationOnce(async input=>{
+   expect(input.payload.transport).toMatchObject({stage:'category-write-intent'});
+   return {remoteId:[...f.fake.categories.keys()][0]};
+  });
+  await f.outbox.processCompany(f.actor.companyId);
+  const log=(await f.cat.runs(f.actor,1,'product')).rows[0].changes[0];
+  expect(log.canRecheck).toBe(true);
+  await f.outbox.retry(f.actor,log.jobId!,true);
+  await f.outbox.processCompany(f.actor.companyId);
+  expect((await f.cat.preview(f.actor,'product')).changes).toHaveLength(0);
+  expect(f.fake.sent).toHaveLength(1);
+  expect(send).toHaveBeenCalledTimes(2);
+ });
  it('真正编码目录与档案独立，普通资源/草稿/导入不能伪造policy，非管理员和跨公司不能设置',async()=>{
   const f=await fixture(),other=await fixture(),archive=await f.resources.create(f.actor,'finance-categories',{archiveType:'raw',name:'真实档案分类',code:'ARC'});
   expect((await f.cat.preview(f.actor,'product')).changes.map(row=>row.localId)).toEqual([String(f.root.id)]);expect((await f.cat.preview(f.actor,'archive')).changes.map(row=>row.localId)).toEqual([String(archive.id)]);

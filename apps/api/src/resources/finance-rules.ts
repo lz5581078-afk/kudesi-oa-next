@@ -12,7 +12,7 @@ import {beforeBomVersionSave,captureBomVersion,captureRevisionBom,nextBundleBomV
 import {beforeSalesPlatform} from './platform-rules';
 import {codeCategoryNamingRule,codeCategoryRuleSet,namingRuleData} from './bundle-naming-source';
 import {beforeSalesScenario} from './scenario-rules';
-import {assertCodeCategoryName} from './code-category-names';
+import {assertCodeCategoryName,plainBundleCategoryName} from './code-category-names';
 import {normalizeBundleComponent} from './bundle-component-validation';
 import {assertCompositionToken,bundleCompositionToken,readRevisionPayload,normalizedRevisionWeight,revisionWeightPatch,writeRevisionPayload} from './bundle-revision-facts';
 import {unfinishedApplications} from './bundle-guards';
@@ -125,6 +125,11 @@ async function beforeCategory(ctx: BeforeSaveContext) {
     data.archiveType = parent.data.archiveType;
     if(parent.data.importArchiveType==='purchased' && parent.data.archiveType==='original_purchase')data.importArchiveType='purchased';
     else if(existing?.data.importArchiveType==='purchased')throw new BadRequestException('原外购共享分类不能移入其他归属的分类树');
+  }
+  if(data.archiveType==='bundle'&&!em.queryRunner?.data.legacyImport){
+    const plain=plainBundleCategoryName(data.name);
+    if(!plain||plain.length>157)throw new BadRequestException('组合分类名称需填写，且最多157个字符');
+    data.name=existing&&plain===plainBundleCategoryName(existing.data.name)?existing.data.name:`组合-${plain}`;
   }
   await assertCodeCategoryName(em,user.companyId,'finance-categories',data,existing);
   if (existing && existing.data.archiveType !== data.archiveType && await hasChildren(em,user.companyId,existing.id)) throw new BadRequestException('这个分类下还有下级分类，不能改所属类型');
@@ -1457,9 +1462,9 @@ async function namingItem(em: EntityManager, companyId: number, bc: ResourceReco
     id: bc.id, code: str(bc.data.code), name: str(bc.data.name) || bc.title, shortName: str(bc.data.shortName), styleCode: str(bc.data.styleCode), spec: str(bc.data.spec), qty,
     categoryCode: str(leaf?.data.code), categoryName: leaf?.title ?? '',
     brandCode: brand ? str(brand.data.code) || initials(brand.title) : '', brandName: brand?.title ?? '',
-    varietyInitials: bc.data.origin==='composed'&&bc.data.codeDictionaryCategoryId ? definitionCodeInitials(variety) : initials(variety), varietyName: variety, packageType, packageTypeCode: initials(packageType), supplyMode, supplyModeCode: supplyMode === '供应商OEM' ? 'OEM' : supplyMode ? 'YZCG' : '',
+    varietyInitials: bc.data.origin==='composed'&&bc.data.productId==null&&bc.data.codeDictionaryCategoryId ? definitionCodeInitials(variety) : initials(variety), varietyName: variety, packageType, packageTypeCode: initials(packageType), supplyMode, supplyModeCode: supplyMode === '供应商OEM' ? 'OEM' : supplyMode ? 'YZCG' : '',
     weightG: num(bc.data.weightG) ?? num(p?.data.weightG) ?? 0,
-    realCode: str(real.data.code), amount, unitName: bc.data.origin==='composed'&&bc.data.codeDictionaryCategoryId ? str(bc.data.baseUnit)||unitNameOf(unitCode) : unitNameOf(unitCode), unitCode, isAlias,
+    realCode: str(real.data.code), amount, unitName: bc.data.origin==='composed'&&bc.data.productId==null&&bc.data.codeDictionaryCategoryId ? str(bc.data.baseUnit)||unitNameOf(unitCode) : unitNameOf(unitCode), unitCode, isAlias,
     identity: mergeable ? JSON.stringify([...identityParts, str(bc.data.varietyName), str(p?.data.shape)]) : undefined,
     giftName: str(p?.data.giftShortName), giftCode: str(p?.data.giftCodeShortName),
     brandOptional: ['raw', 'shipping_material'].includes(archiveType),

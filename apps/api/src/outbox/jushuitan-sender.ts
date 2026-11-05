@@ -101,17 +101,17 @@ export class CompanyJstSender implements OutboxSender {
     }
     if (!bundle && (p.c_name || p.categoryName) && !job.kind.endsWith('_disable')) {
       const categories = await this.readCategories(), wanted = text(p.c_name ?? p.categoryName), leaf = wanted.split('/').at(-1)!;
-      const matches = categories.filter(c => c.name === leaf && c.enable !== false);
-      if (matches.length !== 1 || categories.some(c => c.parentId === matches[0].id)) throw new Error('聚水潭分类不存在、重名或不是末级分类，请核对后同步');
-      if (wanted.includes('/')) {
+      const matches = categories.filter(c => c.name === leaf);
+      if (matches.length !== 1 || matches[0].enable === false || categories.some(c => c.parentId === matches[0].id && c.enable !== false)) throw new Error('聚水潭分类不存在、重名或不是末级分类，请核对后同步');
+      if (wanted.includes('/') || p.categoryPathExact === true) {
         const names = [leaf], seen = new Set([matches[0].id]); let parent = matches[0].parentId;
         while (parent !== '0' && parent !== '') {
           const node = categories.find(c => c.id === parent);
-          if (!node || seen.has(parent)) throw new Error('聚水潭分类层级不完整');
+          if (!node || node.enable === false || seen.has(parent)) throw new Error('聚水潭分类层级不完整');
           seen.add(parent); names.unshift(node.name); parent = node.parentId;
         }
         const remotePath = names.join('/');
-        if (remotePath !== wanted && !remotePath.endsWith('/' + wanted)) throw new Error('聚水潭分类路径与本地不一致');
+        if (remotePath !== wanted && (p.categoryPathExact === true || !remotePath.endsWith('/' + wanted))) throw new Error('聚水潭分类路径与本地不一致');
       }
       item.c_name = leaf;
     }
