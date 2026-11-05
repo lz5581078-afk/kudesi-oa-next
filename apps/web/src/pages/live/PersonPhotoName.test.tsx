@@ -89,3 +89,10 @@ it('同名编号变化时不展示上个人照片，旧响应不能覆盖新人�
   });
   await waitFor(() => expect(screen.queryByRole('img')).toBeNull());
 });
+
+it('资料使用独立模态层并锁定背景滚动，关闭后恢复背景滚动',async()=>{
+ vi.spyOn(personPhotoApi,'read').mockResolvedValue({userId:7,name:'主播甲',photo:null});
+ const previous=document.body.style.overflow;render(<PersonPhotoName personId={7} name="主播甲"/>);fireEvent.click(screen.getByRole('button',{name:'查看主播甲资料'}));
+ const panel=screen.getByRole('dialog',{name:'主播甲 · 主播资料'});expect(panel.getAttribute('aria-modal')).toBe('true');expect(panel.parentElement?.className).toBe('live-person-profile-overlay');expect(document.body.style.overflow).toBe('hidden');
+ fireEvent.click(screen.getByRole('button',{name:'关闭'}));expect(document.body.style.overflow).toBe(previous);
+});

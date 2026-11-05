@@ -13,6 +13,7 @@ export interface AnchorMonthSummary {
   estimatedSessions: number;
 }
 export interface AnchorMonthSession {
+  wageCents?: number | null;
   id: number;
   date: string;
   roomId: number;
