@@ -1,4 +1,4 @@
-import type { Cue, ScriptVersion } from './scriptCues';
+import { replaceCueRange, type Cue, type ScriptVersion } from './scriptCues';
 
 export interface Stage {
   name: string;
@@ -82,4 +82,50 @@ export function editStages(stages: Stage[], start: number, end: number, inserted
       Math.max(0, Math.min(starts[i] + s.length, end) - Math.max(starts[i], start)) +
       (i === owner ? inserted : 0),
   }));
+}
+
+
+export type ScriptArticle = { outline: Stage[]; body: string; cues: Cue[] };
+
+// Removing a heading must make its content destination explicit.
+export function removeStage(article: ScriptArticle, index: number, destination: 'previous' | 'next' | 'delete'): ScriptArticle {
+  const { outline, body, cues } = article;
+  if (outline.length <= 1) return article;
+  const start = offsets(outline)[index], length = outline[index].length;
+  const stages = outline.filter((_, i) => i !== index).map((s) => ({ ...s }));
+  if (destination === 'delete') return {
+    outline: stages,
+    body: body.slice(0, start) + body.slice(start + length),
+    cues: replaceCueRange(cues, start, start + length, 0),
+  };
+  const target = destination === 'previous' ? index - 1 : index;
+  if (!stages[target]) return article;
+  stages[target].length += length;
+  return { outline: stages, body, cues };
+}
+
+export function splitStage(article: ScriptArticle, index: number, from: number, to: number, name: string): ScriptArticle {
+  const stage = article.outline[index];
+  const outline = article.outline.slice();
+  // A cursor splits the chapter; a selection becomes a chapter of its own.
+  const end = from === to ? stage.length : to;
+  outline.splice(index, 1,
+    { ...stage, length: from },
+    { name, length: end - from },
+    ...(end < stage.length ? [{ ...stage, length: stage.length - end }] : []),
+  );
+  return { ...article, outline };
+}
+
+// Move the selected prose with its asset cues to the end of another chapter.
+export function moveStageText(article: ScriptArticle, source: number, target: number, from: number, to: number): ScriptArticle {
+  if (source === target || from >= to) return article;
+  const pieces = article.outline.flatMap((s, i) => i === source
+    ? [{ name: s.name, length: from }, { name: s.name, length: to - from }, { name: s.name, length: s.length - to }]
+    : [s]);
+  const selected = source + 1, destination = target < source ? target + 1 : target + 2;
+  const moved = reorderStage(pieces, article.body, article.cues, selected, destination);
+  const outline = article.outline.map((s, i) => ({ ...s, length: s.length + (i === source ? from - to : i === target ? to - from : 0) }));
+  // Original chapter boundaries stay intact; only selected text changes chapters.
+  return { ...moved, outline };
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { OutlineTemplates } from './OutlineLayout';
-import { reorderStage, type Stage } from './scriptOutline';
+import { reorderStage, removeStage, type Stage } from './scriptOutline';
 import type { Cue } from './scriptCues';
 
 type Article = { outline: Stage[]; body: string; cues: Cue[] };
@@ -20,6 +20,8 @@ export function ScriptOutlineDialog({
   const [draft, setDraft] = useState(article);
   const [selected, select] = useState(current);
   const [newName, setNewName] = useState('');
+  const [removing, setRemoving] = useState(false);
+  const [destination, setDestination] = useState<'previous' | 'next' | 'delete'>('previous');
   const { outline } = draft;
   useEffect(() => {
     const el = dialog.current!;
@@ -28,6 +30,7 @@ export function ScriptOutlineDialog({
   }, []);
 
   function insert(index: number) {
+    setRemoving(false);
     const stages = outline.slice();
     stages.splice(index, 0, { name: newName.trim(), length: 0 });
     setDraft({ ...draft, outline: stages });
@@ -35,15 +38,14 @@ export function ScriptOutlineDialog({
     setNewName('');
   }
   function move(to: number) {
+    setRemoving(false);
     setDraft(reorderStage(outline, draft.body, draft.cues, selected, to));
     select(to);
   }
   function remove() {
-    const next = Math.max(0, selected - 1);
-    const stages = outline.filter((_, i) => i !== selected);
-    stages[next] = { ...stages[next], length: stages[next].length + outline[selected].length };
-    setDraft({ ...draft, outline: stages });
-    select(next);
+    setDraft(removeStage(draft, selected, destination));
+    select(Math.max(0, selected - 1));
+    setRemoving(false);
   }
   return (
     <dialog ref={dialog} className="sc-picker sc-outline-dialog" aria-label="管理章节" onCancel={close}>
@@ -58,7 +60,7 @@ export function ScriptOutlineDialog({
               type="button"
               key={i}
               aria-current={i === selected ? 'true' : undefined}
-              onClick={() => select(i)}
+              onClick={() => { select(i); setRemoving(false); }}
             >
               <small>{String(i + 1).padStart(2, '0')}</small>
               <strong>{stage.name || '未命名'}</strong>
@@ -91,11 +93,21 @@ export function ScriptOutlineDialog({
             >
               下移
             </button>
-            <button type="button" disabled={outline.length === 1} onClick={remove}>
+            <button type="button" disabled={outline.length === 1} onClick={() => { setDestination(selected > 0 ? 'previous' : 'next'); setRemoving(true); }}>
               删除章节
             </button>
           </div>
-          <small>删除目录项后，正文和素材标注保留在相邻章节。至少保留一个章节。</small>
+          <small>移动章节时正文和素材标注一起移动。至少保留一个章节。</small>
+          {removing && <section className="sc-remove-chapter" aria-label="删除章节的内容去向">
+            <strong>删除「{outline[selected].name}」· {outline[selected].length} 字</strong>
+            <label>本章内容如何处理<select value={destination} onChange={(e) => setDestination(e.target.value as typeof destination)}>
+              {selected > 0 && <option value="previous">合并到上一章「{outline[selected - 1].name}」末尾</option>}
+              {selected < outline.length - 1 && <option value="next">合并到下一章「{outline[selected + 1].name}」开头</option>}
+              <option value="delete">同时删除本章正文及对应素材标注</option>
+            </select></label>
+            <small>确认后仍需应用目录并保存版本才会生效。</small>
+            <div className="sc-bar"><button type="button" onClick={remove}>确认删除章节</button><button type="button" onClick={() => setRemoving(false)}>保留章节</button></div>
+          </section>}
           <label>
             新环节名称
             <input
@@ -123,6 +135,7 @@ export function ScriptOutlineDialog({
         stages={outline}
         apply={(names) => {
           if (!names.length || !window.confirm('载入目录模板？正文及素材标注将保留。')) return;
+          setRemoving(false);
           const stages = names.map((name, i) => ({ name, length: outline[i]?.length ?? 0 }));
           stages[stages.length - 1].length += outline.slice(names.length).reduce((n, s) => n + s.length, 0);
           setDraft({ ...draft, outline: stages });
@@ -135,7 +148,7 @@ export function ScriptOutlineDialog({
         </button>
         <button
           className="primary-button"
-          disabled={outline.some((s) => !s.name.trim()) || !!newName.trim()}
+          disabled={removing || outline.some((s) => !s.name.trim()) || !!newName.trim()}
           onClick={() =>
             apply({ ...draft, outline: outline.map((s) => ({ ...s, name: s.name.trim() })) }, selected)
           }
