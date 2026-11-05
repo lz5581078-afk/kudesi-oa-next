@@ -56,6 +56,25 @@ d('真实接入的公司隔离、飞书授权与队列（隔离数据库）', ()
     expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1);
     expect(auth.loginBoundUser).toHaveBeenCalledWith(user.id, user.companyId);
   });
+  it('桌面授权由飞书回传，只有发起窗口能领取结果，并发只领取一次', async () => {
+    const pending = await service.startDesktop(user.companyId);
+    const wrongBrowser = randomBytes(32).toString('base64url');
+    expect(await service.pollDesktop(pending.state, pending.browser)).toEqual({ login: null });
+    await expect(service.pollDesktop(pending.state, wrongBrowser)).rejects.toThrow(/当前窗口/);
+    await expect(service.complete('code', pending.state, pending.browser)).rejects.toThrow(/状态无效/);
+    const normal = await service.start(user.companyId);
+    await expect(service.relayDesktop('code', normal.state)).rejects.toThrow(/状态无效/);
+    client.identity.mockResolvedValueOnce({ ...identity, tenantKey: 'another-tenant' });
+    await expect(service.relayDesktop('wrong-tenant', pending.state)).rejects.toThrow(/本企业/);
+    expect(await service.relayDesktop('code', pending.state)).toEqual({ received: true });
+    await expect(service.pollDesktop(pending.state, wrongBrowser)).rejects.toThrow(/当前窗口/);
+    const results = await Promise.allSettled([
+      service.pollDesktop(pending.state, pending.browser),
+      service.pollDesktop(pending.state, pending.browser),
+    ]);
+    expect(results.filter(r => r.status === 'fulfilled')).toEqual([{ status: 'fulfilled', value: { login: { id: user.id, companyId: user.companyId } } }]);
+    await expect(service.relayDesktop('code', pending.state)).rejects.toThrow(/已处理或过期/);
+  });
   it('绑定冲突不能抢占已有飞书身份', async () => {
     const sameCompanyUser = { ...user, id: other.id }; // 先按身份参数校验，再由 FK/绑定约束防御；实际控制器只接受 JWT 用户。
     const r = await service.start(user.companyId, sameCompanyUser);

@@ -30,3 +30,6 @@ export interface PlatformAdminDto {
 export type LoginResponse =
   | { type: 'company'; accessToken: string; user: CurrentUserDto }
   | { type: 'platform'; accessToken: string; admin: PlatformAdminDto };
+
+export const FEISHU_DESKTOP_STATE_PREFIX = 'desktop.';
+export const isFeishuDesktopState = (value: string) => /^desktop\.[A-Za-z0-9_-]{43}$/.test(value);
