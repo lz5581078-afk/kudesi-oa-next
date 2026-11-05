@@ -244,7 +244,7 @@ d('组合装同步维护（真实数据库 + 假发送器）', () => {
     await expect(cat.preview(helper, 'bundle')).rejects.toThrow(/公司管理员/);
     fake.targetKey = 'shop-A';
     const pv = await cat.preview(boss, 'bundle');
-    expect(pv.changes.filter((c) => c.action === 'create').map((c) => c.path).sort()).toEqual(['水果组合', '礼盒', '礼盒 / 大礼盒'].sort());
+    expect(pv.changes.filter((c) => c.action === 'create').map((c) => c.path).sort()).toEqual(['组合-水果组合', '组合-礼盒', '组合-礼盒 / 组合-大礼盒'].sort());
     expect(pv.conflicts).toBe(0);
     await expect(cat.execute(boss, 'bundle', 'stale', true)).rejects.toThrow(/已变化/);
     await expect(cat.execute(boss, 'bundle', pv.signature, false)).rejects.toThrow(/确认/);
@@ -254,8 +254,8 @@ d('组合装同步维护（真实数据库 + 假发送器）', () => {
     await outbox.processCompany(boss.companyId);
     expect(fake.sent.length - sentBefore).toBe(3);
     const remote = [...fake.categories.values()];
-    const parent = remote.find((c) => c.name === '礼盒')!;
-    expect(remote.find((c) => c.name === '大礼盒')!.parentId).toBe(parent.id); // 子分类挂到了刚新增的上级下
+    const parent = remote.find((c) => c.name === '组合-礼盒')!;
+    expect(remote.find((c) => c.name === '组合-大礼盒')!.parentId).toBe(parent.id); // 子分类挂到了刚新增的上级下
     // 再预览：没有差异
     expect((await cat.preview(boss, 'bundle')).changes).toHaveLength(0);
     // 改名：只更新
@@ -264,9 +264,9 @@ d('组合装同步维护（真实数据库 + 假发送器）', () => {
     expect(pv2.changes.map((c) => c.action)).toEqual(['update']);
     await cat.execute(boss, 'bundle', pv2.signature, true);
     await outbox.processCompany(boss.companyId);
-    expect([...fake.categories.values()].find((c) => c.id !== parent.id && c.name === '超大礼盒')).toBeTruthy();
+    expect([...fake.categories.values()].find((c) => c.id !== parent.id && c.name === '组合-超大礼盒')).toBeTruthy();
     // 聚水潭上被外部改名：冲突，不执行
-    const link = [...fake.categories.values()].find((c) => c.name === '超大礼盒')!;
+    const link = [...fake.categories.values()].find((c) => c.name === '组合-超大礼盒')!;
     fake.categories.set(link.id, { ...link, name: '被人改了' });
     const pv3 = await cat.preview(boss, 'bundle');
     expect(pv3.conflicts).toBe(1);

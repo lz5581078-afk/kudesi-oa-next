@@ -1,4 +1,4 @@
-import { DataSource } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 import { AuthUser } from '../common/auth.decorators';
 import { OutboxJob } from '../entities';
 import { ResourcesService } from '../resources/resources.service';
@@ -10,7 +10,7 @@ import { ResourcesService } from '../resources/resources.service';
  *  - category_sync：聚水潭分类关联（jst_category_links）
  */
 export interface JobCtx { ds: DataSource; resources: ResourcesService; sys: AuthUser }
-export interface JobOutcome { remoteId?: string }
+export interface JobOutcome { remoteId?: string; categoryAbsent?: boolean }
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
@@ -22,7 +22,7 @@ async function priceLog(ds: DataSource, job: OutboxJob, status: string, message:
 }
 
 /** 发送并回读确认成功之后 */
-export async function afterJobDone(ctx: JobCtx, job: OutboxJob, result?: JobOutcome): Promise<boolean> {
+export async function afterJobDone(ctx: JobCtx, job: OutboxJob, result?: JobOutcome, transaction?:EntityManager): Promise<boolean> {
   const { ds, resources, sys } = ctx;
   const p = job.payloadJson;
   if (job.kind === 'bundle_price_update') {
@@ -31,15 +31,17 @@ export async function afterJobDone(ctx: JobCtx, job: OutboxJob, result?: JobOutc
     return true;
   }
   if (job.kind === 'category_sync') {
+    const db=transaction??ds;
     const op = str(p.op);
+    const retired=op==='retire'||op==='disable'&&result?.categoryAbsent===true;
     const local = p.local ?? {};
-    const [lk] = await ds.query('SELECT pending_json FROM jst_category_links WHERE company_id = ? AND category_id = ? AND target_key = ?', [job.companyId, job.resourceId, str(p.targetKey) || 'default']);
+    const [lk] = await db.query('SELECT pending_json FROM jst_category_links WHERE company_id = ? AND category_id = ? AND target_key = ?', [job.companyId, job.resourceId, str(p.targetKey) || 'default']);
     const sentDesired = lk?.pending_json ? (typeof lk.pending_json === 'string' ? JSON.parse(lk.pending_json) : lk.pending_json) : null;
     const remoteId = result?.remoteId ?? (str(p.remoteId) || null);
-    await ds.query(
+    await db.query(
       `INSERT INTO jst_category_links (company_id, category_id, target_key, remote_id, status, local_json, remote_json, pending_json) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
        ON DUPLICATE KEY UPDATE remote_id = VALUES(remote_id), status = VALUES(status), local_json = VALUES(local_json), remote_json = VALUES(remote_json), pending_json = NULL`,
-      [job.companyId, job.resourceId, str(p.targetKey) || 'default', remoteId, op === 'retire' ? 'retired' : 'linked', JSON.stringify(local), JSON.stringify(sentDesired && remoteId ? { ...sentDesired, id: remoteId } : null)]);
+      [job.companyId, job.resourceId, str(p.targetKey) || 'default', remoteId, retired ? 'retired' : 'linked', JSON.stringify(local), JSON.stringify(!retired && sentDesired && remoteId ? { ...sentDesired, id: remoteId } : null)]);
     return true;
   }
   if (job.kind === 'bundle_disable') {
@@ -62,8 +64,8 @@ export async function afterJobFailed(ctx: JobCtx, job: OutboxJob, error: string,
   if (job.kind === 'category_sync') {
     if (dead) {
       // 新增请求发出后结果不明，不能盲目重发；改名/停用被明确拒绝的，修好后可以重新核对再同步
-      const status = unknown || str(p.op) === 'create' || str(p.op) === 'bind' ? 'uncertain' : 'rejected';
-      await ds.query("UPDATE jst_category_links SET status = ?, pending_json = IF(? = 'rejected', NULL, pending_json) WHERE company_id = ? AND category_id = ? AND target_key = ?", [status, status, job.companyId, job.resourceId, str(p.targetKey) || 'default']);
+      const status = unknown ? 'uncertain' : 'rejected';
+      await ds.query("UPDATE jst_category_links SET status = ?, pending_json = IF(? = 'rejected', NULL, pending_json) WHERE company_id = ? AND category_id = ? AND target_key = ? AND status = 'uncertain'", [status, status, job.companyId, job.resourceId, str(p.targetKey) || 'default']);
     }
     return true;
   }
@@ -88,6 +90,14 @@ export async function beforeJobSend(ctx: JobCtx, job: OutboxJob): Promise<Record
   if (job.kind !== 'category_sync') return p;
   const desired = { ...((p.desired ?? {}) as Record<string, unknown>) };
   const target = str(p.targetKey) || 'default';
+  const transport=p.transport as {stage?:string}|undefined;
+  if(transport?.stage==='category-write-intent'||transport?.stage==='category-written'){
+    const [link]=await ctx.ds.query("SELECT status,pending_json FROM jst_category_links WHERE company_id=? AND category_id=? AND target_key=?",[job.companyId,job.resourceId,target]);
+    const pending=typeof link?.pending_json==='string'?JSON.parse(link.pending_json):link?.pending_json;
+    if(link?.status!=='uncertain'||!pending||pending.name!==desired.name||pending.sort!==desired.sort||pending.enable!==desired.enable)
+      throw Object.assign(new Error('原分类写入已被处理或无法核实，请查看同步记录'),{permanentFailure:true});
+    return {...p,desired:{...desired,parentRemoteId:String(pending.parentId)}};
+  }
   if (desired.parentLocalId != null && desired.parentLocalId !== '0') {
     const [up] = await ctx.ds.query("SELECT remote_id FROM jst_category_links WHERE company_id = ? AND target_key = ? AND category_id = ? AND status = 'linked'", [job.companyId, target, Number(desired.parentLocalId)]);
     if (!up?.remote_id) throw new Error('上级分类还没有同步成功，稍后自动重试');

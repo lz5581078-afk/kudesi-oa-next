@@ -165,7 +165,7 @@ export async function buildSnapshot(em: EntityManager, companyId: number, bc: Re
     if(!(Number(bc.data.codeSpecQty)>0) || !bc.data.codeSpecUnit)missing('规格数量和规格单位没有填全');
   }
   let definition:unknown;
-  if(composed&&bc.data.codeDictionaryCategoryId){try{const facts=await independentDefinitionFacts(em,companyId,bc.data,reader);definition=facts.definition;for(const message of facts.errors)issues.push({archiveKey:'definition',productId:0,archiveName:bc.title,parentPath:[],message});}catch(error){issues.push({archiveKey:'definition',productId:0,archiveName:bc.title,parentPath:[],message:error instanceof Error?error.message:'独立商品定义无效'});}}
+  if(composed&&bc.data.productId==null&&bc.data.codeDictionaryCategoryId){try{const facts=await independentDefinitionFacts(em,companyId,bc.data,reader);definition=facts.definition;for(const message of facts.errors)issues.push({archiveKey:'definition',productId:0,archiveName:bc.title,parentPath:[],message});}catch(error){issues.push({archiveKey:'definition',productId:0,archiveName:bc.title,parentPath:[],message:error instanceof Error?error.message:'独立商品定义无效'});}}
   const snapshot: Snapshot = {
     profile: {
       ...profile(bc),
@@ -244,7 +244,7 @@ export async function baseCodeOutbound(em: EntityManager, companyId: number, bc:
   const real=candidate?.data.canonicalId==null?candidate:null;
   const composed = real?.data.origin === 'composed';
   const p = await one(em, companyId, 'finance-products', real?.data.productId);
-  const external=real?.data.origin==='external_import',independent=composed&&real?.data.codeDictionaryCategoryId!=null;
+  const external=real?.data.origin==='external_import',independent=composed&&real?.data.productId==null&&real?.data.codeDictionaryCategoryId!=null;
   const codingPath:ResourceRecord[]=[];
   if(bc.data.codeDictionaryCategoryId){let cur=await one(em,companyId,'finance-code-dictionaries',bc.data.codeDictionaryCategoryId);const seen=new Set<number>();while(cur && !seen.has(cur.id)){seen.add(cur.id);codingPath.unshift(cur);cur=await one(em,companyId,'finance-code-dictionaries',cur.data.parentId);}}
   const cat = codingPath.length ? codingPath : await categoryPath(em, companyId, bc.data.profileCategoryOverride ?? (composed ? bc.data.codeCategoryId : p?.data.categoryId ?? bc.data.categoryId));

@@ -440,11 +440,15 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
     if (row.t === 'finance-bundles') this.needBundles(user); else this.admin(user);
   }
 
-  async retry(user: AuthUser, id: number) {
+  async retry(user: AuthUser, id: number, categoryReadbackOnly=false) {
     await this.jobOwner(user, id);
     return this.dataSource.transaction(async em=>{
       await em.findOneOrFail(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}});
       const job=await em.findOne(OutboxJob,{where:{companyId:user.companyId,id},lock:{mode:'pessimistic_write'}});if(!job)throw new NotFoundException('任务不存在');
+      if(categoryReadbackOnly){
+        const transport=job.payloadJson.transport as {stage?:string}|undefined;
+        if(job.kind!=='category_sync'||!['category-write-intent','category-written'].includes(transport?.stage??''))throw new ConflictException('该分类任务没有可回查的原始写入');
+      }
       const runId=job.resourceType==='flow-run'?job.resourceId:Number((job.payloadJson.approvalIntent as {runId?:number}|undefined)?.runId??job.payloadJson.runId),notificationId=Number(job.payloadJson.notificationId);
       if(Number.isSafeInteger(runId)&&runId>0&&!await em.findOneBy(FlowRun,{companyId:user.companyId,id:runId}))throw new ConflictException('关联申请已删除，不能重新发送通知');
       if(Number.isSafeInteger(notificationId)&&notificationId>0&&!await em.findOneBy(Notification,{companyId:user.companyId,id:notificationId}))throw new ConflictException('关联通知已删除，不能重新发送');
@@ -473,6 +477,29 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
     return (await this.getSwitch(companyId)).enabled;
   }
 
+  private normalMismatch(expected:Record<string,unknown>,observed:Record<string,unknown>){
+    for (const key of ['sku_id', 'i_id', 'name', 'short_name', 'properties_value', 'c_name', 'brand', 'unit', 'weight', 'cost_price', 'purchase_price']) {
+      if(expected[key]==null)continue;
+      const same=['weight','cost_price','purchase_price'].includes(key)
+        ? observed[key]!=null&&Number(observed[key])===Math.round(Number(expected[key])*1000000)/1000000
+        : String(observed[key]??'')===String(expected[key])||(key==='c_name'&&String(observed[key]??'')===String(expected[key]).split('/').at(-1));
+      if(!same)return key;
+    }
+    return null;
+  }
+
+  private async verifyBundleChildren(companyId:number,payload:Record<string,unknown>,sender:OutboxSender){
+    if(!sender.categoryTarget||!sender.read)return;
+    for(const item of (payload.childList??[]) as Array<{src_sku_id:string}>){
+      const sku=item.src_sku_id;
+      const child=await this.dataSource.manager.findOneBy(ResourceRecord,{companyId,type:'finance-base-codes',uniqueKey:sku.toLowerCase()});
+      if(!child||child.archivedAt||child.status!=='verified'||child.data.jstUploadedCode!==sku)throw new Error(`子商品「${sku}」尚未验证并同步，请先同步基础编码`);
+      const expected=await baseCodeOutbound(this.dataSource.manager,companyId,child);
+      const remote=await sender.read(sku,'normal');
+      if(!remote||this.normalMismatch({...expected},remote)||['-1','禁用'].includes(String(remote.enabled)))throw new Error(`子商品「${sku}」与当前聚水潭账号中的资料不一致，请先同步基础编码`);
+    }
+  }
+
   /** 发送后回读确认：组合装的子商品列表、基本售价、禁用状态要和上传的一致 */
   private async confirm(job: OutboxJob, result?: JobOutcome, sender: OutboxSender = this.sender): Promise<void> {
     const delays = sender.confirmationDelays ?? [];
@@ -494,11 +521,8 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
       const got = await sender.read(str(p.sku_id), 'normal');
       if (job.kind === 'base_code_disable') { if (got && !['-1', '禁用'].includes(String(got.enabled))) throw new Error('普通商品禁用结果未确认'); return; }
       if (!got) throw new Error('回读不到刚上传的普通商品，请人工核对');
-      for (const k of ['sku_id', 'i_id', 'name', 'short_name', 'properties_value', 'c_name', 'brand', 'unit', 'weight', 'cost_price', 'purchase_price']) {
-        if (p[k] == null) continue;
-        const same = ['weight', 'cost_price', 'purchase_price'].includes(k) ? Number(got[k]) === Math.round(Number(p[k]) * 1000000) / 1000000 : (String(got[k] ?? '') === String(p[k]) || (k === 'c_name' && String(got[k] ?? '') === String(p[k]).split('/').at(-1)));
-        if (!same) throw new Error(`普通商品回读字段 ${k} 不一致，请人工核对`);
-      }
+      const mismatch=this.normalMismatch(p,got);
+      if(mismatch)throw new Error(`普通商品回读字段 ${mismatch} 不一致，请人工核对`);
       await recordTrustedJstMirrorSalePrice(this.dataSource, this.resources, job.companyId, str(p.sku_id), got, message => this.log.warn(message));
       return;
     }
@@ -536,7 +560,7 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
     const sent = lk?.pending_json ? (typeof lk.pending_json === 'string' ? JSON.parse(lk.pending_json) : lk.pending_json) : null;
     if (!sent) throw new Error('找不到这次写入的记录，结果未知，请人工回查');
     const d = sent as { name?: string; sort?: number | null; enable?: boolean; parentId?: string };
-    if (!got) { if (d.enable === false) return; throw new Error('回读不到刚写入的分类，结果未知，请人工回查'); }
+    if (!got) { if (d.enable === false) {if(result)result.categoryAbsent=true;return;} throw new Error('回读不到刚写入的分类，结果未知，请人工回查'); }
     const bad = got.name !== d.name || got.parentId !== (d.parentId ?? '0') || (got.sort != null && got.sort !== d.sort) || (got.enable != null && got.enable !== d.enable);
     if (bad) throw new Error('聚水潭写入后回查不一致，请人工核对');
   }
@@ -579,7 +603,7 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
     try{sender=await this.senderFor(companyId);}catch(error){if(!(error instanceof ExternalConfigurationError))throw error;configurationMessage=error.message;sender=new UnconfiguredSender();}
     const enabled=await this.enabled(companyId);
     if (!sender.configured || !enabled){if(enabled&&!sender.configured)await this.blockPendingApprovalConfiguration(companyId,configurationMessage);return { sent: 0, failed: 0, blocked: true };}
-    const {CategorySyncService}=await import('./category-sync.service');
+    const {CategorySyncService,CategoryDependencyPending}=await import('./category-sync.service');
     const categories=new CategorySyncService(this.dataSource,this);
     await categories.drainAutomatic(companyId);
     const em = this.dataSource.manager;
@@ -588,7 +612,7 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
     const jobQb = em.createQueryBuilder(OutboxJob, 'j')
       .where("j.company_id = :companyId AND j.channel = :ch AND j.status = 'pending' AND j.next_attempt_at <= NOW()", { companyId, ch: JST_CHANNEL });
     if (!priceOn) jobQb.andWhere("j.kind <> 'bundle_price_update'");
-    const jobs = await jobQb.orderBy('j.id', 'ASC').limit(20).getMany();
+    const jobs = await jobQb.orderBy('j.next_attempt_at', 'ASC').addOrderBy('j.id', 'ASC').limit(20).getMany();
     let sent = 0, failed = 0;
     const sys = { id: 0, companyId, name: '同步队列', permissions: { isCompanyAdmin: true, allow: [], deny: [] } } as AuthUser;
     for (const job of jobs) {
@@ -598,7 +622,7 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
       const claimed = await em.update(OutboxJob, { id: job.id, status: 'pending' }, { status: 'sending' });
       if (!claimed.affected) continue;
       const target = str((job.payloadJson as Record<string, unknown>).targetKey);
-      let sendOk = false;
+      let sendOk = false, categoryPathExact = false;
       const hook = { ...this.hookCtx, sys };
       try {
       if(['base_code_replace','bundle_replace'].includes(job.kind)){await em.update(OutboxJob,{id:job.id},{status:'cancelled',lastError:'已上传聚水潭的编码不可替换，请核对历史任务'});failed++;continue;}
@@ -621,8 +645,25 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
         continue;
       }
         if(job.kind==='category_sync'){const state=await categories.queuedState(job);if(state!=='current'){await em.update(OutboxJob,{id:job.id},{status:state==='satisfied'?'done':'cancelled',...(state==='satisfied'?{doneAt:new Date(),lastError:null}:{lastError:'分类或授权目标已变化，请重新核对差异后同步'})});if(state==='stale')failed++;continue;}}
+        if(sender.categoryTarget&&['base_code_upsert','bundle_upsert'].includes(job.kind)){
+          const current=await em.findOneBy(ResourceRecord,{companyId,id:job.resourceId,type:job.resourceType});
+          if(!current||current.archivedAt||current.status!=='verified')throw new Error('资料已变化，请重新验证后上传');
+          if(job.kind==='base_code_upsert'){
+            const live=await baseCodeOutbound(em,companyId,current);
+            if(this.normalMismatch({...live},job.payloadJson))throw new Error('商品资料或分类已变化，请重新核对后上传');
+            if(current.data.codeDictionaryCategoryId){
+              await categories.requireForSku(companyId,'product',current.data.codeDictionaryCategoryId,sender);
+              categoryPathExact=true;
+            }
+          }else{
+            const latest=await this.payloadFor('finance-bundles',current,em);
+            if(JSON.stringify(latest.childList)!==JSON.stringify(job.payloadJson.childList))throw new Error('组合装组成已变化，请重新核对后上传');
+            if(current.data.bundleCategoryId)await categories.requireForSku(companyId,'bundle',current.data.bundleCategoryId,sender);
+            await this.verifyBundleChildren(companyId,job.payloadJson,sender);
+          }
+        }
         const payload = await beforeJobSend(hook, job);
-        const result = (await sender.send({ kind: job.kind, idempotencyKey: job.idempotencyKey, payload })) ?? undefined;
+        const result = (await sender.send({ kind: job.kind, idempotencyKey: job.idempotencyKey, payload: categoryPathExact ? {...payload,categoryPathExact} : payload })) ?? undefined;
         sendOk = true;
         await afterJobSent(hook, job);
         await this.confirm(job, result as JobOutcome | undefined, sender);
@@ -630,6 +671,13 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
           const sentCode=str(job.payloadJson.sku_id)||str(job.payloadJson.code);
           await this.dataSource.transaction(async tx=>{
             await this.resources.patchData(tx,sys,job.resourceType,job.resourceId,{jstStatus:'synced',jstUploadedCode:sentCode||null},'已同步到聚水潭');
+            await tx.update(OutboxJob,{id:job.id},{status:'done',doneAt:new Date(),attempts:job.attempts+1,lastError:null});
+          });
+          sent++;continue;
+        }
+        if(job.kind==='category_sync'){
+          await this.dataSource.transaction(async tx=>{
+            await afterJobDone(hook,job,result as JobOutcome|undefined,tx);
             await tx.update(OutboxJob,{id:job.id},{status:'done',doneAt:new Date(),attempts:job.attempts+1,lastError:null});
           });
           sent++;continue;
@@ -646,6 +694,10 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
         await this.dataSource.transaction((tx) => this.resources.patchData(tx, sys, job.resourceType, job.resourceId, patch, job.kind.endsWith('_disable') ? '聚水潭已停用旧编码' : '已同步到聚水潭'));
         sent++;
       } catch (e) {
+        if(e instanceof CategoryDependencyPending){
+          await em.update(OutboxJob,{id:job.id,status:'sending'},{status:'pending',lastError:e.message,nextAttemptAt:new Date(Date.now()+30_000)});
+          continue;
+        }
         // 已经发出去、但回读确认失败/对不上：结果未知，绝不自动重发
         const unknown = sendOk || Boolean((e as { outcomeUnknown?: boolean }).outcomeUnknown);
         const attempts = job.attempts + 1;

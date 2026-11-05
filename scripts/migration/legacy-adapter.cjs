@@ -11,6 +11,7 @@ const { collectSourceRows } = require('./source-row-catalog.cjs');
 const { readSourceCoverage, uncoveredSourceTables } = require('./source-coverage.cjs');
 const { readLegacyAssignments, readCurrentSkuAssignments } = require('./legacy-assignments.cjs');
 const { readLegacyVerification } = require('./legacy-verification.cjs');
+const { readJstCategoryHistory } = require('./jst-category-history.cjs');
 const { readLegacyWorkspaces } = require('./legacy-workspaces.cjs');
 /** 直播管理的旧表（全部带 company_id，由通用公司范围读取；只读） */
 const LIVE_TABLES=['live_commission_rule_versions','live_schedules','live_sessions','live_session_products','live_session_reports','live_session_orders','live_commission_records','live_wage_records','live_settlements','live_settlement_lines','live_settlement_refunds'];
@@ -53,7 +54,16 @@ function scope(table,cols,company) {
   if(table==='responsibility_group_items')return {sql:'EXISTS(SELECT 1 FROM responsibility_groups p WHERE p.id=t.group_id AND p.company_id=?)',args:[company]};
   return null;
 }
-exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHistory=false,preserveLegacyStates=false,includeWorkflowContinuations=false})=>{
+function codingCategoryRecords(tables) {
+  const rows=(tables.finance_product_code_dictionary||[]).filter(row=>row.dictionary_type==='product_category');
+  const ranks=productMapping.nonnegativeSortRanks(rows),ids=new Set(rows.map(row=>String(row.id)));
+  return rows.map(row=>{
+    if(!['active','inactive'].includes(row.status)||row.parent_id&&!ids.has(String(row.parent_id)))throw legacyError('旧商品编码分类的状态或父级无法无损迁移');
+    return {type:'finance-code-dictionaries',id:String(row.id),status:row.status,data:{kind:'product_category',name:row.item_name,code:row.item_code,
+      ...(row.parent_id?{parentId:ref('finance-code-dictionaries',row.parent_id)}:{}),sort:ranks.get(String(row.id))}};
+  });
+}
+exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHistory=false,preserveLegacyStates=false,includeWorkflowContinuations=false,jstCategoriesOnly=false})=>{
   const app=process.env.LEGACY_APP_DIR;if(!app||!path.isAbsolute(app))throw Error('LEGACY_APP_DIR required');
   const req=createRequire(path.join(app,'package.json'));const env=req('dotenv').parse(fs.readFileSync(path.join(app,'.env')));
   const codec=req(path.join(app,'server/core/business-secrets.js')).createBusinessSecretCodec({primarySecret:env.SECRET_KEY||env.SESSION_SECRET||env.JWT_SECRET});
@@ -67,6 +77,20 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHi
     await c.query('SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ');
     await c.query('SET SESSION TRANSACTION READ ONLY');await c.beginTransaction();
     const [cols]=await c.query('SELECT TABLE_NAME t,COLUMN_NAME c,COLUMN_KEY pk,ORDINAL_POSITION ordinal,COLUMN_TYPE type,IS_NULLABLE nullable FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()');
+    if(jstCategoriesOnly){
+      const [companies]=await c.query('SELECT t.id,t.name FROM `companies` t WHERE t.id=?',[sourceCompanyId]);
+      if(companies.length!==1)throw legacyError('旧分类迁移缺少唯一来源公司');
+      out.company={id:Number(companies[0].id),name:companies[0].name};
+      const [dictionary]=await c.query("SELECT t.* FROM `finance_product_code_dictionary` t WHERE t.company_id=? AND t.dictionary_type IN ('product_category','bundle_category')",[sourceCompanyId]);
+      const [base]=await c.query('SELECT t.id,t.company_id,t.category_dictionary_id,t.final_code FROM `finance_product_base_codes` t WHERE t.company_id=? AND t.category_dictionary_id IS NOT NULL',[sourceCompanyId]);
+      const categoryTables={finance_product_code_dictionary:dictionary};
+      const coding=codingCategoryRecords(categoryTables),ids=new Set(coding.map(row=>row.id));
+      out.records=[...coding,...productMapping.bundleCategoryRecords(categoryTables)];
+      out.jstCategories={...(await readJstCategoryHistory(c,cols,sourceCompanyId,codec)||{links:[],runs:[],targets:{}}),
+        baseAssignments:base.filter(row=>ids.has(String(row.category_dictionary_id))).map(row=>({id:String(row.id),categoryId:String(row.category_dictionary_id),code:String(row.final_code||'')}))};
+      out.loadFile=async()=>{throw legacyError('分类增量补迁不读取附件');};
+      return out;
+    }
     const selected=new Set([...LIVE_TABLES,...(preserveLegacyStates?['sales_snapshots','finance_entries','finance_product_data_verification_events','finance_bundle_data_verifications','finance_bundle_data_verification_events','finance_product_bundle_boms','finance_product_gift_aliases']:[]),'companies','departments','positions','employees','employee_positions','employee_permission_overrides','position_permissions','position_duties','employee_compensation_records','resource_media','finance_product_archive_photos','finance_product_archive_costs',...Object.values(rules.resources).flatMap(x=>x.tables)]);
     if(preserveLegacyStates){selected.add('oa_feishu_bindings');selected.add('position_responsibilities');}
     for(const table of selected){const cs=cols.filter(x=>x.t===table).map(x=>x.c);if(!cs.length)continue;const own=scope(table,cs,sourceCompanyId);if(!own){excluded(table,'all','未核实公司归属，不读取记录');continue;}const uses=Object.values(rules.resources).filter(x=>x.tables.includes(table));const onlyExcluded=!preserveLegacyStates&&uses.length&&uses.every(x=>x.policy);tables[table]=(await c.query(`SELECT ${onlyExcluded?(cs.includes('id')?'t.id':'t.company_id id'):'t.*'} FROM ${qi(table)} t WHERE ${own.sql}`,own.args))[0];}
@@ -91,6 +115,13 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHi
     const unitCatalog=productMapping.buildUnitCatalog({tables,defs:definitions,payloadOf:p=>{try{return json(p.payload_json||{})||{};}catch{return {};}}});
     if(defs.has('finance-product-units'))for(const r of unitCatalog.records)add('finance-product-units',r.id,r.data,'active');
     if(defs.has('finance-categories'))out.records.push(...productMapping.bundleCategoryRecords(tables));
+    const codeCategories=(tables.finance_product_code_dictionary||[]).filter(row=>row.dictionary_type==='product_category');
+    if(defs.has('finance-code-dictionaries'))out.records.push(...codingCategoryRecords(tables));
+    if(preserveLegacyStates){
+      const ids=new Set(codeCategories.map(row=>String(row.id)));
+      out.jstCategories={...(await readJstCategoryHistory(c,cols,sourceCompanyId,codec)||{links:[],runs:[],targets:{}}),
+        baseAssignments:(tables.finance_product_base_codes||[]).filter(row=>ids.has(String(row.category_dictionary_id))).map(row=>({id:String(row.id),categoryId:String(row.category_dictionary_id),code:String(row.final_code||'')}))};
+    }
     const scenarioMap=new Map();
     for(const b of tables.finance_product_bundle_codes||[]){const name=String(b.sales_scenario||'').trim();if(!name||scenarioMap.has(name))continue;const direct=(tables.finance_bundle_sales_scenarios||[]).find(x=>x.scenario_name===name||x.name===name);const id=direct?.id||'scenario:'+name;scenarioMap.set(name,id);add('finance-scenarios',id,{name:({standard:'标准',supply_chain:'供应链'})[name]||name,code:direct?.scenario_code||direct?.code||name,segment:({standard:'',supply_chain:'GYL'})[name]??direct?.scenario_code??direct?.code??name},'active');}
     // 旧系统外购成品：供货方式不是供应商 OEM 的（含空）都算原装采购（旧 normalizePurchasedSupplyMode）；分类树按 supplyModeScope / productCodeCategoryScope 分两棵（旧 purchasedCategoryScope）

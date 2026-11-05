@@ -44,7 +44,7 @@ export interface CategoryChange { localId: string; path: string; action: string;
 export interface CategoryTarget {key:string;name:string;coid:string}
 export interface CategoryStatus {enabled:boolean;effective:boolean;stopped:boolean;target:CategoryTarget|null;hasPending:boolean;lastError:string;page:number;rows:CategoryRun[]}
 export interface CategoryPreview { target?:{name:string;coid:string}|null;scope: CategoryScope; targetKey: string; signature: string; conflicts: number; remoteOnly: number; changes: CategoryChange[]; note: string }
-export interface CategoryRun { mode?:string;id: number; scope: string; status: string; message: string; createdAt: string; changes: Array<{ localId: string; path: string; action: string; status: string; error: string | null }> }
+export interface CategoryRun { mode?:string;id: number; scope: string; status: string; message: string; createdAt: string; changes: Array<{ localId: string; path: string; action: string; status: string; error: string | null; jobId?:number|null; canRecheck?:boolean }> }
 
 export interface RegenRow { id: number; status: string; oldCode: string; newCode: string; oldName: string; newName: string; uploadedCode: string | null; token: string; error: string | null; blocked: string | null }
 export interface CategoryNode { id: number; name: string; code: string; parentId: number; sort: number; status: string }
@@ -68,6 +68,7 @@ export const jstApi = {
   categoryStatus:(scope:CategoryScope,page=1)=>api<CategoryStatus>(`/finance/jst-sync/category/status?scope=${scope}&page=${page}`),
   categoryAutomatic:(scope:CategoryScope,enabled:boolean,confirmed=false,targetKey?:string)=>api<{enabled:boolean}>('/finance/jst-sync/category/automatic',{method:'PUT',body:{scope,enabled,confirmed,targetKey}}),
   categoryRetry:(scope:CategoryScope)=>api<{queued:number}>('/finance/jst-sync/category/retry',{method:'POST',body:{scope}}),
+  recheckCategory:(id:number)=>api<{ok:boolean}>(`/finance/jst-sync/category/jobs/${id}/recheck`,{method:'POST',body:{}}),
   categoryPreview: (scope: CategoryScope) => api<CategoryPreview>('/finance/jst-sync/category/preview', { method: 'POST', body: { scope } }),
   categoryExecute: (scope: CategoryScope, signature: string) => api<{ runId: number; queued: number; retired: number }>('/finance/jst-sync/category/execute', { method: 'POST', body: { scope, signature, confirmed: true } }),
   categoryRuns: (page: number) => api<{ page: number; rows: CategoryRun[] }>(`/finance/jst-sync/category/runs?page=${page}`),
