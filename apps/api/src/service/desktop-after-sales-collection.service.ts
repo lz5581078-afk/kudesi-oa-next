@@ -9,6 +9,9 @@ import {DesktopAfterSalesService} from './desktop-after-sales.service';
 import {applicationAt,collectionHealth} from './desktop-after-sales-domain';
 type Source={id:number;source_company:string;enabled:number;interval_seconds:number;last_success_at:Date|null;last_client_seen_at:Date|null;last_failure_at:Date|null;last_error_enc:string|null;lease_client:string|null;lease_user_id:number|null;lease_hash:string|null;lease_started_at:Date|null;lease_until:Date|null;query_from:Date|null;query_until:Date|null;watermark_at:Date|null;next_query_at:Date|null;failure_count:number;collected_count:number;next_page:number};
 const digest=(s:string)=>createHash('sha256').update(s).digest('hex');
+const OVERLAP_MS=30*60*1000;
+// First run is bounded by a complete source page, not by an arbitrary application date.
+const FIRST_PAGE_FROM=new Date('2000-01-01T00:00:00.000Z');
 /** One latest-data round per source. Clients take over expired rounds, never split history/page jobs. */
 @Injectable()
 export class DesktopAfterSalesCollectionService {
@@ -26,6 +29,7 @@ export class DesktopAfterSalesCollectionService {
  async configure(u:AuthUser,b:{sourceCompany:string;enabled:boolean;intervalSeconds:number}){
   const name=b.sourceCompany.trim();if(!name)throw new BadRequestException('请确认聚水潭公司');
   return this.ds.transaction(async em=>{
+   await em.query('SELECT id FROM companies WHERE id=? FOR UPDATE',[u.companyId]);
    const [existing]=await em.query('SELECT enabled,interval_seconds,created_by FROM desktop_after_sales_sources WHERE company_id=? AND source_company=? FOR UPDATE',[u.companyId,name]);
    if(existing&&(!!existing.enabled!==b.enabled||existing.interval_seconds!==b.intervalSeconds)&&!u.permissions.isCompanyAdmin&&existing.created_by!==u.id)throw new ForbiddenException('只有管理员或采集来源创建人可以调整公司采集开关和频率');
    await em.query(`INSERT INTO desktop_after_sales_sources(company_id,source_company,enabled,interval_seconds,created_by) VALUES(?,?,?,?,?)
@@ -33,6 +37,19 @@ export class DesktopAfterSalesCollectionService {
    // Stopping invalidates the active lease atomically. Its late response cannot re-enable the source.
    if(!b.enabled)await em.query(`UPDATE desktop_after_sales_sources SET lease_hash=NULL,lease_until=NULL,lease_client=NULL,lease_user_id=NULL WHERE company_id=? AND source_company=?`,[u.companyId,name]);
    const [r]=await em.query('SELECT id FROM desktop_after_sales_sources WHERE company_id=? AND source_company=?',[u.companyId,name]);return {id:r.id};
+  });
+ }
+ async join(u:AuthUser,sourceCompany:string){
+  const name=sourceCompany.trim();
+  if(!name)throw new BadRequestException('未识别聚水潭公司');
+  return this.ds.transaction(async em=>{
+   await em.query('SELECT id FROM companies WHERE id=? FOR UPDATE',[u.companyId]);
+   const sources:Source[]=await em.query('SELECT id,source_company,enabled FROM desktop_after_sales_sources WHERE company_id=?',[u.companyId]);
+   const source=sources.find(s=>s.source_company===name);
+   if(source)return {id:source.id,enabled:!!source.enabled};
+   if(sources.length||!u.permissions.isCompanyAdmin)return null;
+   const result=await em.query('INSERT INTO desktop_after_sales_sources(company_id,source_company,enabled,interval_seconds,created_by) VALUES(?,?,1,60,?)',[u.companyId,name,u.id]);
+   return {id:Number(result.insertId),enabled:true};
   });
  }
  async claim(u:AuthUser,id:number,clientId:string){
@@ -45,10 +62,17 @@ export class DesktopAfterSalesCollectionService {
     await em.query('UPDATE desktop_after_sales_sources SET last_failure_at=?,last_error_enc=? WHERE company_id=? AND id=?',[now,this.crypto.encrypt('前一客户端已中断，正在接续；完成后恢复正常'),u.companyId,id]);
    }
    // Recover the same unfinished latest round after a failure, not a separate page assignment.
-   const from=r.query_from??new Date((r.watermark_at??new Date(now.getTime()-86400000)).getTime()-600000);
+   const firstPageOnly=!r.watermark_at&&!r.query_from;
+   let from=r.query_from;
+   if(!from){
+    // Old clients recorded the previous query end. Cap that value at a real collected application time.
+    const [latest]=r.watermark_at?await em.query('SELECT MAX(application_at) AS at FROM desktop_after_sales WHERE company_id=? AND source_company=?',[u.companyId,r.source_company]):[];
+    const anchor=r.watermark_at&&latest?.at?Math.min(r.watermark_at.getTime(),new Date(latest.at).getTime()):(r.watermark_at??r.last_success_at??now).getTime();
+    from=firstPageOnly?FIRST_PAGE_FROM:new Date(anchor-OVERLAP_MS);
+   }
    const until=r.query_until??now;
    await em.query(`UPDATE desktop_after_sales_sources SET lease_client=?,lease_user_id=?,lease_hash=?,lease_started_at=?,lease_until=?,query_from=?,query_until=?,updated_at=? WHERE company_id=? AND id=?`,[clientId,u.id,digest(token),now,expires,from,until,now,u.companyId,id]);
-   return {sourceId:id,sourceCompany:r.source_company,token,from:from.toISOString(),until:until.toISOString(),expiresAt:expires.toISOString(),page:r.next_page};
+   return {sourceId:id,sourceCompany:r.source_company,token,from:from.toISOString(),until:until.toISOString(),expiresAt:expires.toISOString(),page:r.next_page,firstPageOnly:from.getTime()===FIRST_PAGE_FROM.getTime()};
   });
  }
  private async lease(em:EntityManager,u:AuthUser,id:number,token:string){
@@ -63,20 +87,24 @@ export class DesktopAfterSalesCollectionService {
   return this.ds.transaction(async em=>{
    const r=await this.lease(em,u,id,b.token);
    if(b.page!==r.next_page)throw new ConflictException('采集页次已提交或发生变化');
+   const firstPageOnly=r.query_from?.getTime()===FIRST_PAGE_FROM.getTime();
+   const completed=b.completed||firstPageOnly;
+   let watermark=firstPageOnly?null:r.watermark_at;
    for(const s of b.records){
     if(s.sourceCompany.trim()!==r.source_company)throw new BadRequestException('聚水潭公司已切换，本轮采集停止');
     const at=applicationAt(s);
     if(!at||!r.query_from||!r.query_until||at<r.query_from||at.getTime()>r.query_until.getTime()+1000)throw new BadRequestException('最新采集只能提交本轮时间范围的数据；历史售后请在本机查询');
     await this.archives.ingestIn(em,u,null,s);
+    if(!watermark||at>watermark)watermark=at;
    }
-   await em.query(`UPDATE desktop_after_sales_sources SET next_page=next_page+1,collected_count=collected_count+? WHERE company_id=? AND id=?`,[b.records.length,u.companyId,id]);
-   if(b.completed){
-    await em.query(`UPDATE desktop_after_sales_sources SET last_success_at=?,watermark_at=query_until,
+   await em.query(`UPDATE desktop_after_sales_sources SET next_page=next_page+1,collected_count=collected_count+?,watermark_at=? WHERE company_id=? AND id=?`,[b.records.length,watermark,u.companyId,id]);
+   if(completed){
+    await em.query(`UPDATE desktop_after_sales_sources SET last_success_at=?,
      query_from=NULL,query_until=NULL,next_page=1,last_error_enc=NULL,failure_count=0,
      next_query_at=?,
      lease_hash=NULL,lease_until=NULL,lease_client=NULL,lease_user_id=NULL,updated_at=? WHERE company_id=? AND id=?`,[new Date(),new Date(Date.now()+r.interval_seconds*1000),new Date(),u.companyId,id]);
    }
-   return {received:b.records.length,completed:b.completed};
+   return {received:b.records.length,completed};
   });
  }
  async fail(u:AuthUser,id:number,token:string,message:string){

@@ -17,6 +17,7 @@ export const DESKTOP_AFTER_SALES_ROUTES = {
   shared: '/after-sales/shared/:id',
 } as const;
 export const DESKTOP_AFTER_SALES_LINK = 'kudesi-oa://after-sales';
+export const DESKTOP_AFTER_SALES_SOURCE_LINK = `${DESKTOP_AFTER_SALES_LINK}/source`;
 /** 转款单“确认入账”：在途转款对方确认到账后，记入转入账户（单独授权并写审计） */
 export const CONFIRM_TRANSFER_PERMISSION = 'finance.docs.confirm-transfer';
 
@@ -268,7 +269,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
       { ...page('features', 'live-desk', '我的直播', true), group: '直播管理' },
       // 直播管理：全览图、排场、场次记录、待审核、提成记录、主播工资、提成结算、提成规则（页面内标签，按下面的权限显示）
       { ...page('features', 'live', '直播管理', true), group: '直播管理' },
-      { ...page('after-sales', 'workspace', '实时售后处理', true), path: DESKTOP_AFTER_SALES_ROUTES.workspace, group: '售后处理', description: '在本机 OA 工具的独立窗口打开聚水潭售后' },
+      { ...page('after-sales', 'workspace', '实时售后处理', true), path: DESKTOP_AFTER_SALES_ROUTES.workspace, group: '售后处理', description: '打开 OA 售后工作台' },
       // 人事管理·招聘：招聘二维码、求职者登记表、面试打印、跟进记录（后续接面试结果和入职流程）
       { ...page('features', 'recruit', '招聘管理', true), group: '人事管理' },
     ],
