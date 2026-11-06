@@ -1030,7 +1030,7 @@ export const FINANCE_RESOURCE_DEFS: readonly ResourceDef[] = [
       text('codeFields', '编码取哪些字段', '基础', { maxLength: 200, help: '逗号分隔，可选：' + 'category,platform,scenario,brand,variety,packageType,supplyMode,name,shortName,style,baseCode,spec,quantity,totalSpec,custom' }),
       text('nameFields', '名称取哪些字段', '基础', { maxLength: 200 }),
       text('customCode', '自定义编码段', '基础', { maxLength: 40 }),
-      text('customName', '自定义名称段', '基础', { maxLength: 60 }),
+      text('customName', '自定义名称段', '基础', { maxLength: 80 }),
       textarea('codeOverrides', '编码字段改写', '基础', { maxLength: 4000, help: '每行一条：字段=替换文字' }),
       textarea('nameOverrides', '名称字段改写', '基础', { maxLength: 4000 }),
     ],

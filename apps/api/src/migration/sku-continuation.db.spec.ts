@@ -6,6 +6,7 @@ import { Company, FlowRun, FlowStep, ResourceRecord, User, UserPermissionOverrid
 import { buildServices } from '../test-support';
 import { FlowService } from '../flow/flow.service';
 import { BundleToolsService } from '../resources/bundle-tools.service';
+import { SkuBatchService } from '../flow/sku-batch.service';
 import { FinanceDocumentsService } from '../resources/finance-documents.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { prepareSkuContinuation } from './sku-continuation';
@@ -20,7 +21,7 @@ import { restoreWorkflowAccess } from './workflow-access';
 
 const suite = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
 suite('旧SKU在原运营节点续办（真实数据库）', () => {
-  let ds: DataSource, svc: ReturnType<typeof buildServices>, flow: FlowService;
+  let ds: DataSource, svc: ReturnType<typeof buildServices>, flow: FlowService, batch: SkuBatchService;
   let admin: AuthUser, ops: AuthUser, wh: AuthUser, fin: AuthUser;
   const targets = new Map<string, number>();
   let scenarioId: number;
@@ -29,7 +30,9 @@ suite('旧SKU在原运营节点续办（真实数据库）', () => {
     ds = await new DataSource({ ...buildDataSourceOptions({ ...process.env, DB_NAME: process.env.TEST_DB_NAME ?? 'kudesi_oa_test' }), migrationsRun: true } as never).initialize();
     svc = buildServices(ds);
     const outbox = new OutboxService(ds, svc.resources);
-    flow = new FlowService(ds, svc.resources, new FinanceDocumentsService(ds), new BundleToolsService(ds, svc.resources, outbox), outbox);
+    const bundles = new BundleToolsService(ds, svc.resources, outbox);
+    flow = new FlowService(ds, svc.resources, new FinanceDocumentsService(ds), bundles, outbox);
+    batch = new SkuBatchService(ds, flow, bundles);
     const c = await ds.manager.save(Company, ds.manager.create(Company, { code: `resume${randomBytes(4).toString('hex')}`, name: '旧流程续办测试', status: 'active' }));
     const user = async (name: string, allow: string[] = [], isCompanyAdmin = false): Promise<AuthUser> => {
       const r = await ds.manager.save(User, ds.manager.create(User, { companyId: c.id, account: `${name}${randomBytes(4).toString('hex')}`, name, passwordHash: 'x', status: 'active', isCompanyAdmin, mustChangePassword: false }));
@@ -93,6 +96,12 @@ suite('旧SKU在原运营节点续办（真实数据库）', () => {
     expect(await notificationCount()).toBe(before);
     expect(await ds.manager.count(ResourceRecord, { where: { companyId: ops.companyId, type: 'finance-bundles' } })).toBe(0);
     const current = await ds.manager.findOneByOrFail(FlowRun, { id: imported.runId, companyId: ops.companyId });
+    const board = await batch.board(ops, String(current.payload._batchKey || `run-${current.id}`));
+    const list = await flow.listRuns(ops,{view:'started',templateKey:'sku-batch-apply',groupSku:true,page:1,pageSize:20,keyword:s.batch.title});
+    expect(list.rows).toEqual(expect.arrayContaining([expect.objectContaining({batchRef:current.payload._batchKey})]));
+    expect(board.applicationHeader).toBeUndefined();
+    expect('workflowSteps' in board ? board.workflowSteps?.map(step=>step.key) : []).toEqual(['apply','warehouse','review','end']);
+    expect(board.items[0]).toMatchObject({stepKey:'apply',canResubmit:true,enteredVia:'return'});
     expect(current.revision).toBe(7); expect(current.currentStepKey).toBe('apply');
     expect(current.dueAt?.toISOString()).toBe('2026-10-01T04:00:00.000Z');
     const history = await ds.manager.find(FlowStep, { where: { runId: current.id, companyId: ops.companyId }, order: { seq: 'ASC' } });

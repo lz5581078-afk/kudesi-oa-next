@@ -199,6 +199,13 @@ d('SKU 申请汇总（真实数据库）', () => {
     const action={revision:detail.revision,stepId:detail.activeStep!.id,reason:'不能提前办理'};
     await expect(flow.pass(ops,id,action)).rejects.toThrow(/已经结束/);await expect(flow.returnBack(ops,id,action)).rejects.toThrow(/已经结束/);await expect(flow.stop(ops,id,'cancel',action)).rejects.toThrow(/已经结束/);await expect(flow.withdraw(ops,id,{revision:detail.revision})).rejects.toThrow(/已经结束/);await expect(flow.resubmit(ops,id,{revision:detail.revision,payload:{}})).rejects.toThrow(/已经结束/);await expect(flow.transfer(admin,id,{...action,toUserId:wh.id})).rejects.toThrow(/已经结束/);
     const first=await ds.manager.findOneByOrFail(FlowStep,{companyId:ops.companyId,runId:id,status:'active'});await ds.manager.update(FlowStep,{id:first.id},{dueAt:new Date('1900-01-01')});await flow.scanOverdue(new Date('2000-01-01'));expect(await counts()).toEqual(before);await ds.manager.update(FlowStep,{id:first.id},{dueAt:null});
+    await ds.manager.update(FlowDefinition,{id:definition.id,companyId:ops.companyId},{status:'retired'});
+    try {
+      expect((await flow.applicationDraftTemplates(ops,'sku-batch-apply')).templates.some(t=>t.id===definition.id)).toBe(false);
+      await expect(flow.createApplicationDrafts(ops,{...input,requestKey:key()})).rejects.toThrow(/版本已停用/);
+      expect((await flow.createApplicationDrafts(ops,input)).runs).toEqual(created.runs);
+      expect((await batch.board(ops,created.batchKey)).applicationHeader?.definitionId).toBe(definition.id);
+    } finally { await ds.manager.update(FlowDefinition,{id:definition.id,companyId:ops.companyId},{status:'draft'}); }
     expect((await batch.board(ops,created.batchKey)).total).toBe(2);await expect(flow.applicationDraftTemplates(ops,'license-borrow')).rejects.toThrow(/未启用申请草稿/);await expect(flow.start(ops,'sku-batch-apply',{batchName:'伪造draft',specs:[{name:'空主商品'}],_applicationDraftOrigin:true},key())).rejects.toThrow();
   });
 
