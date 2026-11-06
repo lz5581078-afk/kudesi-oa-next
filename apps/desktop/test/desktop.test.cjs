@@ -1,17 +1,51 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const {JSDOM}=require('jsdom');
-const {allowedJst,oaOrigin,trustedSender,boundsOf,pngBytes}=require('../src/security.cjs');
+const {allowedJst,oaOrigin,allowedOaNavigation,feishuClientLink,isAfterSalesLaunch,trustedSender,boundsOf,pngBytes}=require('../src/security.cjs');
 const {extractVisible,mergeFrames}=require('../src/extractor.cjs');
 test('only exact HTTPS platform hosts, never lookalikes, credentials or local URLs',()=>{
  assert.equal(allowedJst('https://erp321.com/epaas'),true);assert.equal(allowedJst('https://innerorder.scm121.com/afterSales'),true);
+ assert.equal(allowedJst('https://help.scm121.com/'),true);
  for(const url of ['https://erp321.com.evil.test','http://erp321.com','file:///etc/passwd','https://u:p@erp321.com','https://erp321.com:9000'])assert.equal(allowedJst(url),false);
+ assert.equal(allowedJst('https://src.erp321.com/erp-web-group/home/'),false);
+ assert.equal(allowedJst('https://src.erp321.com/erp-web-group/home/',{subframe:true}),true);
+ assert.equal(allowedJst('https://src.erp321.com.evil.test/',{subframe:true}),false);
  assert.throws(()=>oaOrigin('https://evil.test',true));assert.throws(()=>oaOrigin('http://localhost:5173',true));assert.equal(oaOrigin('http://localhost:5173',false),'http://localhost:5173');
+});
+test('Feishu sign-in allows the passport redirect and OA callback on exact trusted origins', () => {
+  const origin = 'https://lc.kudesi.com';
+  assert.equal(allowedOaNavigation('https://accounts.feishu.cn/open-apis/authen/v1/authorize', origin), true);
+  assert.equal(allowedOaNavigation('https://passport.feishu.cn/accounts/page/login', origin), true);
+  assert.equal(allowedOaNavigation('https://login.feishu.cn/accounts/trap', origin), true);
+  assert.equal(allowedOaNavigation('https://lc.kudesi.com/login?code=synthetic&state=synthetic', origin), true);
+  assert.equal(allowedOaNavigation('https://passport.feishu.cn.evil.test/accounts/page/login', origin), false);
+  assert.equal(allowedOaNavigation('https://passport.feishu.cn:8443/accounts/page/login', origin), false);
+  assert.equal(allowedOaNavigation('https://u:p@passport.feishu.cn/accounts/page/login', origin), false);
+  assert.equal(allowedOaNavigation('http://passport.feishu.cn/accounts/page/login', origin), false);
+});
+test('desktop login builds a Feishu AppLink only for this OA callback', () => {
+  const origin = 'https://lc.kudesi.com';
+  const url = new URL('https://accounts.feishu.cn/open-apis/authen/v1/authorize');
+  url.search = new URLSearchParams({client_id:'cli_test',response_type:'code',redirect_uri:origin+'/login',state:'desktop.'+'a'.repeat(43)});
+  const link = new URL(feishuClientLink(url.href, origin));
+  assert.equal(link.protocol, 'feishu:');
+  assert.equal(link.host + link.pathname, 'applink.feishu.cn/client/web_url/open');
+  assert.equal(link.searchParams.get('url'), url.href);
+  url.searchParams.set('redirect_uri', 'https://untrusted.example/login');
+  assert.throws(() => feishuClientLink(url.href, origin));
+  url.searchParams.set('redirect_uri', origin+'/login');
+  url.hostname = 'accounts.feishu.cn.untrusted.example';
+  assert.throws(() => feishuClientLink(url.href, origin));
 });
 test('IPC only from trusted OA main frame, never platform or subframes',()=>{
  const main={url:'https://lc.kudesi.com/after-sales/workspace'},webContents={mainFrame:main},win={webContents};
  assert.equal(trustedSender({sender:webContents,senderFrame:main},win,'https://lc.kudesi.com'),true);
  assert.equal(trustedSender({sender:{},senderFrame:main},win,'https://lc.kudesi.com'),false);
  assert.equal(trustedSender({sender:webContents,senderFrame:{url:main.url}},win,'https://lc.kudesi.com'),false);
+});
+test('the website protocol accepts only the fixed after-sales launch action',()=>{
+ assert.equal(isAfterSalesLaunch('kudesi-oa://after-sales'),true);
+ assert.equal(isAfterSalesLaunch('KUDESI-OA://AFTER-SALES/'),true);
+ for(const value of ['kudesi-oa://after-sales?url=https://example.com','kudesi-oa://after-sales#access_token=x','kudesi-oa://after-sales/other','kudesi-oa://after-sales.example.com','kudesi-oa://user@after-sales','https://after-sales'])assert.equal(isAfterSalesLaunch(value),false);
 });
 test('native bounds clamp to content viewport and reject non-finite values',()=>{
  assert.deepEqual(boundsOf({x:-20,y:20,width:1200,height:900},[800,600]),{x:0,y:20,width:800,height:580});

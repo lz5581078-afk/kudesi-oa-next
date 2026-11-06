@@ -1,4 +1,6 @@
 {
+  "workspace": "/after-sales/workspace",
   "collector": "/after-sales/desktop-collector",
-  "shared": "/after-sales/shared/:id"
+  "shared": "/after-sales/shared/:id",
+  "launch": "kudesi-oa://after-sales"
 }

@@ -100,6 +100,12 @@ function createReader(contents,ensure,watch){
   for(const f of contents.mainFrame.framesInSubtree){if(!allowedJst(f.url)||!await activeFrame(f))continue;try{const state=await runDom(f,'state');if(state.hasList&&(kind==='history'?state.legacy:!state.legacy))return f;}catch{/* transient detached frame */}}
   return null;
  }
+ async function openCurrent(){
+  if(await listFrame('current'))return true;
+  if(!allowedJst(contents.mainFrame.url))return false;
+  const result=await runDom(contents.mainFrame,'navigate',{kind:'current'});
+  return result.opened;
+ }
  async function ready(query){
   await ensure();
   let current=await contents.mainFrame.executeJavaScript(`(${extractVisible.toString()})()`);
@@ -149,6 +155,6 @@ function createReader(contents,ensure,watch){
   const result=latest?latestPage(records,query.from,query.until,state.hasNext):{records,hasNext:state.hasNext};
   return {...result,total:state.total,page:state.page,pageSize:state.pageSize,sourceCompany:query.sourceCompany,kind:query.kind};
  }
- return {query:(q,latest=false)=>{const task=queue.then(()=>queryPage(q,latest)).finally(()=>watch?.stop());queue=task.catch(()=>{});return task;}};
+ return {openCurrent,query:(q,latest=false)=>{const task=queue.then(()=>queryPage(q,latest)).finally(()=>watch?.stop());queue=task.catch(()=>{});return task;}};
 }
 module.exports={validateQuery,domQuery,createReader,latestPage,activeFrame};
