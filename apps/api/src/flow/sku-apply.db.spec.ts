@@ -117,7 +117,7 @@ d('SKU 批量申请流程（真实数据库）', () => {
     await expect(flow.start(ops, 'sku-batch-apply', payload([{ name: 'X', main: [], gift: [] }]))).rejects.toThrow(/主商品/);
     await expect(flow.start(ops, 'sku-batch-apply', payload([spec('A', ids.appleBc)], { platformIds: [] }))).rejects.toThrow(/不能为空|平台/);
     await expect(flow.start(ops, 'sku-batch-apply', payload([spec('A', 999999)]))).rejects.toThrow(/不存在/);
-    await expect(flow.start(ops, 'sku-batch-apply', payload([spec('A', ids.appleBc), spec('B', ids.appleBc)]))).rejects.toThrow(/完全一样/);
+    await expect(flow.start(ops, 'sku-batch-apply', payload([spec('A', ids.appleBc), spec('B', ids.appleBc)]))).rejects.toThrow(/最终编码.*本次申请.*重复/);
     // 赠品可以是发货物料；同商品数量合并
     const run = await flow.start(ops, 'sku-batch-apply', payload([{ name: 'G', main: [{ baseCodeId: ids.pearBc, qty: 1 }, { baseCodeId: ids.pearBc, qty: 2 }], gift: [{ baseCodeId: ids.giftBc, qty: 1 }] }]), key());
     expect(run.status).toBe('running');
