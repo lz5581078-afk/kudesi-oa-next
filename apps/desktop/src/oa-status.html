@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'">
+<title>酷得斯 OA</title>
+<style>
+  body { background: #f4f7fa; color: #193147; font: 16px system-ui, sans-serif; }
+  main { max-width: 440px; margin: 18vh auto; padding: 28px; border: 1px solid #d7e0ea; border-radius: 12px; background: white; }
+  h1 { margin: 0 0 12px; font-size: 24px; }
+  button { font: inherit; color: white; background: #0b7779; border: 0; border-radius: 6px; padding: 9px 16px; cursor: pointer; }
+</style>
+<main>
+  <h1 id="title">酷得斯 OA</h1>
+  <p role="status">暂时无法连接 OA，请检查网络后重试。</p>
+  <button id="retry" type="button">重新连接</button>
+</main>
+<script>
+  const query = new URLSearchParams(location.search);
+  if (query.get('surface') === 'after-sales') document.getElementById('title').textContent = '实时售后处理';
+  const retry = document.getElementById('retry');
+  retry.onclick = () => {
+    retry.disabled = true;
+    window.oaDesktop.retry().catch(() => {}).finally(() => { retry.disabled = false; });
+  };
+</script>
+</html>

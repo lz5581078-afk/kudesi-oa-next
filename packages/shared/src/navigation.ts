@@ -11,9 +11,11 @@ import type { DeskPosition } from './workspace';
 import { RESOURCE_DEFS, RESOURCE_VIEWS } from './resources';
 
 export const DESKTOP_AFTER_SALES_ROUTES = {
+  workspace: '/after-sales/workspace',
   collector: '/after-sales/desktop-collector',
   shared: '/after-sales/shared/:id',
 } as const;
+export const DESKTOP_AFTER_SALES_LINK = 'kudesi-oa://after-sales';
 
 export const OPENING_PREPAYMENT_PERMISSION = 'finance.docs.opening-prepayment';
 /** 转款单“确认入账”：在途转款对方确认到账后，记入转入账户（单独授权并写审计） */
@@ -234,7 +236,6 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     label: '售后',
     pages: [
       { ...page('after-sales', 'table', '售后表格', true), group: '售后管理' },
-      { ...page('after-sales', 'workspace', '售后工作台', true), group: '售后管理' },
       { ...page('after-sales', 'appeals', '订单申诉', true), group: '售后管理' },
     ],
   },
@@ -268,6 +269,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
       { ...page('features', 'live-desk', '我的直播', true), group: '直播管理' },
       // 直播管理：全览图、排场、场次记录、待审核、提成记录、主播工资、提成结算、提成规则（页面内标签，按下面的权限显示）
       { ...page('features', 'live', '直播管理', true), group: '直播管理' },
+      { ...page('after-sales', 'workspace', '实时售后处理', true), path: DESKTOP_AFTER_SALES_ROUTES.workspace, group: '售后处理', description: '在本机 OA 工具的独立窗口打开聚水潭售后' },
     ],
   },
   {
@@ -432,7 +434,7 @@ export function groupPages(section: Pick<NavSection, 'label' | 'pages'>): PageGr
 
 /** 一级菜单只有一个页面时，点它直接进入，不用再弹二级菜单。 */
 export function directPage(section: Pick<NavSection, 'pages'>): NavPage | null {
-  return section.pages.length === 1 ? section.pages[0] : null;
+  return section.pages.length === 1 && section.pages[0].path !== DESKTOP_AFTER_SALES_ROUTES.workspace ? section.pages[0] : null;
 }
 
 export interface NavSearchHit { sectionId: string; sectionLabel: string; groupTitle: string; page: NavPage }

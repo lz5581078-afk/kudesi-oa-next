@@ -1,7 +1,12 @@
 const { contextBridge, ipcRenderer } = require('electron');
+const surface=process.argv.find(arg=>arg.startsWith('--oa-desktop-surface='))?.split('=')[1];
 const invoke = (command, value) => ipcRenderer.invoke('oa:desktop', command, value);
 contextBridge.exposeInMainWorld('oaDesktop', Object.freeze({
-  version: '0.2.0', preferences: () => invoke('preferences'), zoom: value => invoke('zoom', value),
+  version: '0.2.2', surface,
+  openAfterSales: () => invoke('openAfterSales'), retry: () => invoke('retry'),
+  ...(surface === 'after-sales' ? { openSourceAfterSales: () => invoke('openSourceAfterSales') } : {}),
+  ...(process.platform === 'win32' && surface === 'main' ? { openFeishuLogin: url => invoke('openFeishuLogin', url) } : {}),
+  preferences: () => invoke('preferences'), zoom: value => invoke('zoom', value),
   mount: bounds => invoke('mount', bounds), hide: () => invoke('hide'), context: value => invoke('context',value),
   prepare:()=>invoke('prepare'),prepareLatest:()=>invoke('prepareLatest'),
   query:value=>invoke('query',value),latest:value=>invoke('latest',value),collection:value=>invoke('collection',value),

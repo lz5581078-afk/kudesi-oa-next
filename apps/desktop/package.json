@@ -1,6 +1,6 @@
 {
   "name": "@kudesi/desktop",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "private": true,
   "description": "酷得斯 OA 桌面客户端",
   "author": "Kudesi",
@@ -25,6 +25,7 @@
   "build": {
     "appId": "com.kudesi.oa.desktop",
     "productName": "酷得斯OA",
+    "protocols": { "name": "酷得斯 OA 实时售后", "schemes": ["kudesi-oa"] },
     "asar": true,
     "directories": {
       "output": "release"
@@ -46,6 +47,7 @@
       "icon": "build/icon.png"
     },
     "nsis": {
+      "include": "build/installer.nsh",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
