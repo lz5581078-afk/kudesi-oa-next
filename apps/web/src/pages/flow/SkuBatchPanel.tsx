@@ -1,6 +1,6 @@
 import {X} from 'lucide-react';
 import { Fragment,useCallback, useEffect, useMemo,useRef, useState } from 'react';
-import { FLOW_ACTION_LABEL } from '@kudesi/shared';
+import { FLOW_ACTION_LABEL, SPECIAL_PERMISSIONS } from '@kudesi/shared';
 import {useAuth} from '../../auth/AuthContext';
 import {SkuApplicationDetailView,type ApplicationItem} from './SkuApplicationDetailView';
 import type {RunDetailDto,FlowConfirmation} from './flowApi';
@@ -94,7 +94,7 @@ function SkuBatchWorkspace({batchKey,onClose,onChanged,sourceLayout:preferredSou
   const expected=[...new Map((board?.items??[]).map(item=>[item.runId,{id:item.runId,revision:item.revision}])).values()];
   const canEditShared=!!header?.canAdd&&(board?.items??[]).filter(item=>!['cancelled','rejected'].includes(item.runStatus)).every(item=>item.canEditDraft||item.canResubmit);
   const working=busy||draftBusy||loading;
-  const legacyEditor=!header&&!!board?.items.some(item=>item.runId===openRun&&(item.canResubmit||item.mine));
+  const legacyEditor = !header && !board?.items.some(item => item.runId === openRun && item.canSaveWarehouseDraft && item.specCount === 1);
   const changeDraft=(id:number|null)=>{const next=()=>setEditingDraft(id);if(draftGuard.current)draftGuard.current(next);else next();};
   async function addDraft(source?:{id:number;revision:number;name:string}){
     if(!header||working)return;const names=new Set((board?.items??[]).map(item=>item.specName.trim().toLocaleLowerCase())),base=source?`${source.name} 副本`:`规格 ${(board?.items.length??0)+1}`;let name=base,index=2;while(names.has(name.toLocaleLowerCase()))name=`${base} ${index++}`;
@@ -114,7 +114,7 @@ function SkuBatchWorkspace({batchKey,onClose,onChanged,sourceLayout:preferredSou
   const sameStage=selected.length>0&&selected.every(item=>item.stepKey===selected[0].stepKey&&(item.mine||item.canEditDraft||item.canResubmit));
   async function openTool(kind:'series'|'reuse'){setDraftBusy(true);setError('');try{const loaded=await Promise.all(selected.map(item=>flowApi.run(item.runId)));if(loaded.some(detail=>detail.revision!==selected.find(item=>item.runId===detail.id)?.revision))throw new ApiError(409,'规格已变化，请刷新后重试');setToolDetails(loaded);if(kind==='reuse'){const previews=await Promise.all(loaded.map(async detail=>[detail.id,await skuApi.preview(detail.id)] as const));setToolPreviews(Object.fromEntries(previews));}setTool(kind);}catch(error){setError(error instanceof ApiError?error.message:'规格读取失败');}finally{setDraftBusy(false);}}
   function finishTool(results:BatchOutcome['results']){setTool(null);setChecked(new Set());setOutcome({text:`处理完成：成功 ${results.filter(row=>row.ok).length} 个，失败 ${results.filter(row=>!row.ok).length} 个`,failed:results.filter(row=>!row.ok)});setSel(new Set(results.filter(row=>!row.ok).map(row=>row.runId)));load();onChanged();}
-  const sourceActions=<>{sourceSales&&<button type="button" className="primary-button" disabled={working||!sameStage||selected.some(item=>!canProceed(item))} onClick={()=>setSourceAction('submit')}>通过 · 提交{workflow.find(step=>step.type==='execute')?.name||'下一节点'}</button>}{(sourceWarehouse||sourceReview)&&<button type="button" className="primary-button" disabled={working||!sameStage||!selected.length||selected.some(item=>!canProceed(item))} onClick={()=>setSourceAction(sourceReview?'approve':'submit')}>{sourceReview?'通过 · 审核':`通过 · 提交${workflow.find(step=>step.type==='finance')?.name||'下一节点'}`}</button>}{(sourceSales||sourceWarehouse||sourceReview)&&<><button type="button" disabled={working||!sameStage||!selected.length} onClick={()=>setSourceAction('cancel')}>废除</button><button type="button" disabled={working||!sameStage||!selected.length||sourceSales} onClick={()=>setSourceAction('return')}>退回上一步</button><button type="button" disabled={working||!sameStage||!selected.length} onClick={()=>setSourceAction('reject')}>拒绝</button></>}{sourceSales&&header?.canAdd&&<button type="button" disabled={working||selected.length!==1} onClick={()=>void openTool('series')}>批量生成规格</button>}{board?.me.canReturnAll&&<button type="button" disabled={working} onClick={()=>setDlg('returnAll')}>整单退回（全部 {board.me.holdCount} 个）</button>}{sourceWarehouse&&<button type="button" disabled={working||!sameStage||items.length<2} onClick={()=>void openTool('reuse')}>批量套用发货组成</button>}{selected.length>0&&<span>{!sameStage?'请选择同一节点的规格':selected.every(canProceed)?'校验通过，可提交':`待校验 ${selected.length} 项`}</span>}</>;
+  const sourceActions=<>{sourceSales&&<button type="button" className="primary-button" disabled={working||!sameStage||selected.some(item=>!canProceed(item))} onClick={()=>setSourceAction('submit')}>通过 · 提交{workflow.find(step=>step.type==='execute')?.name||'下一节点'}</button>}{(sourceWarehouse||sourceReview)&&<button type="button" className="primary-button" disabled={working||!sameStage||!selected.length||selected.some(item=>!canProceed(item))} onClick={()=>setSourceAction(sourceReview?'approve':'submit')}>{sourceReview?'通过 · 审核':`通过 · 提交${workflow.find(step=>step.type==='finance')?.name||'下一节点'}`}</button>}{(sourceSales||sourceWarehouse||sourceReview)&&<><button type="button" disabled={working||!sameStage||!selected.length} onClick={()=>setSourceAction('cancel')}>废除</button><button type="button" disabled={working||!sameStage||!selected.length||sourceSales} onClick={()=>setSourceAction('return')}>退回上一步</button><button type="button" disabled={working||!sameStage||!selected.length} onClick={()=>setSourceAction('reject')}>拒绝</button></>}{sourceSales&&header?.canAdd&&<button type="button" disabled={working||selected.length!==1} onClick={()=>void openTool('series')}>批量生成规格</button>}{board?.me.canReturnAll&&<button type="button" disabled={working} onClick={()=>setDlg('returnAll')}>整单退回（全部 {board.me.holdCount} 个）</button>}{sourceWarehouse&&<button type="button" disabled={working||!sameStage||items.length<2||selected.some(item=>item.specCount!==1||(!header&&!item.canSaveWarehouseDraft))} onClick={()=>void openTool('reuse')}>批量套用发货组成</button>}{selected.length>0&&<span>{!sameStage?'请选择同一节点的规格':selected.every(canProceed)?'校验通过，可提交':`待校验 ${selected.length} 项`}</span>}</>;
 
   return (
     <div className={`modal-backdrop${sourceLayout?' sku-application-backdrop':''}`} role="presentation">
@@ -196,10 +196,31 @@ function SkuBatchWorkspace({batchKey,onClose,onChanged,sourceLayout:preferredSou
         {!sourceLayout&&<div className="modal-foot"><button type="button" className="secondary-button" onClick={requestClose}>关闭</button></div>}
       </div>
 
-      {sourceLayout&&sourceAction&&<SkuActionDialog error={error} action={sourceAction} count={selected.length} busy={working} onClose={()=>setSourceAction(null)} onConfirm={async(comment)=>{
-        if(sourceAction==='submit'&&sourceSales){if(selectedDrafts.length){await submitDrafts(comment);return;}await run(()=>skuBatchApi.act({ref:batchKey,action:'resubmit',items:selected.map(item=>({runId:item.runId,revision:item.revision,...(confirmationFor(item.runId)?{confirmation:confirmationFor(item.runId)}:{})})),comment}),'提交');}
-        else{const action=sourceAction==='submit'||sourceAction==='approve'?'pass':sourceAction;await run(()=>skuBatchApi.act({ref:batchKey,action,items:selected.map(item=>({runId:item.runId,revision:item.revision,stepId:item.stepId??undefined,...(confirmationFor(item.runId)?{confirmation:confirmationFor(item.runId)}:{})})),comment,...(action==='pass'?(sourceWarehouse?{forms:Object.fromEntries(selected.map(item=>[String(item.runId),(Object.keys(details[item.runId]?.stepDraft?.form??{}).length?details[item.runId]?.stepDraft?.form:details[item.runId]?.initialForm??details[item.runId]?.steps.filter(step=>step.key===sourceCurrent&&step.form).at(-1)?.form)??{}]))}:{form:{confirmed:true}}):{})}),sourceAction==='approve'?'审核并更新成本表':sourceAction==='submit'?'提交':sourceAction==='cancel'?'废除':sourceAction==='reject'?'拒绝':'退回');}
-      }}/>}
+      {sourceLayout && sourceAction && <SkuActionDialog
+        error={error} action={sourceAction} count={selected.length} busy={working}
+        syncMode={header ? 'automatic' : can(SPECIAL_PERMISSIONS.financeBundleSync) ? 'optional' : 'off'}
+        onClose={() => setSourceAction(null)}
+        onConfirm={async (comment, syncToJst) => {
+          if (sourceAction === 'submit' && sourceSales && selectedDrafts.length) {
+            await submitDrafts(comment);
+            return;
+          }
+          const action = sourceAction === 'submit' ? sourceSales ? 'resubmit' : 'pass'
+            : sourceAction === 'approve' ? 'pass' : sourceAction;
+          const actionItems = selected.map(item => ({
+            runId: item.runId,
+            revision: item.revision,
+            ...(action !== 'resubmit' ? { stepId: item.stepId ?? undefined } : {}),
+            ...(confirmationFor(item.runId) ? { confirmation: confirmationFor(item.runId) } : {}),
+          }));
+          const label = { approve: '审核并更新成本表', submit: '提交', cancel: '废除', reject: '拒绝', return: '退回' };
+          await run(() => skuBatchApi.act({
+            ref: batchKey, action, items: actionItems, comment,
+            ...(sourceAction === 'approve' ? { form: { confirmed: true, ...(syncToJst ? { syncToJst: true } : {}) } } : {}),
+          }), label[sourceAction]);
+        }}
+      />}
+
       {copyingDraft&&<div className="modal-backdrop"><section role="dialog" aria-modal="true" aria-label="复制未完成规格" className="modal card small"><header className="modal-head"><h2>复制未完成规格</h2></header><div className="modal-body"><p>将「{copyingDraft.name}」复制为新草稿，用于申请另一种规格。新草稿需要重新核对后提交。</p>{error&&<p role="alert">{error}</p>}</div><footer className="modal-foot"><button type="button" disabled={draftBusy} onClick={()=>setCopyingDraft(null)}>取消</button><button type="button" className="primary-button" disabled={working} onClick={()=>{const source=copyingDraft;if(draftGuard.current)draftGuard.current(()=>void addDraft(source));else void addDraft(source);}}>确认复制</button></footer></section></div>}
       {deletingDraft&&<ReasonDialog title="删除未提交规格" hint={`仅删除「${deletingDraft.name}」，不会影响本申请已验证的规格。`} confirmLabel="确认删除" danger onClose={()=>setDeletingDraft(null)} onConfirm={async reason=>{await flowApi.removeApplicationDraft(deletingDraft.id,deletingDraft.revision,reason);if(editingDraft===deletingDraft.id)setEditingDraft(null);setSel(current=>new Set([...current].filter(id=>id!==deletingDraft.id)));setDeletingDraft(null);load();onChanged();}}/>}
       {deletingApplication&&header&&<SkuApplicationDeleteDialog batchKey={batchKey} title={header.title} onClose={()=>setDeletingApplication(false)} onDeleted={()=>{onChanged();(onBack??onClose)();}}/>}
@@ -232,7 +253,7 @@ function SkuBatchWorkspace({batchKey,onClose,onChanged,sourceLayout:preferredSou
       )}
       {tool==='series'&&header&&toolDetails[0]&&<SkuQuantitySeriesDialog header={header} detail={toolDetails[0]} onClose={()=>setTool(null)} onDone={finishTool}/>}
       {tool==='reuse'&&toolDetails.length>1&&<SkuBulkReuseDialog items={toolDetails} previews={toolPreviews} onClose={()=>setTool(null)} onDone={finishTool}/>}
-      {openRun&&sourceLayout&&!legacyEditor&&<SkuStepEditor key={openRun} id={openRun} onLeaveReady={leaveReady} onClose={()=>setOpenRun(null)} onSaved={check=>{const id=openRun;setOpenRun(null);setChecked(new Set());setSel(new Set([id]));load();onChanged();if(check)void checkSaved(id);}}/>}
+      {openRun&&sourceLayout&&!legacyEditor&&<SkuStepEditor key={openRun} id={openRun} legacy={!header} onLeaveReady={leaveReady} onClose={()=>setOpenRun(null)} onSaved={check=>{const id=openRun;setOpenRun(null);setChecked(new Set());setSel(new Set([id]));load();onChanged();if(check)void checkSaved(id);}}/>}
       {openRun && (!sourceLayout||legacyEditor) && <RunDetail id={openRun} onClose={() => setOpenRun(null)} onChanged={() => { load(); onChanged(); }} />}
     </div>
   );

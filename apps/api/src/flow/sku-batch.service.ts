@@ -9,6 +9,7 @@ import { AuthUser } from '../common/auth.decorators';
 import { AuditLog, FlowEvent, FlowRun, FlowStep, Notification, WorkItem } from '../entities';
 import { BundleToolsService } from '../resources/bundle-tools.service';
 import { FlowService } from './flow.service';
+import { supportsSkuWarehouseDraft } from './sku-warehouse-draft';
 import { SKU_BATCH_REF } from './sku-batch-reference';
 import { SKU_TEMPLATE, reviewSignature, skuBatchApply } from './sku-apply';
 
@@ -29,26 +30,32 @@ export interface BatchResult { runId: number; ok: boolean; message?: string }
 export class SkuBatchService {
   constructor(@InjectDataSource() private readonly ds: DataSource, private readonly flow: FlowService, private readonly bundles: BundleToolsService) {}
 
-  /** 申请单里你能看到的流程（按 batchKey 或 run-编号） */
-  private async members(em: EntityManager, user: AuthUser, ref: string): Promise<FlowRun[]> {
+  private async batchRuns(em: EntityManager, user: AuthUser, ref: string): Promise<FlowRun[]> {
     if (!SKU_BATCH_REF.test(ref)) throw new BadRequestException('申请单编号不对');
-    const runs = ref.startsWith('run-')
+    return ref.startsWith('run-')
       ? await em.find(FlowRun, { where: { id: Number(ref.slice(4)), companyId: user.companyId, templateKey: SKU_TEMPLATE } })
       : await em.createQueryBuilder(FlowRun, 'r')
         .where('r.companyId = :c AND r.templateKey = :t AND JSON_UNQUOTE(JSON_EXTRACT(r.payload, :p)) = :k', { c: user.companyId, t: SKU_TEMPLATE, p: '$._batchKey', k: ref })
-        .orderBy('r.id', 'ASC').limit(200).getMany();
-    const seen: FlowRun[] = [];
-    for (const r of runs) if (await this.flow.canSeeRun(em, user, r)) seen.push(r);
-    if (!seen.length) throw new NotFoundException('申请单不存在，或你没有查看权限');
-    return seen;
+        .orderBy('r.id', 'ASC').limit(201).getMany();
+  }
+
+  /** 只把有查看权限的规格返回给办理人。 */
+  private async members(em: EntityManager, user: AuthUser, ref: string) {
+    const all = await this.batchRuns(em, user, ref);
+    const visible: FlowRun[] = [];
+    for (const run of all.slice(0, 200)) {
+      if (await this.flow.canSeeRun(em, user, run)) visible.push(run);
+    }
+    if (!visible.length) throw new NotFoundException('申请单不存在，或你没有查看权限');
+    return { all, visible };
   }
 
   // ================= 汇总看板 =================
 
   async board(user: AuthUser, ref: string) {
     const em = this.ds.manager;
-    let runs:FlowRun[];
-    try{runs=await this.members(em,user,ref);}catch(error){
+    let runs: FlowRun[], allRuns: FlowRun[];
+    try { ({ visible: runs, all: allRuns } = await this.members(em, user, ref)); }catch(error){
       if(!(error instanceof NotFoundException))throw error;
       const header=await this.flow.applicationDraftHeader(user,SKU_TEMPLATE,ref),names=await this.flow.userNames(em,user.companyId,[header.requesterId]);
       return {ref,batchKey:ref,batchName:header.title,requesterId:header.requesterId,requesterName:names.get(header.requesterId)??'',total:0,runCount:0,counts:{draft:0,running:0,completed:0,ended:0,returned:0,mine:0},me:{isRequester:header.requesterId===user.id,holdStepKey:null,holdStepName:'',holdCount:0,canReturnAll:false},items:[],history:[],applicationHeader:header};
@@ -78,6 +85,7 @@ export class SkuBatchService {
           stepId: st?.id ?? null, stepKey: st?.stepKey ?? null, stepName: st?.stepName ?? (run.status === 'completed' ? '已完成' : run.status === 'running' ? '' : '已结束'), stepType: st?.stepType ?? null,
           enteredVia: st?.enteredVia ?? null, dueAt: st?.dueAt ?? null, overdue: !!st?.dueAt && st.dueAt.getTime() < now, recipients: (st?.recipients ?? []).map((u) => names.get(u) ?? ''),
           canEditDraft:run.status==='draft'&&run.requesterId===user.id&&createChecker(user.permissions)('flow.apply.view'),
+          canSaveWarehouseDraft: iHold && st?.stepKey === 'warehouse' && supportsSkuWarehouseDraft(run),
           mine: iHold, canResubmit: run.status === 'running' && run.requesterId === user.id && st?.stepType === 'submit',
           returnReason: ret?.comment ?? null, returnedBy: ret?.handledBy ? names.get(ret.handledBy) ?? '' : null, returnedAt: ret?.finishedAt ?? null,
         });
@@ -89,7 +97,9 @@ export class SkuBatchService {
     const hold = [...byStep.entries()].sort((a, b) => b[1] - a[1])[0] ?? null;
     const holdKey = hold?.[0] ?? null;
     const atHold = holdKey ? runs.filter((r) => r.status === 'running' && active.get(r.id)?.stepKey === holdKey) : [];
-    const canReturnAll = !!holdKey && active.get(atHold[0]?.id)?.stepType !== 'submit' && atHold.every((r) => myStep.has(active.get(r.id)!.id));
+    const hiddenAtHold = allRuns.some(run => run.status === 'running' && run.currentStepKey === holdKey && !active.has(run.id));
+    const canReturnAll = !!holdKey && allRuns.length <= 200 && !hiddenAtHold
+      && active.get(atHold[0]?.id)?.stepType !== 'submit' && atHold.every(r => myStep.has(active.get(r.id)!.id));
     const events = await em.find(FlowEvent, { where: { runId: In(runIds) }, order: { id: 'DESC' }, take: 200 });
     const evNames = await this.flow.userNames(em, user.companyId, events.map((e) => e.actorId));
     const first = runs[0];
@@ -120,7 +130,7 @@ export class SkuBatchService {
     if (['return', 'reject', 'cancel'].includes(b.action) && !comment) throw new BadRequestException('退回、废除、拒绝都要写原因');
     if (!b.items?.length || b.items.length > 100) throw new BadRequestException('请选择 1 到 100 个规格');
     if (new Set(b.items.map((i) => i.runId)).size !== b.items.length) throw new BadRequestException('选择的规格重复');
-    const runs = await this.members(this.ds.manager, user, b.ref);
+    const { visible: runs } = await this.members(this.ds.manager, user, b.ref);
     const byId = new Map(runs.map((r) => [r.id, r]));
     const results: BatchResult[] = [];
     for (const it of b.items) {
@@ -157,7 +167,9 @@ export class SkuBatchService {
     if (!b.items?.length || b.items.length > 200) throw new BadRequestException('退回的规格数量不对');
     const out = await this.ds.transaction(async (em) => {
       this.flow.markQuiet(em);
-      const runs = await this.members(em, user, b.ref);
+      const { all: runs, visible } = await this.members(em, user, b.ref);
+      if (runs.length > 200) throw new ConflictException('申请单规格超过整单退回上限，请分批办理');
+      if (!visible.some(run => run.id === b.items[0].runId)) throw new ForbiddenException('没有办理该规格的权限');
       const locked: FlowRun[] = [];
       for (const r of [...runs].sort((x, y) => x.id - y.id)) locked.push(await em.findOneOrFail(FlowRun, { where: { id: r.id }, lock: { mode: 'pessimistic_write' } }));
       const active = new Map<number, FlowStep>();
@@ -171,8 +183,11 @@ export class SkuBatchService {
         const mine = await em.findOne(WorkItem, { where: { companyId: user.companyId, stepId: active.get(r.id)!.id, assigneeId: user.id, status: 'open' } });
         if (!mine) throw new ForbiddenException('这一步申请单里还有不是你办理的规格，不能整单退回；可以只勾选你名下的规格退回');
       }
-      const want = new Map(b.items.map((i) => [i.runId, i.revision]));
-      if (want.size !== cand.length || cand.some((r) => want.get(r.id) !== r.revision)) throw new ConflictException('申请单里的规格或资料已经变化，请刷新后重新退回');
+      const want = new Map(b.items.map(item => [item.runId, item]));
+      if (want.size !== b.items.length || want.size !== cand.length || cand.some(run => {
+        const item = want.get(run.id);
+        return !item || item.revision !== run.revision || (item.stepId !== undefined && item.stepId !== active.get(run.id)!.id);
+      })) throw new ConflictException('申请单里的规格或资料已经变化，请刷新后重新退回');
       for (const r of cand) await this.flow.returnBackIn(em, user, r.id, { revision: r.revision, stepId: active.get(r.id)!.id, reason });
       return { runs: locked, ids: cand.map((r) => r.id) };
     });
@@ -244,7 +259,7 @@ export class SkuBatchService {
       await this.flow.returnBackIn(em, user, newId, { revision: 1, stepId: newStepId, reason });
       return { ref: batchKey, newRunId: newId, split: true, runs: [run.id, newId] };
     });
-    const runs = await this.members(this.ds.manager, user, out.ref).catch(() => [] as FlowRun[]);
+    const runs = await this.members(this.ds.manager, user, out.ref).then(batch => batch.visible).catch(() => [] as FlowRun[]);
     if (runs.length) await this.summarize(this.ds.manager, user, out.ref, runs, [out.newRunId], 'return', reason);
     await this.audit(user, 'flow.sku.return-specs', out.ref, { runId: b.runId, newRunId: out.newRunId, specs: [...want], reason, split: out.split });
     return { ok: true, ref: out.ref, newRunId: out.newRunId, split: out.split };

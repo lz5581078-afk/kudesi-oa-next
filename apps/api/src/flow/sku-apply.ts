@@ -1,4 +1,4 @@
-import {initialSkuWarehouseDraft} from './sku-warehouse-draft';
+import {initialSkuWarehouseDraft,supportsSkuWarehouseDraft} from './sku-warehouse-draft';
 import {bundleLaborUnit} from '../resources/bundle-component-validation';
 import {confirmSkuDuplicates} from './sku-duplicate-confirmation';
 import {skuReuseLibrary} from './sku-reuse';
@@ -227,10 +227,12 @@ export const skuBatchApply: FlowAdapter = {
   async onReturn({em,run}){if(run.payload._applicationDraftOrigin===true){delete run.payload._review;delete run.payload._reviewSig;await em.save(FlowRun,run);}},
   async onFinish({em,run},status){if(run.payload._applicationDraftOrigin===true&&status!=='completed'){delete run.payload._review;delete run.payload._reviewSig;await em.save(FlowRun,run);}},
   stepFields(run,key,fields){return run.payload._applicationDraftOrigin===true&&key==='warehouse'?fields.map(field=>field.key==='note'?{...field,maxLength:1000}:field):fields;},
-  stepDraftEnabled({run,stepKey}){return run.payload._applicationDraftOrigin===true&&stepKey==='warehouse';},
+  stepDraftEnabled({run,stepKey}){return stepKey==='warehouse'&&supportsSkuWarehouseDraft(run);},
   async validateStepDraft({em,user,run,payload,form},options){
-    const specs=normalizeSpecs(payload.specs,{quantityScale:6}).specs;
-    const normalized=normalizeWarehouse(form.config??specs.map(()=>({lines:[],notRequired:{}})),specs.map(spec=>spec.name),{quantityScale:6,allowIncomplete:true});
+    const applicationDraft = run.payload._applicationDraftOrigin === true;
+    const specs = normalizeSpecs(payload.specs, { quantityScale: applicationDraft ? 6 : 0 }).specs;
+    const normalized = normalizeWarehouse(form.config ?? specs.map(() => ({ lines: [], notRequired: {} })),
+      specs.map(spec => spec.name), { quantityScale: applicationDraft ? 6 : 3, allowIncomplete: true });
     if(normalized.errors.length)throw new BadRequestException(normalized.errors.join('；'));
     const cache=new Map<number,{bc:ResourceRecord;archive:string}>();
     for(const config of normalized.config)for(const line of config.lines){
@@ -262,7 +264,7 @@ export const skuBatchApply: FlowAdapter = {
       const norm = normalizeWarehouse(form.config, specs.map((s) => s.name),{quantityScale:run.payload._applicationDraftOrigin===true?6:3});
       if (norm.errors.length) throw new BadRequestException(norm.errors.join('；'));
       form.config = norm.config; // 整理后的配置
-      if(run.payload._applicationDraftOrigin===true){const step=await em.findOne(FlowStep,{where:{companyId:user.companyId,runId:run.id,stepKey:'warehouse',status:'active'}});const previous=step?.form??await initialSkuWarehouseDraft(em,run);if(previous?.reuseInfo)form.reuseInfo=previous.reuseInfo;}
+      if(supportsSkuWarehouseDraft(run)){const step=await em.findOne(FlowStep,{where:{companyId:user.companyId,runId:run.id,stepKey:'warehouse',status:'active'}});const previous=step?.form??await initialSkuWarehouseDraft(em,run);if(previous?.reuseInfo)form.reuseInfo=previous.reuseInfo;}
       const checked=await checkApplication(em, user, bundles, { ...payload }, { strict: false, selfRunId: run.id, warehouse: norm.config,requireBrand:run.payload._applicationDraftOrigin===true });
       if(run.payload._applicationDraftOrigin===true)await confirmSkuDuplicates(em,user,run,payload,norm.config,checked.plan,confirmation);
       if(run.payload._applicationDraftOrigin===true)payload._review=await captureSkuInspection(em,user.companyId,'warehouse',checked.plan);

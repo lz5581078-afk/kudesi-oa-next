@@ -652,10 +652,15 @@ export class FlowService {
       if (!(await this.myOpenItem(em, user, step))) throw new ForbiddenException('这一步不是你办理的');
       const t = await this.runTpl(em, run);
       const fields = t.stepFields[step.stepKey] ?? [];
-      const checked = validateResourceInput(pseudoDef(`${t.key}.${step.stepKey}`, fields), this.without(p.form, this.restricted(user, fields)), { status: '' });
+      const adapter = adapterFor(t);
+      const context = this.stepCtx(em, user, run, step, {});
+      // SKU 汇总页提交当前锁定版本的仓库暂存资料，避免浏览器缓存把旧配置提交上来。
+      const input = p.form === undefined && t.key === 'sku-batch-apply' && step.stepKey === 'warehouse'
+        ? step.form ?? await adapter.initialStepDraft?.(context)
+        : p.form;
+      const checked = validateResourceInput(pseudoDef(`${t.key}.${step.stepKey}`, fields), this.without(input, this.restricted(user, fields)), { status: '' });
       if (checked.errors.length) throw new BadRequestException(checked.errors.join('；'));
       const form = Object.fromEntries(Object.entries(checked.values).filter(([, v]) => v !== null && v !== undefined));
-      const adapter = adapterFor(t);
       const stepDef = (run.stepsSnapshot as StepDef[]).find((x) => x.key === step.stepKey);
       if (stepDef?.mode === 'all') {
         // 全员会签：我办完了，但还有别人没办 → 只关我的待办，流程停在这一步

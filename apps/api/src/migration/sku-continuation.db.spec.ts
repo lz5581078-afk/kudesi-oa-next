@@ -6,6 +6,7 @@ import { Company, FlowRun, FlowStep, ResourceRecord, User, UserPermissionOverrid
 import { buildServices } from '../test-support';
 import { FlowService } from '../flow/flow.service';
 import { BundleToolsService } from '../resources/bundle-tools.service';
+import { SkuApplyService } from '../flow/sku-apply.service';
 import { SkuBatchService } from '../flow/sku-batch.service';
 import { FinanceDocumentsService } from '../resources/finance-documents.service';
 import { OutboxService } from '../outbox/outbox.service';
@@ -21,7 +22,7 @@ import { restoreWorkflowAccess } from './workflow-access';
 
 const suite = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
 suite('旧SKU在原运营节点续办（真实数据库）', () => {
-  let ds: DataSource, svc: ReturnType<typeof buildServices>, flow: FlowService, batch: SkuBatchService;
+  let ds: DataSource, svc: ReturnType<typeof buildServices>, flow: FlowService, batch: SkuBatchService, sku: SkuApplyService;
   let admin: AuthUser, ops: AuthUser, wh: AuthUser, fin: AuthUser;
   const targets = new Map<string, number>();
   let scenarioId: number;
@@ -33,6 +34,7 @@ suite('旧SKU在原运营节点续办（真实数据库）', () => {
     const bundles = new BundleToolsService(ds, svc.resources, outbox);
     flow = new FlowService(ds, svc.resources, new FinanceDocumentsService(ds), bundles, outbox);
     batch = new SkuBatchService(ds, flow, bundles);
+    sku = new SkuApplyService(ds, flow, bundles);
     const c = await ds.manager.save(Company, ds.manager.create(Company, { code: `resume${randomBytes(4).toString('hex')}`, name: '旧流程续办测试', status: 'active' }));
     const user = async (name: string, allow: string[] = [], isCompanyAdmin = false): Promise<AuthUser> => {
       const r = await ds.manager.save(User, ds.manager.create(User, { companyId: c.id, account: `${name}${randomBytes(4).toString('hex')}`, name, passwordHash: 'x', status: 'active', isCompanyAdmin, mustChangePassword: false }));
@@ -111,6 +113,8 @@ suite('旧SKU在原运营节点续办（真实数据库）', () => {
     const original = await readSourceRow(ds.manager, svc.crypto, { companyId: ops.companyId, sourceCompanyId: 3, table: 'workflow_node_records', key: String(s.run.id * 10 + 1) });
     expect(original?.form_payload).toEqual({ payload: { privateCost: 99 } });
     await expect(flow.resubmit(wh, current.id, { revision: current.revision, payload: current.payload })).rejects.toThrow('发起人');
+    await expect(sku.preview(wh, current.id, current.revision)).rejects.toThrow(/当前节点处理人/);
+    expect((await sku.preview(ops, current.id, current.revision)).planError).toBe('');
     const visible = await flow.detail(ops, current.id);
     let run = await flow.resubmit(ops, current.id, { revision: current.revision, payload: visible.payload });
     expect((await ds.manager.findOneByOrFail(FlowRun,{id:run.id,companyId:ops.companyId})).payload._legacySkuItemId).toBe(String(s.item.id));
@@ -118,7 +122,17 @@ suite('旧SKU在原运营节点续办（真实数据库）', () => {
     expect(run.initialForm).toBeUndefined(); // 运营不能取得仓库办理表单
     const whView = await flow.detail(wh, run.id);
     expect(whView.initialForm).toEqual({ config: [{ lines: [{ role: 'other', baseCodeId: targets.get('finance-base-codes:12'), qty: 2 }], notRequired: { package: '原料直发', label: '无需标签', labor: '无需人工' } }], note: '原仓库配置备注' });
-    run = await flow.pass(wh, run.id, { revision: run.revision, stepId: run.activeStep!.id, form: whView.initialForm! });
+    expect(whView.stepDraft?.canSave).toBe(true);
+    expect((await sku.preview(wh, run.id, run.revision)).specs[0].warehouse[0]).toMatchObject({ role: 'other', qty: 2 });
+    const saved = await flow.saveStepDraft(wh, run.id, {
+      revision: run.revision, stepId: run.activeStep!.id, form: { ...whView.initialForm, note: '仓库复查确认' },
+    });
+    expect((await sku.preview(wh, saved.id, saved.revision)).planError).toBe('');
+    expect((await batch.act(wh, { ref: board.ref, action: 'pass', items: [{ runId: saved.id, revision: saved.revision, stepId: saved.activeStep!.id }] })).ok).toBe(1);
+    run = await flow.detail(fin, saved.id);
+    expect(run.steps.find(step => step.key === 'warehouse' && step.action === 'pass')?.form?.note).toBe('仓库复查确认');
+    expect((await sku.preview(fin, run.id, run.revision)).planError).toBe('');
+
     expect(run.activeStep?.key).toBe('review');
     run = await flow.pass(fin, run.id, { revision: run.revision, stepId: run.activeStep!.id, form: { confirmed: true } });
     expect(run.status).toBe('completed');
