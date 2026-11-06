@@ -12,6 +12,7 @@ import { EnrollmentInviteDialog } from './EnrollmentInviteDialog';
 import { CashierWithdrawalDialog } from './CashierWithdrawalDialog';
 import { DeskAccessDialog } from './DeskAccessDialog';
 import { PositionDetail } from './PositionDetail';
+import { recruitApi } from '../recruit/recruitApi';
 
 /** 岗位类型（positions.workspace_type 显式字段）对应的默认工作台名称；空白类型没有默认工作台 */
 const deskLabel = (t: string) => (t === 'blank' ? '无' : `${(WORKSPACE_LABELS[t] ?? t)}工作台`);
@@ -35,6 +36,7 @@ export function PositionProfilesPage() {
   const [dlg, setDlg] = useState<{ kind: 'new' } | { kind: 'stop'; p: PositionDto } | { kind: 'del'; p: PositionDto } | null>(null);
   const [invite, setInvite] = useState<{ position?: { id: number; name: string } } | null>(null);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [cashierOpen, setCashierOpen] = useState(false);
   const [deskAccessOpen, setDeskAccessOpen] = useState(false);
   useAppbarBare();
@@ -108,6 +110,7 @@ export function PositionProfilesPage() {
           </div>
         </fieldset>
         {error && <div role="alert" className="notice error m">{error}</div>}
+        {notice && <div role="status" className="notice m">{notice}</div>}
         <div className="pp-groups">
           {groups.map((g) => (
             <section key={g.key} className="pp-group" aria-label={`部门 ${g.name}`}>
@@ -132,6 +135,7 @@ export function PositionProfilesPage() {
                         <td className="pp-actions"><span className="row-actions">
                           <button type="button" className="link-button" onClick={() => setSel(p.id)}>查看档案</button>
                           {can('org.staff.create') && p.status === 'active' && <button type="button" className="link-button" onClick={() => setInvite({ position: p })}>岗位入职码</button>}
+                          {can('recruit.manage') && p.status === 'active' && <button type="button" className="link-button" onClick={() => { setError(''); setNotice(''); recruitApi.importOpenings([p.id]).then((r) => setNotice(r.added || r.reopened ? `已把「${p.name}」加入招聘岗位` : `「${p.name}」已经在招聘岗位里`)).catch((e) => setError(errText(e))); }}>加入招聘岗位</button>}
                           {canEdit && p.status === 'active' && <button type="button" className="link-button" onClick={() => setDlg({ kind: 'stop', p })}>停用</button>}
                           {can('org.structure.delete') && <button type="button" className="link-button danger-text" onClick={() => setDlg({ kind: 'del', p })}>删除</button>}
                         </span></td>
