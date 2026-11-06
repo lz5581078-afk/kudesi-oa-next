@@ -27,6 +27,10 @@ export function ProductRowMenu({title,children}:{title:string;children:ReactNode
   },[open]);
   return <>
     <button ref={trigger} type="button" className="product-row-menu-trigger" aria-label={`操作：${title}`} aria-haspopup="dialog" aria-expanded={open} onClick={()=>setOpen(value=>!value)}>操作<ChevronDown/></button>
-    {open&&createPortal(<div ref={panel} className="product-row-menu" role="dialog" aria-label={`操作：${title}`} style={position} onClick={e=>e.stopPropagation()} onClickCapture={e=>{if((e.target as HTMLElement).closest('button:not(:disabled)'))setOpen(false);}} onBlur={e=>{if(e.relatedTarget&&!e.currentTarget.contains(e.relatedTarget as Node)&&e.relatedTarget!==trigger.current)setOpen(false);}}>{children}</div>,document.body)}
+    {open&&createPortal(<div ref={panel} className="product-row-menu" role="dialog" aria-label={`操作：${title}`} style={position} onClick={e=>{
+      e.stopPropagation();
+      // Let the action run before removing its button from the DOM.
+      if((e.target as Element).closest('button:not(:disabled)'))setOpen(false);
+    }} onBlur={e=>{if(e.relatedTarget&&!e.currentTarget.contains(e.relatedTarget as Node)&&e.relatedTarget!==trigger.current)setOpen(false);}}>{children}</div>,document.body)}
   </>;
 }
