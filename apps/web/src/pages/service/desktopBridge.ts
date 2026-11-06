@@ -7,11 +7,13 @@ export interface DesktopBridge {
  surface?:'main'|'after-sales'|'collector';
  openAfterSales?():Promise<boolean>;
  openSourceAfterSales?():Promise<boolean>;
+ openSourceWindow?():Promise<boolean>;
  openFeishuLogin?(authorizationUrl:string):Promise<boolean>;
- preferences():Promise<{shortcut:string;registered:boolean;collection?:{clientId:string;enabled:boolean;sourceCompany?:string}}>;
+ preferences():Promise<{shortcut:string;registered:boolean;collection?:{clientId:string;enabled:boolean;sourceCompany?:string;companyId?:number}}>;
  collection?(value:{enabled:boolean;sourceCompany:string}):Promise<boolean>;
  prepare?():Promise<{sourceCompany:string}>;
  prepareLatest?():Promise<{sourceCompany:string}>;
+ joinCollection?(value:{sourceCompany:string;companyId:number}):Promise<boolean>;
  query?(query:DesktopQuery):Promise<DesktopQueryResult>;
  latest?(query:DesktopQuery):Promise<DesktopQueryResult>;
  zoom(value:number):Promise<boolean>;

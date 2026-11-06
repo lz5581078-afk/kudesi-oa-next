@@ -35,15 +35,20 @@ d('自有售后工作台、最新接力采集和协同（真实MySQL）',()=>{
   // Retry against the winning actor for the following test without exposing a lease credential.
   if(owner.id!==a.id){await collector.fail(owner,sourceId,token,'测试交还');await ds.query('UPDATE desktop_after_sales_sources SET next_query_at=NULL WHERE id=? AND company_id=?',[sourceId,a.companyId]);token=(await collector.claim(a,sourceId,randomUUID()))!.token;}
  });
- it('最新采集拒绝历史数据；合法新数据整轮提交后健康且不泄露租约',async()=>{
-  await expect(collector.commit(a,sourceId,{token,records:[record('85118800',{申请时间:'2018-01-01 00:00:00'})],page:1,completed:true})).rejects.toThrow(/历史售后请在本机/);
-  await collector.commit(a,sourceId,{token,records:[record()],page:1,completed:true});
+ it('首次只采完整当前页，即使原列表有下一页也完成首轮',async()=>{
+  await expect(collector.commit(a,sourceId,{token,records:[record('85118800',{申请时间:'1999-01-01 00:00:00'})],page:1,completed:true})).rejects.toThrow(/历史售后请在本机/);
+  await expect(collector.commit(a,sourceId,{token,records:[record()],page:1,completed:false})).resolves.toEqual({received:1,completed:true});
   const source=(await collector.list(a))[0];expect(source.health).toBe('healthy');expect(source.collectedCount).toBe(1);expect(JSON.stringify(source)).not.toContain(token);
   saleId=(await svc.list(a,'85118801')).rows[0].id;expect((await svc.detail(a,saleId)).storeId).toBeNull();
   await expect(collector.commit(a,sourceId,{token,records:[record()],page:1,completed:true})).rejects.toThrow(/租约/);
  });
  it('失败显著可查、暂停会使旧结果无效；普通同事不能停止他人建立的公司采集',async()=>{
-  await ds.query('UPDATE desktop_after_sales_sources SET next_query_at=NULL WHERE id=? AND company_id=?',[sourceId,a.companyId]);token=(await collector.claim(a,sourceId,randomUUID()))!.token;
+  await ds.query('UPDATE desktop_after_sales_sources SET next_query_at=NULL WHERE id=? AND company_id=?',[sourceId,a.companyId]);
+  const round=(await collector.claim(a,sourceId,randomUUID()))!;
+  token=round.token;
+  expect(round.firstPageOnly).toBe(false);
+  const latestApplication=Date.parse(fixedApplication.replace(' ','T')+'+08:00');
+  expect(Date.parse(round.from)).toBe(latestApplication-30*60*1000);
   await collector.fail(a,sourceId,token,'页面失败 https://erp321.com/?token=private cookie=private');
   let s=(await collector.list(a))[0];expect(s.health).toBe('failed');expect(s.lastError).not.toContain('private');expect(s.lastSuccessAt).toBeTruthy();
   await expect(collector.configure(peer,{sourceCompany:'演示来源',enabled:false,intervalSeconds:60})).rejects.toThrow(/只有管理员/);
@@ -104,6 +109,42 @@ d('自有售后工作台、最新接力采集和协同（真实MySQL）',()=>{
   await ds.transaction(async em=>{for(let i=0;i<105;i++)await svc.appendRecordIn(em,a,saleId,`测试跟进记录 ${i}`);});
   const first=await svc.detail(a,saleId);expect(first.events).toHaveLength(100);expect(first.nextEventsBefore).toBeTruthy();
   const old=await svc.detail(peer,saleId,first.nextEventsBefore!);expect(old.events.length).toBeGreaterThan(0);expect(old.events.every((e:{id:number})=>e.id<first.nextEventsBefore!)).toBe(true);expect(old.snapshot.fields['实退金额']).toBeUndefined();
+ });
+ it('自动登记只允许管理员创建首个来源，匹配的客户端加入，已停用来源保持停止',async()=>{
+  const local={...other,permissions:{...other.permissions,isCompanyAdmin:false}};
+  expect(await collector.join(local,'演示来源')).toBeNull();
+  const joined=(await collector.join(other,'演示来源'))!;
+  expect(await collector.join(local,'演示来源')).toEqual(joined);
+  expect(await collector.join(other,'另一公司')).toBeNull();
+  await collector.configure(other,{sourceCompany:'演示来源',enabled:false,intervalSeconds:60});
+  expect(await collector.join(other,'演示来源')).toEqual({id:joined.id,enabled:false});
+ });
+ it('列值筛选覆盖全部页，只能使用当前用户有权读到的值',async()=>{
+  for(let i=0;i<32;i++)await svc.import(a,null,record(String(89110000+i),{退货签收时间:'2026-11-03 10:20:00',线上状态:'退款成功',实退金额:'81.55'}));
+  await svc.import(other,null,record('89111111',{退货签收时间:'2026-11-03 10:20:00',线上状态:'退款成功',实退金额:'81.55'}));
+  const filters=[{column:'退货签收时间' as const,value:'10:20'},{column:'线上状态' as const,value:'退款成功'}];
+  const first=await svc.list(a,'',1,'售后单号','asc',filters);
+  const second=await svc.list(a,'',2,'售后单号','asc',filters);
+  expect(first.total).toBe(32);expect(first.rows).toHaveLength(30);
+  expect(second.total).toBe(32);expect(second.rows.map(r=>r.afterSaleId)).toEqual(['89110030','89110031']);
+  expect((await svc.list(peer,'',1,'申请时间','desc',[{column:'实退金额',value:'81.55'}])).total).toBe(0);
+ });
+ it('处理时回查只写入选中的售后，迟到的旧快照不会覆盖最新状态',async()=>{
+  const snapshot={...record('85118801',{线上状态:'已退款'}),capturedAt:new Date(Date.now()+1000).toISOString()};
+  await expect(svc.refreshSource(a,saleId,{...snapshot,internalOrderId:'99990000'})).rejects.toThrow(/当前售后不一致/);
+  const latest=await svc.refreshSource(a,saleId,snapshot);
+  expect(latest.events[0]).toMatchObject({kind:'source_change',actorName:'admin'});
+  await svc.refreshSource(peer,saleId,{...snapshot,capturedAt:'2026-01-01T00:00:00.000Z',fields:{线上状态:'等待退货'}});
+  expect((await svc.detail(a,saleId)).snapshot.fields['线上状态']).toBe('已退款');
+ });
+ it('首次空页不会把服务器时间当成已采集的申请时间',async()=>{
+  const {id}=await collector.configure(a,{sourceCompany:'空页来源',enabled:true,intervalSeconds:60});
+  const empty=(await collector.claim(a,id,randomUUID()))!;
+  await collector.commit(a,id,{token:empty.token,records:[],page:1,completed:true});
+  await ds.query('UPDATE desktop_after_sales_sources SET next_query_at=NULL WHERE company_id=? AND id=?',[a.companyId,id]);
+  const next=(await collector.claim(a,id,randomUUID()))!;
+  expect(next.firstPageOnly).toBe(true);
+  await expect(collector.commit(a,id,{token:next.token,page:1,completed:true,records:[{...record('85229991',{申请时间:'2025-11-06 12:00:00'}),sourceCompany:'空页来源'}]})).resolves.toMatchObject({received:1});
  });
 });
 describe('售后源变化与告警状态',()=>{

@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
-import { AFTER_SALES_FIELDS, createChecker, type DesktopSaleSnapshot } from '@kudesi/shared';
+import { AFTER_SALES_FIELDS, AFTER_SALES_PAGE_SIZE, afterSalesCell, createChecker, type AfterSalesColumnFilter, type DesktopSaleListRow, type DesktopSaleSnapshot } from '@kudesi/shared';
 import { ResourceFile } from '../entities';
 import { AuthUser } from '../common/auth.decorators';
 import { CryptoService } from '../common/crypto.service';
@@ -10,6 +10,7 @@ import {applicationAt,sourceChanges} from './desktop-after-sales-domain';
 
 const FILE_TYPE = 'desktop-after-sales';
 type Row = { id:number; store_id:number|null; source_company:string; after_sale_id:string; internal_order_id:string; snapshot_enc:string; progress_enc:string; owner_id:number|null; next_at:Date|null; version:number; attachments:number[]|string; updated_at:Date; priority:number;row_color:string|null;report_enc:string|null;source_seen_at:Date|null;flow_case_id:number|null };
+type ListRow = Row & { storeName: string | null; ownerName: string | null };
 const fileIds = (v: Row['attachments']): number[] => typeof v === 'string' ? JSON.parse(v) : v;
 /** Local OA follow-up is independent of ERP refund approval. This service never writes to ERP. */
 @Injectable()
@@ -20,20 +21,42 @@ export class DesktopAfterSalesService {
     const people=await this.ds.query(`SELECT id,name FROM users WHERE company_id=? AND status='active' ORDER BY name LIMIT 3000`,[u.companyId]);
     return {stores,people};
   }
-  async list(u:AuthUser, keyword='', page=1, sort='申请时间', direction='desc') {
+  async list(u:AuthUser, keyword='', page=1, sort='申请时间', direction='desc', filters:AfterSalesColumnFilter[] = []) {
     const args:unknown[]=[u.companyId];let where='c.company_id=?';
     if(keyword){where+=' AND (c.after_sale_id LIKE ? OR c.internal_order_id LIKE ?)';args.push(`%${keyword}%`,`%${keyword}%`);}
     const columns:Record<string,string>={'申请时间':'c.application_at','售后单号':'c.after_sale_id','内部订单号':'c.internal_order_id','紧急度':'c.priority','负责人':'u.name','下次跟进':'c.next_at'};
-    const order=columns[sort]??columns['申请时间'],dir=direction==='asc'?'ASC':'DESC';
-    const rows:Array<Row&{storeName:string|null;ownerName:string|null}>=await this.ds.query(`SELECT c.*,s.title AS storeName,u.name AS ownerName FROM desktop_after_sales c
+    const order=Object.hasOwn(columns,sort)?columns[sort]:columns['申请时间'],dir=direction==='asc'?'ASC':'DESC';
+    const query=`SELECT c.*,s.title AS storeName,u.name AS ownerName FROM desktop_after_sales c
       LEFT JOIN resource_records s ON s.company_id=c.company_id AND s.id=c.store_id AND s.type='stores'
       LEFT JOIN users u ON u.company_id=c.company_id AND u.id=c.owner_id
-      WHERE ${where} ORDER BY ${order} IS NULL,${order} ${dir},c.id DESC LIMIT 30 OFFSET ?`,[...args,(page-1)*30]);
-    const [{total}]=await this.ds.query(`SELECT COUNT(*) AS total FROM desktop_after_sales c WHERE ${where}`,args);
-    return {total:Number(total),rows:rows.map(r=>({id:r.id,afterSaleId:r.after_sale_id,internalOrderId:r.internal_order_id,sourceCompany:r.source_company,
+      WHERE ${where} ORDER BY ${order} IS NULL,${order} ${dir},c.id DESC LIMIT ? OFFSET ?`;
+    const project=(r:ListRow):DesktopSaleListRow=>({id:r.id,afterSaleId:r.after_sale_id,internalOrderId:r.internal_order_id,sourceCompany:r.source_company,
       storeId:r.store_id,storeName:r.storeName??'',ownerId:r.owner_id,ownerName:r.ownerName??'',priority:r.priority,rowColor:r.row_color,
       snapshot:this.project(u,JSON.parse(this.crypto.decrypt(r.snapshot_enc))),
-      progress:this.crypto.decrypt(r.progress_enc),nextAt:r.next_at,version:r.version,updatedAt:r.updated_at}))};
+      progress:this.crypto.decrypt(r.progress_enc),nextAt:r.next_at?.toISOString()??null,version:r.version,updatedAt:r.updated_at.toISOString()});
+    const start=(page-1)*AFTER_SALES_PAGE_SIZE;
+    if(filters.length){
+      const conditions=filters.map(({column,value})=>({column,value:value.trim().toLowerCase()})).filter(f=>f.value);
+      // Source text is encrypted. Match only permission-projected values and keep just the requested page.
+      return this.ds.transaction('REPEATABLE READ',async em=>{
+        const batchSize=200,rows:DesktopSaleListRow[]=[];
+        let total=0;
+        for(let offset=0;;offset+=batchSize){
+          const batch:ListRow[]=await em.query(query,[...args,batchSize,offset]);
+          for(const r of batch){
+            const row=project(r);
+            if(!conditions.every(f=>afterSalesCell(row,f.column).toLowerCase().includes(f.value)))continue;
+            if(total>=start&&rows.length<AFTER_SALES_PAGE_SIZE)rows.push(row);
+            total++;
+          }
+          if(batch.length<batchSize)break;
+        }
+        return {total,rows};
+      });
+    }
+    const rows:ListRow[]=await this.ds.query(query,[...args,AFTER_SALES_PAGE_SIZE,start]);
+    const [{total}]=await this.ds.query(`SELECT COUNT(*) AS total FROM desktop_after_sales c WHERE ${where}`,args);
+    return {total:Number(total),rows:rows.map(project)};
   }
   private async row(em:EntityManager,u:AuthUser,id:number,lock=false):Promise<Row>{
     const [r]=await em.query(`SELECT * FROM desktop_after_sales WHERE company_id=? AND id=? ${lock?'FOR UPDATE':''}`,[u.companyId,id]);
@@ -92,6 +115,15 @@ export class DesktopAfterSalesService {
     if(storeId){const [store]=await this.ds.query(`SELECT id FROM resource_records WHERE company_id=? AND id=? AND type='stores' AND archived_at IS NULL AND status<>'cancelled'`,[u.companyId,storeId]);if(!store)throw new BadRequestException('请选择本公司的有效店铺');}
     const id=await this.ds.transaction(em=>this.ingestIn(em,u,storeId??null,snapshot));return this.detail(u,id);
   }
+  async refreshSource(u:AuthUser,id:number,snapshot:DesktopSaleSnapshot){
+    await this.ds.transaction(async em=>{
+      const row=await this.row(em,u,id);
+      if(snapshot.afterSaleId!==row.after_sale_id||snapshot.internalOrderId!==row.internal_order_id||snapshot.sourceCompany.trim()!==row.source_company)
+        throw new BadRequestException('聚水潭查询结果与当前售后不一致');
+      await this.ingestIn(em,u,null,snapshot);
+    });
+    return this.detail(u,id);
+  }
   /** Used inside the latest-collection lease transaction as well as local history reads. */
   async ingestIn(em:EntityManager,u:AuthUser,storeId:number|null,input:DesktopSaleSnapshot){
       const snapshot=this.sanitize(input);
@@ -100,6 +132,10 @@ export class DesktopAfterSalesService {
       const [r]:Row[]=await em.query(`SELECT * FROM desktop_after_sales WHERE company_id=? AND source_company=? AND after_sale_id=? FOR UPDATE`,[u.companyId,snapshot.sourceCompany,snapshot.afterSaleId]);
       if((r.store_id&&storeId&&r.store_id!==storeId) || r.internal_order_id!==snapshot.internalOrderId)throw new ConflictException('此售后已关联另一店铺或订单，请核对后再读取');
       const prior:DesktopSaleSnapshot=JSON.parse(this.crypto.decrypt(r.snapshot_enc));
+      if(Date.parse(snapshot.capturedAt)<Date.parse(prior.capturedAt)){
+        if(storeId&&!r.store_id)await em.query('UPDATE desktop_after_sales SET store_id=? WHERE company_id=? AND id=?',[storeId,u.companyId,r.id]);
+        return r.id;
+      }
       // Missing sections in a newly opened frame must not erase previously captured detail.
       const merged={...snapshot,fields:{...prior.fields,...snapshot.fields}};
       const changes=sourceChanges(prior,merged);

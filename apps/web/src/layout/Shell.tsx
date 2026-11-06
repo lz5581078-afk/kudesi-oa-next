@@ -168,7 +168,7 @@ export function Shell() {
           onClose={() => setPaletteOpen(false)}
           onPick={(path) => {
             setPaletteOpen(false);
-            if (path === DESKTOP_AFTER_SALES_ROUTES.workspace) {
+            if (path === DESKTOP_AFTER_SALES_ROUTES.workspace && window.oaDesktop?.surface === 'main' && window.oaDesktop.openAfterSales) {
               void launchAfterSalesTool().catch(() => window.alert('实时售后处理窗口未能打开，请重试。'));
             } else navigate(path);
           }}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { WorkspaceLink } from './WorkspaceLink';
 import { DESKTOP_AFTER_SALES_ROUTES, groupPages, searchNav, isNavPathCurrent, type VisibleSection } from '@kudesi/shared';
-import { AFTER_SALES_INSTALLER_URL } from '../pages/service/afterSalesWindow';
+import { AFTER_SALES_DESKTOP_URL } from '../pages/service/afterSalesWindow';
 import { SearchIcon } from './NavIcons';
 
 /**
@@ -79,7 +79,7 @@ export function ModulePanel(props: {
                           <span className="mp-link-label">{p.label}</span>
                           {p.description && <small className="mp-link-desc">{p.description}</small>}
                         </WorkspaceLink>
-                        {p.path === DESKTOP_AFTER_SALES_ROUTES.workspace && <a className="mp-link" href={AFTER_SALES_INSTALLER_URL} target="_blank" rel="noopener">下载 Windows 售后工具</a>}
+                        {p.path === DESKTOP_AFTER_SALES_ROUTES.workspace && <a className="mp-link" href={AFTER_SALES_DESKTOP_URL} target="_blank" rel="noopener">下载 Windows OA 客户端（免安装）</a>}
                       </li>
                     ))}
                   </ul>

@@ -63,13 +63,20 @@ it('实时售后从功能菜单打开独立窗口并保留 OA 当前页面', asy
     await waitFor(() => expect(screen.getByLabelText('当前位置').textContent).toContain('会计工作台'));
     fireEvent.click(within(screen.getByLabelText('一级导航')).getByRole('button', { name: '功能' }));
     const link = within(screen.getByRole('region', { name: '售后处理' })).getByRole('link', { name: '实时售后处理' });
-    expect(link.getAttribute('href')).toBe('kudesi-oa://after-sales');
-    const download = screen.getByRole('link', { name: '下载 Windows 售后工具' });
-    expect(download.getAttribute('href')).toContain('/releases/download/oa-desktop-v0.2.2/KudesiOA-Setup-0.2.2-x64.exe');
+    expect(link.getAttribute('href')).toBe('/after-sales/workspace');
+    const download = screen.getByRole('link', { name: '下载 Windows OA 客户端（免安装）' });
+    expect(download.getAttribute('href')).toContain('/releases/download/oa-desktop-v0.2.3/KudesiOA-Portable-0.2.3-x64.zip');
     fireEvent.click(link);
     expect(openAfterSales).toHaveBeenCalledOnce();
     expect(screen.getByLabelText('当前位置').textContent).toContain('会计工作台');
   } finally {
     vi.unstubAllGlobals();
   }
+});
+it('浏览器的实时售后入口直接进入 OA 工作台', async () => {
+  mount();
+  await waitFor(() => expect(screen.getByLabelText('当前位置').textContent).toContain('会计工作台'));
+  fireEvent.click(within(screen.getByLabelText('一级导航')).getByRole('button', { name: '功能' }));
+  fireEvent.click(within(screen.getByRole('region', { name: '售后处理' })).getByRole('link', { name: '实时售后处理' }));
+  await waitFor(() => expect(screen.getByLabelText('当前位置').textContent).toContain('实时售后处理'));
 });
