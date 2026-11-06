@@ -1,4 +1,5 @@
 import {createHash} from 'crypto';
+import { assertArchiveBundleIdentity } from './outbox-handlers';
 import { assertJstNormalPricePrecision } from './jst-price-precision';
 import { Injectable } from '@nestjs/common';
 import { ExternalConfigService } from '../integrations/external-config.service';
@@ -86,6 +87,10 @@ export class CompanyJstSender implements OutboxSender {
     let item: JsonRow;
     if (job.kind.endsWith('_disable')) {
       if (!existing) return;
+      if (job.kind==='bundle_disable') {
+        if (['-1','禁用'].includes(String(existing.enabled))) return;
+        assertArchiveBundleIdentity(p.archiveSource,existing);
+      }
       item = bundle ? { ...existing, sku_id: sku, enabled: '禁用' } : { sku_id: sku, i_id: existing.i_id, name: existing.name, enabled: -1 };
     } else if (job.kind === 'bundle_price_update') {
       if (!existing || !Array.isArray(existing.childList)) throw new Error('无法读取原组合组成，不能只更新基本售价');

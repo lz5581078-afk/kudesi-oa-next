@@ -52,7 +52,7 @@ suite('旧站当前SKU配置与退休在办快照分离（MySQL）',()=>{
     expect((await ds.manager.findOneByOrFail(FlowDefinition,{id:f.old.id})).steps).toEqual(f.oldSteps);
     expect(active.steps[1]).toMatchObject({key:'warehouse',assignee:{source:'department',id:f.dep.id},dueMinutes:60,remind:{beforeMinutes:[20,10],overdueEveryMinutes:5}});
     expect(active.steps[2]).toMatchObject({key:'review',assignee:{source:'position',id:f.position.id},dueMinutes:60});
-    expect(active.steps[2]).not.toHaveProperty('returnToKey');
+    expect(active.steps[2]).toHaveProperty('returnToKey','warehouse');
     const flow=new FlowService(ds,svc.resources,new FinanceDocumentsService(ds));
     expect((await flow.resolveRecipients(ds.manager,f.c.id,active.steps[1] as StepDef,f.actor.id)).sort()).toEqual([f.wh1.id,f.wh2.id].sort());
     expect(await flow.resolveRecipients(ds.manager,f.c.id,active.steps[2] as StepDef,f.actor.id)).toEqual([f.fin.id]);

@@ -9,7 +9,7 @@ import {resolveSkuBrandId} from './sku-brand';
 import { writeNotification } from '../outbox/write-notification';
 import { BadRequestException } from '@nestjs/common';
 import { EntityManager, In } from 'typeorm';
-import { createChecker, SPECIAL_PERMISSIONS, normalizeSpecs, normalizeWarehouse, type SkuSpec, type WarehouseLine, type WarehouseSpec } from '@kudesi/shared';
+import { createChecker, SPECIAL_PERMISSIONS, normalizeSpecs, normalizeWarehouse, type SkuSpec, type StepDef, type WarehouseLine, type WarehouseSpec } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { FlowRun, FlowStep, Notification, ResourceRecord,OutboxJob } from '../entities';
 import { sigOf } from '../resources/base-code-support';
@@ -200,6 +200,10 @@ export async function reviewSignature(em: EntityManager, user: AuthUser, bundles
   return sigOf(...parts);
 }
 
+function financeSteps(run: FlowRun) {
+  return (run.stepsSnapshot as StepDef[]).filter(step => step.type === 'finance');
+}
+
 const notify = (em: EntityManager, companyId: number, userId: number, title: string, body: string, link: string) =>
   writeNotification(em, { companyId, userId, kind: 'result', title: title.slice(0, 200), body: body.slice(0, 500), link });
 
@@ -262,7 +266,18 @@ export const skuBatchApply: FlowAdapter = {
     const syncIntents=ids.map(bundleId=>{const job=jobs.find(item=>item.resourceId===bundleId);return {bundleId,state:job?(job.payloadJson.blockedIntent===true?'blocked_intent':job.status):'unrecorded'};});
     return {inspection:publicSkuInspection(run.payload._review,user),...(ids.length?{syncIntents}:{})};
   },
-  async onReturn({em,run}){run.payload._skuCodeReservations=[];delete run.payload._review;delete run.payload._reviewSig;await em.save(FlowRun,run);},
+  returnTarget({run,stepKey},steps){
+    const current=steps.find(step=>step.key===stepKey);
+    if(financeSteps(run).length>1&&current?.type==='finance')return current.returnToKey??'warehouse';
+  },
+  async onReturn({em,run}){
+    run.payload._skuCodeReservations=[];
+    if (!financeSteps(run).some(step=>step.key===run.currentStepKey)) {
+      delete run.payload._review;
+      delete run.payload._reviewSig;
+    }
+    await em.save(FlowRun,run);
+  },
   async onFinish({em,run},status){if(run.payload._applicationDraftOrigin===true&&status!=='completed'){delete run.payload._review;delete run.payload._reviewSig;await em.save(FlowRun,run);}},
   stepFields(run,key,fields){return run.payload._applicationDraftOrigin===true&&key==='warehouse'?fields.map(field=>field.key==='note'?{...field,maxLength:1000}:field):fields;},
   stepDraftEnabled({run,stepKey}){return stepKey==='warehouse'&&supportsSkuWarehouseDraft(run);},
@@ -308,16 +323,21 @@ export const skuBatchApply: FlowAdapter = {
       payload._skuCodeReservations=reservationsOf(checked.plan);
       if(run.payload._applicationDraftOrigin===true)payload._review=await captureSkuInspection(em,user.companyId,'warehouse',checked.plan);
     }
-    if (stepKey === 'review') {
+    const finance=financeSteps(run);
+    if (finance.some(step=>step.key===stepKey)) {
+      const final=finance.at(-1)?.key===stepKey;
       const can = createChecker(user.permissions);
       // 生成并验证组合编码相当于改「商品组合编码」资料，办理人自己必须有这个权限
-      if (!can('resource.finance-bundles.create') || !can('resource.finance-bundles.edit')) throw new BadRequestException('财务审核会生成并验证商品组合编码，你没有「商品组合编码」的新增和修改权限，请联系管理员');
+      if (final && (!can('resource.finance-bundles.create') || !can('resource.finance-bundles.edit'))) throw new BadRequestException('财务审核会生成并验证商品组合编码，你没有「商品组合编码」的新增和修改权限，请联系管理员');
       if (!can('product.cost.view')) throw new BadRequestException('财务审核需有成本查看权限，才能核对成本');
       if (form.confirmed !== true) throw new BadRequestException('请先勾选“我已核对规格、成本和编码”');
-      if ((payload._applicationDraftOrigin===true||form.syncToJst === true) && !can(SPECIAL_PERMISSIONS.financeBundleSync)) throw new BadRequestException(payload._applicationDraftOrigin===true?'审核会登记聚水潭同步任务，你没有「组合装同步维护」权限':'你没有「组合装同步维护」的权限，不能勾选“加入聚水潭同步队列”');
+      if (final && (payload._applicationDraftOrigin===true||form.syncToJst === true) && !can(SPECIAL_PERMISSIONS.financeBundleSync)) throw new BadRequestException(payload._applicationDraftOrigin===true?'审核会登记聚水潭同步任务，你没有「组合装同步维护」权限':'你没有「组合装同步维护」的权限，不能勾选“加入聚水潭同步队列”');
       const wh = payload._warehouse as WarehouseSpec[] | undefined;
       if (!wh || !payload._reviewSig) throw new BadRequestException('仓库还没有提交配置，不能审核');
-      if(run.payload._applicationDraftOrigin===true){const checked=await checkApplication(em,user,bundles,{...payload},{strict:false,selfRunId:run.id,warehouse:wh,requireBrand:true});await confirmSkuDuplicates(em,user,run,payload,wh,checked.plan,confirmation);}
+      const native=payload._applicationDraftOrigin===true;
+      const checked=await checkApplication(em,user,bundles,{...payload},{strict:false,selfRunId:run.id,warehouse:wh,requireBrand:native});
+      if(native)await confirmSkuDuplicates(em,user,run,payload,wh,checked.plan,confirmation);
+      payload._skuCodeReservations=reservationsOf(checked.plan);
       const now = await reviewSignature(em, user, bundles, payload, wh, run.id);
       if (now !== payload._reviewSig) throw new BadRequestException('仓库提交之后，商品、成本或编码发生了变化，请退回仓库重新确认');
     }
@@ -333,7 +353,7 @@ export const skuBatchApply: FlowAdapter = {
       payload._reviewSig = await reviewSignature(em, user, bundles, payload, wh, run.id);
       return;
     }
-    if (stepKey !== 'review') return;
+    if (financeSteps(run).at(-1)?.key !== stepKey) return;
     const specs = normalizeSpecs(payload.specs,{quantityScale:payload._applicationDraftOrigin===true?6:0}).specs;
     const wh = payload._warehouse as WarehouseSpec[];
     const platformIds = platformIdsOf(payload);
@@ -342,16 +362,23 @@ export const skuBatchApply: FlowAdapter = {
     const created: CreatedBundle[] = [];
     for (const [i, spec] of specs.entries()) {
       const brandId=run.payload._applicationDraftOrigin===true?await resolveSkuBrandId(em,user.companyId,spec,payload,true):effectiveSkuBrandId(spec,payload);
-      const generate=()=>bundles.generate(actor,specLines(spec,wh[i]),platformIds.map(platformId=>({platformId,scenarioId,brandId:brandId??undefined,bundleCategoryId:num(payload.bundleCategoryId)??undefined})),em);
+      const lines=specLines(spec,wh[i]);
+      const expectedCost=(await costCompositionFacts(em,user.companyId,{},lines as unknown as Record<string,unknown>[])).preShipCostCents;
+      const generate=()=>bundles.generate(actor,lines,platformIds.map(platformId=>({platformId,scenarioId,brandId:brandId??undefined,bundleCategoryId:num(payload.bundleCategoryId)??undefined})),em);
       const res=await generate();
       for (const c of res.created) {
         const rec = await em.findOne(ResourceRecord, { where: { id: c.id, companyId: user.companyId, type: 'finance-bundles' } });
-        if (!rec) continue;
+        if (!rec || rec.archivedAt || !['pending','reverify','verified'].includes(rec.status)) throw new BadRequestException('生成或复用的组合不可验证，请退回重新核对');
         if (!c.reused) await resources.patchData(em, actor, 'finance-bundles', c.id, { sourceRunId: run.id }, `SKU 批量申请 #${run.id} 生成`);
         // 财务审核通过就是验证：新建的和“待验证/需重新验证”的一并验证；已验证的沿用
         if (rec.status === 'pending' || rec.status === 'reverify') {
           await resources.setStatusChecked(em, actor, 'finance-bundles', c.id, 'verified', `SKU 批量申请 #${run.id} 财务审核通过`);
           await registerCostSnapshots(em, user.companyId, user.id, [c.id], `SKU 批量申请 #${run.id} 财务审核通过`, 'workflow_publish');
+        }
+        const report=await bundles.report(actor,c.id,em);
+        if(report.issues.length)throw new BadRequestException(`组合「${c.code}」无法验证：${report.issues.join('；')}`);
+        if(expectedCost==null||report.totalCost==null||Math.abs(expectedCost-report.totalCost)>0.0001) {
+          throw new BadRequestException(`组合「${c.code}」的最终成本与审核成本不一致，请退回仓库重新确认`);
         }
         created.push({ spec: spec.name, bundleId: c.id, code: c.code, reused: c.reused });
       }
@@ -360,23 +387,12 @@ export const skuBatchApply: FlowAdapter = {
     if(payload._applicationDraftOrigin===true){
       if(!outbox)throw new BadRequestException('同步队列服务没有准备好');
       await outbox.enqueue(user,'finance-bundles',[...new Set(created.map(item=>item.bundleId))],{em,approvalIntent:{runId:run.id}});
-      payload._syncRequested=false;
-    }else payload._syncRequested = form.syncToJst === true;
+    } else if (form.syncToJst === true) {
+      if (!outbox) throw new BadRequestException('同步队列服务没有准备好');
+      await outbox.enqueue(user,'finance-bundles',[...new Set(created.map(item=>item.bundleId))],{em});
+    }
+    delete payload._syncRequested;
     await notify(em, run.companyId, run.requesterId, `SKU 申请已通过：${str(payload.batchName)}`,
       `共 ${specs.length} 个规格，生成 ${created.filter((c) => !c.reused).length} 个组合编码，沿用已有 ${created.filter((c) => c.reused).length} 个。到“财务 → 商品组合编码”查看。`, `/workbench/started?run=${run.id}`);
   },
-  /** 事务提交后再加入聚水潭同步队列（队列用独立连接，必须等组合真正提交）；失败不影响已通过的申请，只提醒处理 */
-  async afterCommit({ user, runId, companyId, requesterId, payload, outbox, db }) {
-    if (payload._syncRequested !== true || !outbox) return;
-    const ids = ((payload._created as CreatedBundle[] | undefined) ?? []).map((c) => c.bundleId);
-    if (!ids.length) return;
-    try {
-      const r = await outbox.enqueue(asEngine(user), 'finance-bundles', ids);
-      await notify(db, companyId, user.id, `SKU 申请 #${runId}：已加入聚水潭同步队列`, `新入队 ${r.queued} 个，跳过 ${r.skipped} 个。总开关打开并接入聚水潭后才会真正发送。`, `/workbench/started?run=${runId}`);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : '未知错误';
-      for (const uid of new Set([user.id, requesterId])) await notify(db, companyId, uid, `SKU 申请 #${runId}：加入聚水潭同步队列失败`, `${msg}。申请本身已通过，请到“商品组合编码”页手工同步。`, `/workbench/started?run=${runId}`);
-    }
-  },
 };
-

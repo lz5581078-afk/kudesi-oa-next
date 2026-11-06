@@ -10,14 +10,14 @@ interface Context {
 }
 const json = (v: any, fallback: any) => v == null ? fallback : typeof v === 'string' ? JSON.parse(v) : v;
 const id = (v: unknown) => v == null ? '' : String(v);
-const processors = ['bundle_sales', 'bundle_fulfillment', 'bundle_review', 'end'];
-const keys = ['apply', 'warehouse', 'review', 'end'];
-const types = ['submit', 'execute', 'finance', 'end'] as const;
-
 /** Map both frozen snapshots and the current source configuration with the
  * same node/type/path rules. This does not start or advance a business run. */
 export function mapLegacySkuSteps(nodes:Row[],lookup:Context['lookup']):StepDef[]{
-  if (!Array.isArray(nodes) || nodes.length !== 4) throw new Error('SKU原节点快照不受支持');
+  if (!Array.isArray(nodes) || nodes.length < 4) throw new Error('SKU原节点快照不受支持');
+  const reviewCount = nodes.length - 3;
+  const processors = ['bundle_sales', 'bundle_fulfillment', ...Array<string>(reviewCount).fill('bundle_review'), 'end'];
+  const keys = ['apply', 'warehouse', ...Array.from({length:reviewCount}, (_,i) => i===0 ? 'review' : `review_${i+1}`), 'end'];
+  const types = ['submit', 'execute', ...Array<'finance'>(reviewCount).fill('finance'), 'end'] as const;
   const need = (type: string, value: unknown): number => {
     const target = lookup(type, value);
     if (!Number.isSafeInteger(target) || !target || target < 1) throw new Error(`SKU续办缺少映射：${type}`);
@@ -28,14 +28,15 @@ export function mapLegacySkuSteps(nodes:Row[],lookup:Context['lookup']):StepDef[
     const schema = json(node.form_schema, {});
     if ((schema.nodeTemplate || (node.node_type === 'end' ? 'end' : '')) !== processors[i] || node.node_type !== types[i]) throw new Error('SKU原节点业务类型或顺序不同，不能套用新流程');
     const next = json(node.next_node_keys, []);
-    const expected = i === 3 ? [] : [nodes[i + 1].node_key];
+    const isEnd = i === nodes.length - 1;
+    const expected = isEnd ? [] : [nodes[i + 1].node_key];
     if (!Array.isArray(next) || JSON.stringify(next) !== JSON.stringify(expected) || node.exception_to_node_key || json(node.join_required_node_keys, []).length) throw new Error('SKU存在未兼容的分支或汇合');
-    if (node.reject_to_node_key && node.reject_to_node_key !== nodes[i - 1]?.node_key) throw new Error('SKU原退回路线不同');
+    if (node.reject_to_node_key && !nodes.slice(0,i).some(upstream=>upstream.node_key===node.reject_to_node_key)) throw new Error('SKU原退回路线不同');
     const minutes = node.due_hours == null ? null : Number(node.due_hours);
     if (minutes != null && (!Number.isSafeInteger(minutes) || minutes < 0)) throw new Error('SKU原时限格式不合法');
     let assignee: StepDef['assignee'];
     if (i === 0) assignee = { source: 'requester' }; // legacy bundle_sales always uses batch.requester_id
-    else if (i !== 3) {
+    else if (!isEnd) {
       const source = node.handler_source_type;
       if (!['employee', 'department', 'position'].includes(source)) throw new Error('SKU办理人来源尚未兼容');
       assignee = { source, id: need(source === 'employee' ? 'user' : source, node.handler_source_id) };

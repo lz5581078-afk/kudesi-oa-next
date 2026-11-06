@@ -15,7 +15,8 @@ export async function restoreWorkflowAccess(em: EntityManager, opts: { companyId
   }
   const financeIds = new Set<number>(opts.currentFinanceIds??[]);
   for (const run of await em.find(FlowRun, { where: { companyId: opts.companyId, templateKey: 'sku-batch-apply', status: 'running' } })) {
-    const review = (run.stepsSnapshot as Array<{ key: string; assignee?: { source: string; id?: number } }>).find(s => s.key === 'review')?.assignee;
+    const steps = run.stepsSnapshot as Array<{ key: string; type?: string; assignee?: { source: string; id?: number } }>;
+    const review = (steps.filter(step=>step.type==='finance').at(-1) ?? steps.find(step=>step.key==='review'))?.assignee;
     for (const user of members) if ((review?.source === 'employee' && review.id === user.id) || (review?.source === 'department' && review.id === user.departmentId) || (review?.source === 'position' && (review.id === user.positionId || user.extraPositionIds?.includes(review.id!)))) financeIds.add(user.id);
   }
   const seen = new Set<number>();

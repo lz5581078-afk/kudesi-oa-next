@@ -186,6 +186,12 @@ d('组合装同步维护（真实数据库 + 假发送器）', () => {
     ids.b2 = await makeBundle(3, 'JD');
     await upload(ids.b2);
     await expect(tools.archive(nobody, ids.b2, '不用了', true)).rejects.toThrow(/组合装同步维护/);
+    const broken = jest.spyOn(outbox,'recordArchiveJob').mockRejectedValueOnce(new Error('模拟归档跟踪写入失败'));
+    try {
+      await expect(tools.archive(helper, ids.b2, '不用了', true)).rejects.toThrow('模拟归档跟踪写入失败');
+    } finally { broken.mockRestore(); }
+    expect((await svc.get(boss,'finance-bundles',ids.b2)).status).toBe('verified');
+    expect(await ds.manager.count(OutboxJob,{where:{companyId:boss.companyId,resourceId:ids.b2,kind:'bundle_disable'}})).toBe(0);
     await tools.archive(helper, ids.b2, '不用了', true);
     let jobs = (await outbox.archiveJobs(helper)).rows as Array<{ id: number; bundleId: number; status: string }>;
     expect(jobs.find((j) => j.bundleId === ids.b2)?.status).toBe('pending');
@@ -219,7 +225,6 @@ d('组合装同步维护（真实数据库 + 假发送器）', () => {
     await upload(ids.b3);
     const code = String((await svc.get(boss, 'finance-bundles', ids.b3)).data.code);
     await tools.archive(boss, ids.b3, '停用', true);
-    fake.readMode = 'mismatch'; // 回读：禁用状态读不到（仍然读到旧内容）
     const original = fake.send.bind(fake);
     fake.send = async (job) => { if (job.kind === 'bundle_disable') { fake.sent.push(job); return; } return original(job); }; // 假装发出去了但没生效
     await outbox.processCompany(boss.companyId);
@@ -227,6 +232,8 @@ d('组合装同步维护（真实数据库 + 假发送器）', () => {
     fake.readMode = 'ok';
     let row = ((await outbox.archiveJobs(boss)).rows as Array<{ id: number; bundleId: number; status: string; message: string }>).find((j) => j.bundleId === ids.b3)!;
     expect(row.status).toBe('failed');
+    const disable = await ds.manager.findOneByOrFail(OutboxJob,{companyId:boss.companyId,kind:'bundle_disable',resourceId:ids.b3});
+    await expect(outbox.retry(boss,disable.id)).rejects.toThrow(/停用结果待确认/);
     const n = fake.sent.length;
     let r = await outbox.recheckArchiveJob(boss, row.id);
     expect(r.status).toBe('failed'); // 聚水潭上仍然启用

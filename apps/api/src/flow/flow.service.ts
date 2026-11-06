@@ -69,7 +69,16 @@ export class FlowService {
   private tpl(em: EntityManager, companyId: number, key: string, definitionId?: number | null) { return loadTemplate(em, companyId, key, definitionId); }
   private async runTpl(em: EntityManager, run: FlowRun) {
     const template=await loadTemplate(em,run.companyId,run.templateKey,run.definitionId),adapt=adapterFor(template);
-    return adapt.stepFields?{...template,stepFields:Object.fromEntries(Object.entries(template.stepFields).map(([key,fields])=>[key,adapt.stepFields!(run,key,fields)]))}:template;
+    if (!adapt.stepFields) return template;
+    const fields = { ...template.stepFields };
+    if (run.templateKey === 'sku-batch-apply') {
+      const steps = run.stepsSnapshot as StepDef[];
+      const finance = steps.filter(step => step.type === 'finance');
+      for (const step of finance) fields[step.key] = step.key === finance.at(-1)?.key
+        ? template.stepFields.review
+        : template.stepFields.review.filter(field => field.key !== 'syncToJst');
+    }
+    return {...template,stepFields:Object.fromEntries(Object.entries(fields).map(([key,defs])=>[key,adapt.stepFields!(run,key,defs)]))};
   }
   /** Adapter opt-in uses the existing transaction; immutable run policy is read outside its RR snapshot. */
   private async runCommandTransaction<T>(user:AuthUser,id:number,work:(em:EntityManager)=>Promise<T>):Promise<T>{

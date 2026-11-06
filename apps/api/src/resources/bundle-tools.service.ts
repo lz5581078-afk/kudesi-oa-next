@@ -469,28 +469,34 @@ export class BundleToolsService {
 
   /** 失效归档：组合不再使用。上传过聚水潭的，同时把“停用旧编码”加入出站队列（需要确认，且只有管理员能做）。 */
   /** 还在队列里（待发送/发送中）的上传任务：这时改构成、归档都会和队列里的内容打架 */
-  private async pendingJobs(user: AuthUser, id: number) {
-    const [{ n }] = await this.ds.query("SELECT COUNT(*) AS n FROM outbox_jobs WHERE company_id = ? AND resource_type = ? AND resource_id = ? AND status IN ('pending', 'sending')", [user.companyId, TYPE, id]);
+  private async pendingJobs(user: AuthUser, id: number, em = this.ds.manager) {
+    const [{ n }] = await em.query("SELECT COUNT(*) AS n FROM outbox_jobs WHERE company_id = ? AND resource_type = ? AND resource_id = ? AND status IN ('pending', 'sending')", [user.companyId, TYPE, id]);
     return Number(n);
   }
 
   async archive(user: AuthUser, id: number, reason: string, disableConfirmed: boolean) {
     if (reason.trim().length < 2) throw new BadRequestException('必须写明归档原因');
-    const b = await this.load(this.ds.manager, user, id);
-    if (b.status === 'archived') throw new BadRequestException('已经归档了');
-    if (await this.pendingJobs(user, id)) throw new ConflictException('这个组合还有没发送完的聚水潭同步任务，请先等它发完或在同步队列里取消');
-    if (num(b.data.pendingRevisionId)) throw new ConflictException('这个组合有待发布的构成修订，请先发布或取消修订');
-    const synced = !!str(b.data.jstUploadedCode);
-    if (synced && !disableConfirmed) throw new BadRequestException('这个组合上传过聚水潭，需要确认“同时在聚水潭停用它”');
-    if (synced && !this.outbox.canBundles(user)) throw new ForbiddenException('上传过聚水潭的组合，只有公司管理员或有「组合装同步维护」权限的人能归档');
-    const app = await unfinishedApplications(this.ds.manager, user.companyId, b, await this.lineRecords(this.ds.manager, user, id));
-    if (app) throw new ConflictException(`有还没办完的 SKU 批量申请（#${app.runId}）用到了这个组合，请等申请办完或撤销后再归档`);
-    let queued = false;
-    let disable: Awaited<ReturnType<OutboxService['enqueueDisable']>> | null = null;
-    if (synced) { disable = await this.outbox.enqueueDisable(user, TYPE, id, reason.trim()); queued = disable.queued; }
-    await this.resources.changeStatus(user, TYPE, id, 'archived', reason.trim());
-    if (synced && disable) await this.outbox.recordArchiveJob(user, { id, code: str(b.data.code), name: str(b.data.name) }, reason.trim(), { jobId: disable.jobId, targetKey: disable.targetKey });
-    return { ok: true, disableQueued: queued };
+    return this.ds.transaction(async em => {
+      await em.findOneOrFail(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}});
+      const b = await em.findOne(ResourceRecord,{where:{id,companyId:user.companyId,type:TYPE},lock:{mode:'pessimistic_write'}});
+      if (!b) throw new NotFoundException('组合编码不存在');
+      if (b.status === 'archived') throw new BadRequestException('已经归档了');
+      if (await this.pendingJobs(user, id, em)) throw new ConflictException('这个组合还有没发送完的聚水潭同步任务，请先等它发完或在同步队列里取消');
+      if (b.data.jstPriceStatus==='confirming' || (b.data.jstStatus==='failed' && str(b.data.jstMessage).startsWith('结果未知：'))) {
+        throw new ConflictException('这个组合还有待确认的聚水潭写入结果，请先核对后再归档');
+      }
+      if (num(b.data.pendingRevisionId)) throw new ConflictException('这个组合有待发布的构成修订，请先发布或取消修订');
+      const synced = !!str(b.data.jstUploadedCode);
+      if (synced && !disableConfirmed) throw new BadRequestException('这个组合上传过聚水潭，需要确认“同时在聚水潭停用它”');
+      if (synced && !this.outbox.canBundles(user)) throw new ForbiddenException('上传过聚水潭的组合，只有公司管理员或有「组合装同步维护」权限的人能归档');
+      const app = await unfinishedApplications(em, user.companyId, b, await this.lineRecords(em, user, id));
+      if (app) throw new ConflictException(`有还没办完的 SKU 批量申请（#${app.runId}）用到了这个组合，请等申请办完或撤销后再归档`);
+      const disable = synced ? await this.outbox.enqueueDisable(user, TYPE, id, reason.trim(), em) : null;
+      if (disable && !disable.jobId) throw new ConflictException('聚水潭停用任务无法关联，请重新核对后再归档');
+      await this.resources.changeStatusRecord(em, user, TYPE, id, 'archived', reason.trim());
+      if (disable) await this.outbox.recordArchiveJob(user, { id, code: str(b.data.jstUploadedCode), name: str(b.data.name) }, reason.trim(), disable, em);
+      return { ok: true, disableQueued: disable?.queued ?? false };
+    });
   }
 
   // ---------- 改了命名规则后：按新规则批量重生成编码（要预览、要写原因、要确认，不会自动改） ----------
