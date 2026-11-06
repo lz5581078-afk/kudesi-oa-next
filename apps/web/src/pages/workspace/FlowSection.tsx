@@ -10,7 +10,7 @@ const TABS: Array<[Tab, string]> = [['todo', '待我处理'], ['mine', '我的�
 const RUN_STATUS: Record<string, string> = { running: '进行中', completed: '已完成', cancelled: '已撤销', rejected: '已驳回' };
 
 /** 流程与待办：待我处理 / 我的申请 / 已办结，带搜索和分页；点一行去对应页面办理。 */
-export function FlowSection({ refreshKey, onCounts }: { refreshKey: number; onCounts: (c: { todo: number | null; overdue: number | null; mine: number | null }) => void }) {
+export function FlowSection({ refreshKey, onCounts, isCompanyAdmin = false }: { refreshKey: number; isCompanyAdmin?: boolean; onCounts: (c: { todo: number | null; overdue: number | null; mine: number | null }) => void }) {
   const [tab, setTab] = useState<Tab>('todo');
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -69,7 +69,7 @@ export function FlowSection({ refreshKey, onCounts }: { refreshKey: number; onCo
       {empty && (
         <div className="ws-empty muted">
           <strong>{keyword ? `没有匹配“${keyword}”的记录` : tab === 'todo' ? '暂无待我处理的事项，歇一会儿' : tab === 'mine' ? '你还没有发起过申请' : '还没有办结的记录'}</strong>
-          {keyword ? <button type="button" className="secondary-button" onClick={() => setSearch('')}>清除搜索</button> : tab === 'mine' && <Link to="/flow/apply">去申请中心发起</Link>}
+          {keyword ? <button type="button" className="secondary-button" onClick={() => setSearch('')}>清除搜索</button> : tab === 'mine' && <Link to={isCompanyAdmin ? "/flow/apply" : "/workbench/desk"}>{isCompanyAdmin ? "去申请中心发起" : "去岗位工作台发起"}</Link>}
         </div>
       )}
       {total > 8 && <Pager page={page} total={total} pageSize={8} onPage={setPage} />}

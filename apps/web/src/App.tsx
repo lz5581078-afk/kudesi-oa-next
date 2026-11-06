@@ -55,7 +55,7 @@ import { PurchaseCenterPage } from './pages/flow/PurchaseCenterPage';
 import { StaffPage } from './pages/org/StaffPage';
 import { StructurePage } from './pages/org/StructurePage';
 import { PositionProfilesPage } from './pages/org/PositionProfilesPage';
-import { ApplyPage } from './pages/flow/ApplyPage';
+import { ApplyPage, EmployeeFlowShortcut } from './pages/flow/ApplyPage';
 import { TasksPage } from './pages/flow/TasksPage';
 import { RunsPage } from './pages/flow/RunsPage';
 import { TemplatesPage } from './pages/flow/TemplatesPage';
@@ -208,13 +208,12 @@ export function App() {
             .filter((page) => page.ready && PAGE_COMPONENTS[`${section.id}.${page.id}`])
             .map((page) => {
               const Component = PAGE_COMPONENTS[`${section.id}.${page.id}`];
-              return (
-                <Route
-                  key={page.path}
-                  path={page.path}
-                  element={page.path === '/workbench/desk' || page.path === '/features/live-desk' || can(page.permission) ? <Component /> : <NoAccessPage />}
-                />
-              );
+              const allowed = page.path === '/workbench/desk' || page.path === '/features/live-desk' || can(page.permission);
+              let content = allowed ? <Component /> : <NoAccessPage />;
+              if (page.adminOnly && !user.permissions?.isCompanyAdmin) {
+                content = page.path === '/flow/apply' && allowed ? <EmployeeFlowShortcut /> : <NoAccessPage adminOnly />;
+              }
+              return <Route key={page.path} path={page.path} element={content} />;
             }),
         )}
         <Route path="*" element={<NotFoundPage />} />

@@ -1,3 +1,4 @@
+import { useAuth } from '../../auth/AuthContext';
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { BossDashboard } from '@kudesi/shared';
@@ -11,6 +12,7 @@ const clock = (iso: string) => new Date(iso).toLocaleTimeString('zh-CN', { timeZ
 
 /** 老板总控台：先看要处理的事，再看今日经营、异常、人员兜底排行、店铺利润和趋势。 */
 export function BossPage() {
+  const { user } = useAuth();
   const [d, setD] = useState<BossDashboard | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -57,7 +59,7 @@ export function BossPage() {
                 ))}{d.exceptions.rows.length > 8 && <li className="muted ws-pad">仅显示最紧急的 8 条，共 {d.exceptions.rows.length} 条</li>}</ul>}
             </section>
             <section className="card ws-section">
-              <div className="ws-head"><h2>人员兜底排行（超时多的在前）</h2><Link to="/flow/overview">流程总览</Link></div>
+              <div className="ws-head"><h2>人员兜底排行（超时多的在前）</h2>{user?.permissions?.isCompanyAdmin && <Link to="/flow/overview">流程总览</Link>}</div>
               {d.people.length === 0 ? <div className="ws-empty muted"><strong>目前没有人员有待办、超时或异常</strong></div> : (
                 <div className="table-scroll"><table className="data-table"><thead><tr><th>人员</th><th className="num">超时</th><th className="num">异常</th><th className="num">待办</th></tr></thead>
                   <tbody>{d.people.slice(0, 10).map((p) => <tr key={p.userId}><td>{p.name}{p.position && <small className="muted"> · {p.position}</small>}</td><td className={`num${p.overdue ? ' neg' : ''}`}>{p.overdue}</td><td className={`num${p.exceptions ? ' neg' : ''}`}>{p.exceptions}</td><td className="num">{p.pending}</td></tr>)}</tbody></table></div>

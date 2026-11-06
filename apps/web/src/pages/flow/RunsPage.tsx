@@ -144,7 +144,7 @@ export function RunsPage({ view,skuApplications=false,reloadToken=0,hideRefresh=
               <strong>{filtered ? '没有匹配的流程' : '没有流程'}</strong>
               <span>{filtered ? '换个条件试试。' : EMPTY_HINT[view]}</span>
               {filtered && <button type="button" className="secondary-button" onClick={clear}>清除筛选，查看全部</button>}
-              {!filtered && view === 'started' && <Link to="/flow/apply">去申请中心发起</Link>}
+              {!filtered && view === 'started' && <Link to={user?.permissions?.isCompanyAdmin ? "/flow/apply" : "/workbench/desk"}>{user?.permissions?.isCompanyAdmin ? "去申请中心发起" : "去岗位工作台发起"}</Link>}
             </td></tr>
           )}
           {list?.rows.map((r) => {
