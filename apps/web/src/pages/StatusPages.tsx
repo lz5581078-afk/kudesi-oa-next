@@ -5,11 +5,11 @@ function Back() {
   return <div className="row-actions"><button type="button" className="secondary-button" onClick={() => navigate(-1)}>返回上一页</button><Link to="/">回到首页</Link></div>;
 }
 
-export function NoAccessPage() {
+export function NoAccessPage({ adminOnly = false }: { adminOnly?: boolean } = {}) {
   return (
     <div className="empty-state">
       <h1>没有访问权限</h1>
-      <p>你的岗位没有开通这个页面。需要的话，请联系公司管理员在“员工与岗位”里为你的岗位开通。</p>
+      <p>{adminOnly ? "这个页面仅公司管理员可访问。请从岗位工作台进入已授权的业务。" : "你的岗位没有开通这个页面。需要的话，请联系公司管理员在“员工与岗位”里为你的岗位开通。"}</p>
       <Back />
     </div>
   );

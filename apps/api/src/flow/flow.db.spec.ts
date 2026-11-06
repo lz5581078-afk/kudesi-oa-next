@@ -182,8 +182,9 @@ d('流程引擎（真实数据库）', () => {
     // 不相关的人看不了详情；总览权限可以
     await expect(flow.detail(au(await mkUser(admin.companyId, `x${key().slice(0, 6)}`, '外人'), admin.companyId, '外人'), run.id)).rejects.toThrow(/权限/);
     const viewer = au(boss1.id, admin.companyId, '总览', ['flow.overview.view']);
-    await expect(flow.listRuns(boss1, { view: 'all', page: 1, pageSize: 10 })).rejects.toThrow(/权限/);
-    expect((await flow.listRuns(viewer, { view: 'all', page: 1, pageSize: 50 })).total).toBeGreaterThan(3);
+    await expect(flow.listRuns(boss1, { view: 'all', page: 1, pageSize: 10 })).rejects.toThrow(/管理员/);
+    await expect(flow.listRuns(viewer, { view: 'all', page: 1, pageSize: 50 })).rejects.toThrow(/管理员/);
+    expect((await flow.listRuns(admin, { view: 'all', page: 1, pageSize: 50 })).total).toBeGreaterThan(3);
     expect((await flow.listRuns(req, { view: 'started', page: 1, pageSize: 50 })).rows.every((r: { requesterId: number }) => r.requesterId === req.id)).toBe(true);
     expect((await flow.listRuns(stranger, { view: 'cc', page: 1, pageSize: 50 })).total).toBeGreaterThan(0);
   });

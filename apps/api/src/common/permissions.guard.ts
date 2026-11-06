@@ -1,6 +1,6 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { createChecker, getResourceDef, permissionOwner, resourcePermission, ResourceAction } from '@kudesi/shared';
+import { createChecker, getResourceDef, isAdminFlowManagementPermission, permissionOwner, resourcePermission, ResourceAction } from '@kudesi/shared';
 import { AUTHENTICATED_ONLY, AuthUser, IS_PUBLIC, PLATFORM_ONLY, REQUIRED_PERMISSIONS, RESOURCE_ACTION } from './auth.decorators';
 
 /**
@@ -28,6 +28,7 @@ export class PermissionsGuard implements CanActivate {
 
     const required = this.reflector.getAllAndOverride<string[] | undefined>(REQUIRED_PERMISSIONS, targets);
     if (required && required.length > 0) {
+      if (!user.permissions.isCompanyAdmin && required.some(isAdminFlowManagementPermission)) throw new ForbiddenException('仅公司管理员可管理流程');
       const can = createChecker(user.permissions);
       const missing = required.filter((permission) => !can(permission));
       if (missing.length > 0) throw new ForbiddenException('没有权限执行此操作');

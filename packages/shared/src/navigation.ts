@@ -31,6 +31,7 @@ export interface NavPage {
   ready: boolean;
   /** 原数据关联仍可进入的页面，保留路由与权限，仅不添加到主菜单。 */
   menuHidden?:boolean;
+  adminOnly?: boolean;
   /** 左侧菜单里的分组小标题（可选） */
   group?: string;
   /** 菜单条目下方的一行说明（可选，照旧程序二级导航） */
@@ -221,13 +222,13 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     icon: 'flow',
     label: '流程',
     pages: [
-      page('flow', 'apply', '申请中心', true),
+      { ...page('flow', 'apply', '申请中心', true), adminOnly: true },
       page('flow', 'exclusive', '专属品领取', true),
       page('flow', 'purchase', '采购申请中心', true),
-      page('flow', 'overview', '流程总览', true),
-      page('flow', 'templates', '流程配置', true),
-      page('flow', 'node-templates', '节点中心', true),
-      page('flow', 'timeouts', '超时与处罚', true),
+      { ...page('flow', 'overview', '流程总览', true), adminOnly: true },
+      { ...page('flow', 'templates', '流程配置', true), adminOnly: true },
+      { ...page('flow', 'node-templates', '节点中心', true), adminOnly: true },
+      { ...page('flow', 'timeouts', '超时与处罚', true), adminOnly: true },
     ],
   },
   {
@@ -334,6 +335,13 @@ export const SPECIAL_PERMISSIONS = {
   resourceCategoriesManage: 'resource.categories.manage',
 } as const;
 
+/** 申请能力和申请中心页面分别校验，员工工作台仍使用原有申请能力。 */
+export function isAdminFlowManagementPermission(permission: string): boolean {
+  return NAV_SECTIONS.find(section=>section.id==='flow')!.pages.some(
+    page=>page.adminOnly && page.id!=='apply' && page.permission===permission,
+  );
+}
+
 export interface VisibleSection extends NavSection {
   /** 该一级菜单下第一个可进入的页面路径，点击一级菜单时跳这里 */
   landingPath: string;
@@ -342,13 +350,20 @@ export interface VisibleSection extends NavSection {
 /** 按权限过滤出可见的一级菜单和页面；只含已完成的页面，没有可见页面的一级菜单会被去掉。 */
 export function visibleSections(
   can: (permission: string) => boolean,
-  options: { includePlanned?: boolean } = {},
+  options: { includePlanned?: boolean; isCompanyAdmin?: boolean } = {},
 ): VisibleSection[] {
   const result: VisibleSection[] = [];
+  const allowed = (page: NavPage) => !page.menuHidden
+    && (!page.adminOnly || options.isCompanyAdmin)
+    && (options.includePlanned || page.ready)
+    && can(page.permission);
   for (const section of NAV_SECTIONS) {
-    const pages = section.pages.filter(
-      (p) => !p.menuHidden && (options.includePlanned || p.ready) && can(p.permission),
-    );
+    if (section.id === 'flow' && !options.isCompanyAdmin) continue;
+    const pages = section.pages.filter(allowed);
+    if (section.id === 'workbench' && !options.isCompanyAdmin) {
+      const business = NAV_SECTIONS.find(item => item.id === 'flow')!.pages.filter(allowed);
+      pages.push(...business.map(page => ({ ...page, group: '业务申请' })));
+    }
     if (pages.length === 0) continue;
     result.push({ ...section, pages, landingPath: pages[0].path });
   }
