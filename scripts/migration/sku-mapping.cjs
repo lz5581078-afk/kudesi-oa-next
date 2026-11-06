@@ -8,7 +8,36 @@ exports.packageWeight=(value,unit)=>{
   if(factor===undefined||!Number.isFinite(Number(value))||Number(value)<0)throw Object.assign(new Error('旧包装重量或重量单位无法换算，禁止猜测'),{name:'LegacyDataError'});
   return{weightG:Math.round(Number(value)*factor*1e6)/1e6,weightUnit:['千克','公斤','kg'].includes(text)?'kg':['斤','jin'].includes(text)?'jin':'g'};
 };
-exports.namingRules = (tables, categoryKey, categoryFamilies) => {
+// The old table is keyed by the source coding dictionary, not the archive tree.
+exports.sourceNamingRuleValues = value => {
+  const r=json(value);
+  if(!Array.isArray(r.codeFields)||!r.codeFields.length||!Array.isArray(r.nameFields)||!r.nameFields.length)
+    throw Error('原命名规则缺少字段顺序');
+  const overrides=(values={})=>Object.entries(values).map(([key,value])=>`${key}=${value}`).join('\n');
+  return {
+    prefix:r.prefix??'ZH-',namePrefix:r.namePrefix??'组合-',stylePrefix:r.stylePrefix?(r.prefix??'ZH-'):'',
+    codeFields:r.codeFields.join(','),nameFields:r.nameFields.join(','),customCode:r.customCode??'',customName:r.customName??'',
+    codeOverrides:overrides(r.codeOverrides),nameOverrides:overrides(r.nameOverrides),
+  };
+};
+exports.sourceNamingRules = tables => {
+  const categories=new Map((tables.finance_product_code_dictionary||[]).filter(d=>d.dictionary_type==='product_category').map(d=>[String(d.id),d]));
+  const records=[],exclusions=[],seen=new Set();
+  for(const row of tables.finance_bundle_naming_rules||[]){
+    const id=String(row.category_id),key='code:'+id;
+    if(seen.has(id))throw Error('原来源分类命名规则重复');seen.add(id);
+    const category=categories.get(id);
+    if(category?.status!=='active'){
+      exclusions.push({type:'finance-bundle-naming-rules',id:key,reason:'旧规则的来源编码分类不存在或已停用，保留来源记录'});
+      continue;
+    }
+    records.push({type:'finance-bundle-naming-rules',id:key,status:'active',data:{
+      codeDictionaryCategoryId:{legacyRef:{type:'finance-code-dictionaries',id}},...exports.sourceNamingRuleValues(row.rule_json),
+    }});
+  }
+  return {records,exclusions};
+};
+exports.namingRules = (tables, categoryKey, categoryFamilies, preserveSourceScope = false) => {
   const dictionaries=tables.finance_product_code_dictionary||[], rules=tables.finance_bundle_naming_rules||[];
   const records=[],exclusions=[],used=new Set();
   for(const c of tables.finance_product_categories||[]){
@@ -29,7 +58,8 @@ exports.namingRules = (tables, categoryKey, categoryFamilies) => {
       }});
     }
   }
-  for(const r of rules)if(!used.has(String(r.category_id)))exclusions.push({type:'finance-bundle-naming-rules',id:String(r.category_id),reason:'没有显式的档案分类→基础编码分类关联，未猜测适用范围'});
+  if(preserveSourceScope){const source=exports.sourceNamingRules(tables);records.push(...source.records);exclusions.push(...source.exclusions);}
+  else for(const r of rules)if(!used.has(String(r.category_id)))exclusions.push({type:'finance-bundle-naming-rules',id:String(r.category_id),reason:'没有显式的档案分类→基础编码分类关联，未猜测适用范围'});
   return{records,exclusions};
 };
 /** An automatic BOM result must not be counted again as extra purchase input. */

@@ -4,15 +4,16 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { InjectDataSource } from '@nestjs/typeorm';
 import { randomBytes } from 'crypto';
 import { DataSource, EntityManager, In } from 'typeorm';
-import { FLOW_TEMPLATES, createChecker, normalizeSpecs, type SkuSpec, type WarehouseSpec } from '@kudesi/shared';
+import { FLOW_TEMPLATES, createChecker, normalizeSpecs, type SkuSpec, type StepDef, type WarehouseSpec } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { AuditLog, FlowEvent, FlowRun, FlowStep, Notification, WorkItem } from '../entities';
 import { BundleToolsService } from '../resources/bundle-tools.service';
 import { FlowService } from './flow.service';
+import { SKU_BATCH_REF } from './sku-batch-reference';
 import { SKU_TEMPLATE, reviewSignature, skuBatchApply } from './sku-apply';
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : v === undefined || v === null ? '' : String(v));
-const REF_RE = /^(B[0-9a-z]{1,19}|run-\d{1,10})$/;
+
 const SKU_FIELD_KEYS = FLOW_TEMPLATES.find((t) => t.key === SKU_TEMPLATE)!.fields.map((f) => f.key);
 
 export type BatchAction = 'pass' | 'return' | 'reject' | 'cancel' | 'resubmit';
@@ -30,7 +31,7 @@ export class SkuBatchService {
 
   /** 申请单里你能看到的流程（按 batchKey 或 run-编号） */
   private async members(em: EntityManager, user: AuthUser, ref: string): Promise<FlowRun[]> {
-    if (!REF_RE.test(ref)) throw new BadRequestException('申请单编号不对');
+    if (!SKU_BATCH_REF.test(ref)) throw new BadRequestException('申请单编号不对');
     const runs = ref.startsWith('run-')
       ? await em.find(FlowRun, { where: { id: Number(ref.slice(4)), companyId: user.companyId, templateKey: SKU_TEMPLATE } })
       : await em.createQueryBuilder(FlowRun, 'r')
@@ -92,9 +93,14 @@ export class SkuBatchService {
     const events = await em.find(FlowEvent, { where: { runId: In(runIds) }, order: { id: 'DESC' }, take: 200 });
     const evNames = await this.flow.userNames(em, user.companyId, events.map((e) => e.actorId));
     const first = runs[0];
+    // Imported applications can predate the draft header. Display the recorded workflow,
+    // without attaching an invented header or replacing the steps on any existing run.
+    const workflowSteps = applicationHeader ? undefined : [...new Map(
+      runs.flatMap(run => (run.stepsSnapshot as StepDef[]).map(step => [step.key, {key:step.key,name:step.name,type:step.type}] as const)),
+    ).values()];
     return {
       ref, batchKey: str(first.payload._batchKey) || null, batchName: str(first.payload.batchName), requesterId: first.requesterId, requesterName: names.get(first.requesterId) ?? '',
-      total: items.length, runCount: runs.length,...(applicationHeader?{applicationHeader}:{}),
+      total: items.length, runCount: runs.length,...(applicationHeader?{applicationHeader}:{workflowSteps}),
       counts: { draft:items.filter(x=>x.runStatus==='draft').length,running: items.filter((x) => x.runStatus === 'running').length, completed: items.filter((x) => x.runStatus === 'completed').length, ended: items.filter((x) => x.runStatus === 'cancelled' || x.runStatus === 'rejected').length, returned: items.filter((x) => x.runStatus === 'running' && x.enteredVia === 'return').length, mine: items.filter((x) => x.mine).length },
       me: { isRequester: first.requesterId === user.id, holdStepKey: holdKey, holdStepName: holdKey ? active.get(atHold[0].id)?.stepName ?? '' : '', holdCount: hold?.[1] ?? 0, canReturnAll },
       items,

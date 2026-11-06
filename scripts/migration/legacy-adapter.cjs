@@ -192,7 +192,7 @@ exports.read=async ({sourceCompanyId,definitions,parseWeightScope,preserveCostHi
         }
         continue;
       }
-      if(type==='finance-bundle-naming-rules'){const mapped=skuMapping.namingRules(tables,categoryKey,categoryFamilies);out.records.push(...mapped.records);out.exclusions.push(...mapped.exclusions);continue;}
+      if(type==='finance-bundle-naming-rules'){const mapped=skuMapping.namingRules(tables,categoryKey,categoryFamilies,defs.has('finance-code-dictionaries'));out.records.push(...mapped.records);out.exclusions.push(...mapped.exclusions);continue;}
       if(!defs.has(type)||['finance-brands','finance-scenarios','finance-bundle-lines','finance-product-boms','finance-product-units','finance-base-code-lines'].includes(type))continue;
       const def=defs.get(type);
       if(rule.policy){
