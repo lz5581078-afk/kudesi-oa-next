@@ -23,6 +23,7 @@ import { withTrustedResourceImport } from './resource-import-capability';
 import { beginPurchaseHistoryBatch, flushPurchaseHistory } from './product-purchase-history';
 import { beforeFormSaveRule, afterFormSaveRule, beforeStatusChangeRule, beforeDirectStatusRule } from './resource-rules';
 import { saveResourceForm } from './resource-form';
+import { sourceProductFormKind } from './source-unit-form';
 import type { ResourceFormInput } from '@kudesi/shared';
 import { ExternalConfigService } from '../integrations/external-config.service';
 import { storeJstShops, validateStoreJst, storeJstPatch } from './store-jst';
@@ -617,8 +618,14 @@ export class ResourcesService implements RuleHost {
     if (existingForValidation) {
       for (const f of def.fields) if (f.type === 'sensitive' && secrets[f.key]) existingForValidation[f.key] = true;
     }
+    const optionValues = { ...existing?.data, ...input };
+    if (def.key === 'finance-products') {
+      // Validate against the same server-selected dictionary that beforeProduct will persist.
+      const formKind = sourceProductFormKind(em, user, existing, options.copySource, String(optionValues.archiveType ?? ''));
+      if (formKind.apply) optionValues.unitDictionaryKind = formKind.value;
+    }
     const unitOptions = def.fields.some((f) => f.optionsFrom)
-      ? dynamicOptionsFor(def, await loadUnitLists(em, user.companyId), { ...(existing?.data ?? {}), ...input })
+      ? dynamicOptionsFor(def, await loadUnitLists(em, user.companyId), optionValues)
       : undefined;
     // 页签分类：代码选项 + 本公司自建分类（按公司隔离）
     const categoryOptions = await categoryAllowedForSave(em, user.companyId, def, input[def.tabsBy ?? '']);
