@@ -90,6 +90,27 @@ export class DailyWorkService {
     @InjectDataSource() private readonly ds: DataSource,
     private readonly flow: FlowService,
   ) {}
+  async ledger(user: AuthUser, mode: 'review' | 'wages', month?: string, pageText = '1') {
+    const a = await loadLiveAccess(this.ds.manager, user);
+    mode === 'review' ? requireView(a) : requireUse(a);
+    const page = Number(pageText);
+    if (!Number.isSafeInteger(page) || page < 1 || page > 100000) liveFail('页码无效', 400);
+    const period = month ?? liveToday(liveClock.now()).slice(0, 7);
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period) || !liveIsDay(period + '-01')) liveFail('月份无效', 400);
+    const where = ['w.company_id=?', 'w.status=?'];
+    const values: unknown[] = [user.companyId, mode === 'review' ? 'submitted' : 'approved'];
+    if (mode === 'wages') {
+      where.push("w.work_date>=? AND w.work_date<LAST_DAY(?)+INTERVAL 1 DAY");
+      values.push(period + '-01', period + '-01');
+      if (!a.canManage && !a.canViewAll) { where.push('w.user_id=?'); values.push(user.id); }
+    }
+    const condition = where.join(' AND ');
+    const [total] = await this.ds.query(`SELECT COUNT(*) count, COALESCE(SUM(w.amount_cents),0) amount, COALESCE(SUM(COALESCE(w.approved_minutes,w.minutes)),0) minutes FROM live_daily_work w WHERE ${condition}`, values);
+    const rows: Row[] = await this.ds.query(`${dailySelect} WHERE ${condition} ORDER BY w.work_date DESC,w.id DESC LIMIT 50 OFFSET ?`, [...values, (page - 1) * 50]);
+    return { page, total: Number(total.count), month: period,
+      summary: mode === 'wages' ? { amountCents: Number(total.amount), minutes: Number(total.minutes) } : null,
+      rows: rows.map(r => dailyDto(r, a.canManage || a.canViewAll || Number(r.user_id) === user.id, liveClock.now())) };
+  }
   async list(user: AuthUser, date?: string, mine = false) {
     const a = await loadLiveAccess(this.ds.manager, user);
     mine ? requireUse(a) : requireView(a);

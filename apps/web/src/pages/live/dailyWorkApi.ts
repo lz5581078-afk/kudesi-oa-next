@@ -43,7 +43,13 @@ export interface DailyPerson {
   hourlyRateCents: number;
   roles: Array<'anchor' | 'control'>;
 }
+export interface DailyWorkLedger {
+  page: number; total: number; month: string;
+  summary: { amountCents: number; minutes: number } | null;
+  rows: DailyWorkRow[];
+}
 export const dailyWorkApi = {
+  ledger: (mode: 'review' | 'wages', month: string, page: number) => api<DailyWorkLedger>(`/live/daily-work/${mode}?month=${encodeURIComponent(month)}&page=${page}`),
   options: () => api<DailyPerson[]>('/live/daily-work/options'),
   list: (date: string) =>
     api<DailyWorkList>(`/live/daily-work?date=${encodeURIComponent(date)}`),

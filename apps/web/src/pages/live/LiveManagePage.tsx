@@ -1,3 +1,4 @@
+import { DailyWorkLedgerPanel } from './DailyWorkLedgerPanel';
 import { ScriptMobileUpload } from './ScriptAssetLibrary';
 import { ScriptCenter } from './ScriptCenter';
 import { DailyWorkPanel } from './DailyWorkPanel';
@@ -21,7 +22,7 @@ import { SettlementsTab } from './SettlementsTab';
 
 const TAB_KEY = 'kudesi.live.tab';
 const TABS = [
-  ['overview', '全览'], ['schedules', '排场'], ['daily','日常工作'], ['sessions', '场次记录'], ['review', '待审核'], ['wages', '主播工资'], ['control', '中控工资'], ['operator', '运营提成'], ['settlements', '工资结算'], ['manual', '人事补报'], ['rules', '提成规则'], ['notifications', '通知设置'], ['qr', '上下播二维码'], ['scripts','话术中心'],
+  ['overview', '全览'], ['schedules', '排场'], ['daily','日常工作'], ['sessions', '场次记录'], ['review', '待审核'], ['wages', '主播工资'], ['control', '中控工资'], ['daily-wages', '日常工作工资'], ['operator', '运营提成'], ['settlements', '工资结算'], ['manual', '人事补报'], ['rules', '提成规则'], ['notifications', '通知设置'], ['qr', '上下播二维码'], ['scripts','话术中心'],
 ] as const;
 type TabKey = (typeof TABS)[number][0];
 
@@ -33,7 +34,7 @@ export function LiveManagePage() {
   const [params, setParams] = useSearchParams();
   const canView = can('features.live.view') || can('live.manage');
   const canAll = can('live.commissions.view');
-  const visible = TABS.filter(([k]) => (['wages','control','operator'].includes(k) ? true : ['manual','notifications','qr'].includes(k)?can('live.manage'): k === 'settlements' ? canAll || can('live.manage') : canView));
+  const visible = TABS.filter(([k]) => (['wages','control','operator','daily-wages'].includes(k) ? true : ['manual','notifications','qr'].includes(k)?can('live.manage'): k === 'settlements' ? canAll || can('live.manage') : canView));
   const remembered = (() => { try { return localStorage.getItem(TAB_KEY); } catch { return null; } })();
   const wanted = (params.get('tab')==='commissions'?'wages':params.get('tab')==='pond-questions'?'scripts':params.get('tab')) ?? (remembered==='commissions'?'wages':remembered==='pond-questions'?'scripts':remembered);
   const current: TabKey = (visible.find(([k]) => k === wanted)?.[0] ?? visible[0]?.[0] ?? 'overview') as TabKey;
@@ -62,7 +63,8 @@ export function LiveManagePage() {
       {current === 'daily' && <DailyWorkPanel date={params.get('date')??undefined}/>}
       {current === 'schedules' && <SchedulesTab />}
       {current === 'sessions' && <SessionsTab onOpen={setOpenId} refreshKey={tick} />}
-      {current === 'review' && <SessionsTab presetStatus="submitted" onOpen={setOpenId} refreshKey={tick} />}
+      {current === 'review' && <><DailyWorkLedgerPanel mode="review"/><SessionsTab presetStatus="submitted" onOpen={setOpenId} refreshKey={tick} /></>}
+      {current === 'daily-wages' && <DailyWorkLedgerPanel mode="wages"/>}
       {current === 'wages' && <PayrollTab role="anchor" onOpen={setOpenId} />}
       {current === 'control' && <PayrollTab role="control" onOpen={setOpenId} />}
       {current === 'operator' && <PayrollTab role="operator" onOpen={setOpenId} />}

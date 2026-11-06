@@ -36,6 +36,12 @@ export class DailyWorkController {
     private readonly work: DailyWorkService,
     private readonly qr: LiveQrService,
   ) {}
+  @AuthenticatedOnly() @Get('review') review(@CurrentUser() u: AuthUser, @Query('page') page?: string) {
+    return this.work.ledger(u, 'review', undefined, page);
+  }
+  @AuthenticatedOnly() @Get('wages') wages(@CurrentUser() u: AuthUser, @Query('month') month?: string, @Query('page') page?: string) {
+    return this.work.ledger(u, 'wages', month, page);
+  }
   @AuthenticatedOnly() @Get('options') options(@CurrentUser() u: AuthUser) {
     return this.work.options(u);
   }

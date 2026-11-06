@@ -474,7 +474,7 @@ export function DailyWorkPanel({
           {!personal&&can('live.manage')&&<button type="button" className="secondary-button" onClick={()=>setAdding(true)}><Plus size={16} aria-hidden="true"/>创建第一条排班</button>}
         </div>
       )}
-      {!personal && <details className="daily-rules"><summary>计时与审核规则</summary><p>仅已排班人员可开始工作；工资按实际打卡时间核算，审核后计入工资。审核使用“日常工作工时审核”流程，请先配置审核人并发布。</p></details>}
+      {!personal && <details className="daily-rules"><summary>计时与审核规则</summary><p>仅已排班人员可开始工作；工资按实际打卡时间核算，审核后计入工资。提交后进入“直播管理 → 待审核”的日常工时列表；核定工资在“日常工作工资”查看。审核办理人按“日常工作工时审核”流程配置。</p></details>}
       {runId && (
         <RunDetail
           id={runId}
