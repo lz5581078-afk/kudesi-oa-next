@@ -1,7 +1,7 @@
 import {Body,Controller,Get,Param,ParseIntPipe,Post,Query,UploadedFile,UseInterceptors} from '@nestjs/common';
 import {FileInterceptor} from '@nestjs/platform-express';
 import {Type} from 'class-transformer';
-import {ArrayMaxSize,IsArray,IsBoolean,IsDateString,IsDefined,IsIn,IsInt,IsObject,IsOptional,IsString,IsUUID,Matches,Max,MaxLength,Min,ValidateNested} from 'class-validator';
+import {ArrayMaxSize,IsArray,IsBoolean,IsDateString,IsDefined,IsIn,IsInt,IsObject,IsOptional,IsString,IsUUID,Matches,Max,MaxLength,Min,ValidateIf,ValidateNested} from 'class-validator';
 import {AuthenticatedOnly,AuthUser,CurrentUser,RequirePermission} from '../common/auth.decorators';
 import {MAX_UPLOAD_BYTES,type UploadedFile as Upload} from '../integrations/files.service';
 import {DesktopAfterSalesService} from './desktop-after-sales.service';
@@ -10,7 +10,7 @@ import {DesktopAfterSalesCollectionService} from './desktop-after-sales-collecti
 import {DesktopAfterSalesCollaborationService} from './desktop-after-sales-collaboration.service';
 class SnapshotDto implements DesktopSaleSnapshot {
  @Matches(/^\d{4,40}$/) afterSaleId!:string;
- @Matches(/^\d{4,40}$/) internalOrderId!:string;
+ @ValidateIf((_,value:unknown)=>value!=='') @Matches(/^\d{4,40}$/) internalOrderId!:string;
  @IsString() @MaxLength(100) sourceCompany!:string;
  @IsDateString() capturedAt!:string;
  @IsObject() fields!:DesktopSaleSnapshot['fields'];

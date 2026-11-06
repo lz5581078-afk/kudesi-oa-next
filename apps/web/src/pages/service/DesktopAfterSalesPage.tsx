@@ -70,7 +70,8 @@ export function DesktopAfterSalesPage(){
   if(!lookup?.query)return;
   const {afterSaleId,internalOrderId,sourceCompany}=record.snapshot;
   const query={field:'afterSaleId' as const,value:afterSaleId,sourceCompany,page:1};
-  const match=(records:DesktopSaleSnapshot[])=>records.find(s=>s.afterSaleId===afterSaleId&&s.internalOrderId===internalOrderId&&s.sourceCompany===sourceCompany);
+  const match=(records:DesktopSaleSnapshot[])=>records.find(s=>s.afterSaleId===afterSaleId&&s.sourceCompany===sourceCompany&&
+    (!internalOrderId||!s.internalOrderId||s.internalOrderId===internalOrderId));
   const current=await lookup.query({...query,kind:'current'});
   const result=match(current.records)??match((await lookup.query({...query,kind:'history'})).records);
   if(!result)throw new Error('聚水潭当前和历史列表未找到这笔售后');
@@ -189,7 +190,7 @@ export function DesktopAfterSalesPage(){
    <button disabled={page===1} onClick={()=>setPage(page-1)}>上一页</button><span>{page} / {Math.max(1,Math.ceil(list.total/AFTER_SALES_PAGE_SIZE))}</span>
    <button disabled={page*AFTER_SALES_PAGE_SIZE>=list.total} onClick={()=>setPage(page+1)}>下一页</button>
   </footer>
-    {selected&&<div className="ds-drawer-backdrop"><section className="ds-detail ds-drawer" role="dialog" aria-modal="true" aria-label={`售后 ${selected.snapshot.afterSaleId}`}><button disabled={busy} className="ds-close" aria-label="关闭售后详情" onClick={()=>{if(!dirty.current||confirm('放弃未保存的跟进内容？')){setSelected(null);selectedRef.current=null;}}}><X size={18}/></button><h3>售后 {selected.snapshot.afterSaleId}</h3><p>{selected.storeName || selected.snapshot.fields['店铺']} · 内部订单 <button className="ds-link" disabled={!bridge} onClick={()=>run(async()=>{await readOrder();})}>{selected.snapshot.internalOrderId}</button></p>
+    {selected&&<div className="ds-drawer-backdrop"><section className="ds-detail ds-drawer" role="dialog" aria-modal="true" aria-label={`售后 ${selected.snapshot.afterSaleId}`}><button disabled={busy} className="ds-close" aria-label="关闭售后详情" onClick={()=>{if(!dirty.current||confirm('放弃未保存的跟进内容？')){setSelected(null);selectedRef.current=null;}}}><X size={18}/></button><h3>售后 {selected.snapshot.afterSaleId}</h3><p>{selected.storeName || selected.snapshot.fields['店铺']} · 内部订单 <button className="ds-link" disabled={!bridge||!selected.snapshot.internalOrderId} onClick={()=>run(async()=>{await readOrder();})}>{selected.snapshot.internalOrderId||'待聚水潭补齐'}</button></p>
      {sourceStatus&&<p role={sourceStatus.error?'alert':'status'}>{sourceStatus.text}</p>}
      <div className="ds-tabs"><button className={tab==='follow'?'chosen':''} onClick={()=>setTab('follow')}>OA 处理记录</button><button className={tab==='source'?'chosen':''} onClick={()=>setTab('source')}>聚水潭原始信息</button></div>
      {tab==='source'?<><p>来源：{selected.snapshot.sourceCompany} · 读取于 {new Date(selected.snapshot.capturedAt).toLocaleString()}</p><dl>{Object.entries(selected.snapshot.fields).map(([k,v])=><div key={k}><dt>{k}</dt><dd>{v||'—'}</dd></div>)}</dl></>:<>

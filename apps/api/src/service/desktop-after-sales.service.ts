@@ -12,6 +12,7 @@ const FILE_TYPE = 'desktop-after-sales';
 type Row = { id:number; store_id:number|null; source_company:string; after_sale_id:string; internal_order_id:string; snapshot_enc:string; progress_enc:string; owner_id:number|null; next_at:Date|null; version:number; attachments:number[]|string; updated_at:Date; priority:number;row_color:string|null;report_enc:string|null;source_seen_at:Date|null;flow_case_id:number|null };
 type ListRow = Row & { storeName: string | null; ownerName: string | null };
 const fileIds = (v: Row['attachments']): number[] => typeof v === 'string' ? JSON.parse(v) : v;
+const ordersConflict = (known:string, incoming:string) => !!known && !!incoming && known!==incoming;
 /** Local OA follow-up is independent of ERP refund approval. This service never writes to ERP. */
 @Injectable()
 export class DesktopAfterSalesService {
@@ -63,7 +64,8 @@ export class DesktopAfterSalesService {
     if(!r)throw new NotFoundException('售后档案不存在');return r;
   }
   private sanitize(snapshot:DesktopSaleSnapshot):DesktopSaleSnapshot {
-    if(!/^\d{4,40}$/.test(snapshot.afterSaleId) || !/^\d{4,40}$/.test(snapshot.internalOrderId) || !snapshot.sourceCompany.trim())throw new BadRequestException('请读取售后单号、内部订单号，并确认聚水潭公司');
+    if(!/^\d{4,40}$/.test(snapshot.afterSaleId)||!snapshot.sourceCompany.trim())throw new BadRequestException('请读取售后单号并确认聚水潭公司');
+    if(typeof snapshot.internalOrderId!=='string'||(snapshot.internalOrderId!==''&&!/^\d{4,40}$/.test(snapshot.internalOrderId)))throw new BadRequestException('内部订单号格式无效');
     if(!Number.isFinite(Date.parse(snapshot.capturedAt)))throw new BadRequestException('读取时间无效');
     if(Object.keys(snapshot.fields).some(k=>!AFTER_SALES_FIELDS.includes(k as never)))throw new BadRequestException('包含不支持的网页字段');
     const fields:DesktopSaleSnapshot['fields']={};
@@ -112,13 +114,14 @@ export class DesktopAfterSalesService {
   }
   async import(u:AuthUser,storeId:number|null|undefined,input:DesktopSaleSnapshot){
     const snapshot=this.sanitize(input);
+    if(!snapshot.internalOrderId)throw new BadRequestException('手动关联店铺前请读取内部订单号');
     if(storeId){const [store]=await this.ds.query(`SELECT id FROM resource_records WHERE company_id=? AND id=? AND type='stores' AND archived_at IS NULL AND status<>'cancelled'`,[u.companyId,storeId]);if(!store)throw new BadRequestException('请选择本公司的有效店铺');}
     const id=await this.ds.transaction(em=>this.ingestIn(em,u,storeId??null,snapshot));return this.detail(u,id);
   }
   async refreshSource(u:AuthUser,id:number,snapshot:DesktopSaleSnapshot){
     await this.ds.transaction(async em=>{
-      const row=await this.row(em,u,id);
-      if(snapshot.afterSaleId!==row.after_sale_id||snapshot.internalOrderId!==row.internal_order_id||snapshot.sourceCompany.trim()!==row.source_company)
+      const row=await this.row(em,u,id,true);
+      if(snapshot.afterSaleId!==row.after_sale_id||ordersConflict(row.internal_order_id,snapshot.internalOrderId)||snapshot.sourceCompany.trim()!==row.source_company)
         throw new BadRequestException('聚水潭查询结果与当前售后不一致');
       await this.ingestIn(em,u,null,snapshot);
     });
@@ -130,16 +133,16 @@ export class DesktopAfterSalesService {
       // Unique key serializes simultaneous first imports without overwriting a different store/order.
       await em.query(`INSERT INTO desktop_after_sales (company_id,store_id,source_company,after_sale_id,internal_order_id,snapshot_enc,progress_enc,attachments,created_by,application_at,source_seen_at) VALUES (?,?,?,?,?,?,?,JSON_ARRAY(),?,?,CURRENT_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)`,[u.companyId,storeId,snapshot.sourceCompany,snapshot.afterSaleId,snapshot.internalOrderId,this.crypto.encrypt(JSON.stringify(snapshot)),this.crypto.encrypt(''),u.id,applicationAt(snapshot)]);
       const [r]:Row[]=await em.query(`SELECT * FROM desktop_after_sales WHERE company_id=? AND source_company=? AND after_sale_id=? FOR UPDATE`,[u.companyId,snapshot.sourceCompany,snapshot.afterSaleId]);
-      if((r.store_id&&storeId&&r.store_id!==storeId) || r.internal_order_id!==snapshot.internalOrderId)throw new ConflictException('此售后已关联另一店铺或订单，请核对后再读取');
+      if((r.store_id&&storeId&&r.store_id!==storeId)||ordersConflict(r.internal_order_id,snapshot.internalOrderId))throw new ConflictException('此售后已关联另一店铺或订单，请核对后再读取');
       const prior:DesktopSaleSnapshot=JSON.parse(this.crypto.decrypt(r.snapshot_enc));
       if(Date.parse(snapshot.capturedAt)<Date.parse(prior.capturedAt)){
         if(storeId&&!r.store_id)await em.query('UPDATE desktop_after_sales SET store_id=? WHERE company_id=? AND id=?',[storeId,u.companyId,r.id]);
         return r.id;
       }
       // Missing sections in a newly opened frame must not erase previously captured detail.
-      const merged={...snapshot,fields:{...prior.fields,...snapshot.fields}};
+      const merged={...snapshot,internalOrderId:r.internal_order_id||snapshot.internalOrderId,fields:{...prior.fields,...snapshot.fields}};
       const changes=sourceChanges(prior,merged);
-      await em.query('UPDATE desktop_after_sales SET snapshot_enc=?,store_id=COALESCE(store_id,?),application_at=?,source_seen_at=CURRENT_TIMESTAMP(3) WHERE company_id=? AND id=?',[this.crypto.encrypt(JSON.stringify(merged)),storeId,applicationAt(merged),u.companyId,r.id]);
+      await em.query('UPDATE desktop_after_sales SET snapshot_enc=?,internal_order_id=?,store_id=COALESCE(store_id,?),application_at=?,source_seen_at=CURRENT_TIMESTAMP(3) WHERE company_id=? AND id=?',[this.crypto.encrypt(JSON.stringify(merged)),merged.internalOrderId,storeId,applicationAt(merged),u.companyId,r.id]);
       const [hasEvent]=await em.query('SELECT id FROM desktop_after_sales_events WHERE company_id=? AND sale_id=? LIMIT 1',[u.companyId,r.id]);
       if(!hasEvent)await this.event(em,u,r.id,'snapshot',JSON.stringify(merged));
       else if(changes.length)await this.event(em,u,r.id,'source_change',JSON.stringify(changes));

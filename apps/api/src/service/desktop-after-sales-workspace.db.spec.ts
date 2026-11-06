@@ -1,4 +1,6 @@
 import 'reflect-metadata';
+import {ValidationPipe} from '@nestjs/common';
+import {Test} from '@nestjs/testing';
 import {randomBytes,randomUUID} from 'crypto';
 import {DataSource} from 'typeorm';
 import {Company,User} from '../entities';
@@ -7,6 +9,7 @@ import {buildDataSourceOptions} from '../database/data-source';
 import {buildServices} from '../test-support';
 import {DesktopAfterSalesService} from './desktop-after-sales.service';
 import {DesktopAfterSalesCollectionService} from './desktop-after-sales-collection.service';
+import {DesktopAfterSalesCollectionController} from './desktop-after-sales.controller';
 import {DesktopAfterSalesCollaborationService} from './desktop-after-sales-collaboration.service';
 import {AfterSalesService} from './after-sales.service';
 import {collectionHealth,sourceChanges} from './desktop-after-sales-domain';
@@ -145,6 +148,43 @@ d('自有售后工作台、最新接力采集和协同（真实MySQL）',()=>{
   const next=(await collector.claim(a,id,randomUUID()))!;
   expect(next.firstPageOnly).toBe(true);
   await expect(collector.commit(a,id,{token:next.token,page:1,completed:true,records:[{...record('85229991',{申请时间:'2025-11-06 12:00:00'}),sourceCompany:'空页来源'}]})).resolves.toMatchObject({received:1});
+ });
+ it('第31条缺内部订单号时整页仍能通过HTTP入库，回查补号后不会被空值覆盖',async()=>{
+  const sourceCompany='待补内部订单来源';
+  const {id}=await collector.configure(a,{sourceCompany,enabled:true,intervalSeconds:60});
+  const lease=(await collector.claim(a,id,randomUUID()))!;
+  const records=Array.from({length:50},(_,i)=>({
+   ...record(String(89120000+i)),sourceCompany,internalOrderId:i===30?'':String(44008900+i),
+  }));
+  const testModule=await Test.createTestingModule({
+   controllers:[DesktopAfterSalesCollectionController],
+   providers:[{provide:DesktopAfterSalesCollectionService,useValue:collector}],
+  }).compile();
+  const app=testModule.createNestApplication();
+  app.use((req:{user:AuthUser},_res:unknown,next:()=>void)=>{req.user=a;next();});
+  app.useGlobalPipes(new ValidationPipe({transform:true,whitelist:true,forbidNonWhitelisted:true}));
+  try{
+   await app.listen(0,'127.0.0.1');
+   const endpoint=`${await app.getUrl()}/desktop-after-sales-collection/${id}/commit`;
+   const post=(batch:DesktopSaleSnapshot[])=>fetch(endpoint,{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({token:lease.token,records:batch,page:1,completed:true}),
+   });
+   expect((await post([{...records[30],internalOrderId:'未知单号'}])).status).toBe(400);
+   const response=await post(records);
+   expect(response.status).toBe(201);
+   expect(await response.json()).toEqual({received:50,completed:true});
+  }finally{await app.close();}
+  const [row]=(await svc.list(a,records[30].afterSaleId)).rows;
+  expect(row.internalOrderId).toBe('');
+  expect((await collector.list(a)).find(s=>s.id===id)?.collectedCount).toBe(50);
+  const withOrder={...records[30],capturedAt:new Date().toISOString(),internalOrderId:'44009900'};
+  const updated=await svc.refreshSource(a,row.id,withOrder);
+  expect(updated.snapshot.internalOrderId).toBe(withOrder.internalOrderId);
+  expect((await svc.list(a,withOrder.internalOrderId)).rows.map(r=>r.id)).toEqual([row.id]);
+  const blankAgain={...withOrder,capturedAt:new Date().toISOString(),internalOrderId:'',fields:{...withOrder.fields,线上状态:'已确认'}};
+  expect((await svc.refreshSource(a,row.id,blankAgain)).snapshot).toMatchObject({internalOrderId:withOrder.internalOrderId,fields:{线上状态:'已确认'}});
+  await expect(svc.refreshSource(a,row.id,{...withOrder,internalOrderId:'44009901'})).rejects.toThrow(/当前售后不一致/);
  });
 });
 describe('售后源变化与告警状态',()=>{
