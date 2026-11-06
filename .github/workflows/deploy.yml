@@ -17,7 +17,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: lc-kudesi-production
+  group: lc-kudesi-aftersales-missing-order-preflight
   cancel-in-progress: false
 jobs:
   verify:
