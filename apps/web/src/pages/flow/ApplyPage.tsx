@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { NoAccessPage } from '../StatusPages';
 import { ApiError } from '../../api/client';
 import { FlowFieldsForm } from './FlowFields';
 import { RunDetail } from './RunDetail';
@@ -7,6 +8,30 @@ import { SKU_TEMPLATE } from './SkuApply';
 import { SkuApplicationCenter } from './SkuApplicationCenter';
 import { flowApi, newRequestKey, type TemplateInfo } from './flowApi';
 import { remember } from './flowUi';
+
+const employeeShortcuts = new Set(['account-rename', 'store-rename']);
+
+/** 老工作台链接继续打开具体申请表，通用申请中心只向管理员展示。 */
+export function EmployeeFlowShortcut() {
+  const [params] = useSearchParams();
+  const key = params.get('template');
+  return key && employeeShortcuts.has(key) ? <EmployeeFlowForm key={key} templateKey={key} /> : <NoAccessPage adminOnly />;
+}
+
+function EmployeeFlowForm({ templateKey }: { templateKey: string }) {
+  const [template, setTemplate] = useState<TemplateInfo | null | undefined>();
+  const navigate = useNavigate();
+  useEffect(() => {
+    let alive = true;
+    flowApi.templates().then(templates => {
+      if (alive) setTemplate(templates.find(item => item.key===templateKey && item.active && item.startable!==false) ?? null);
+    }).catch(() => { if (alive) setTemplate(null); });
+    return () => { alive = false; };
+  }, [templateKey]);
+  if (template === undefined) return <p role="status">正在读取申请表单…</p>;
+  if (!template) return <p role="alert">当前流程未启用或你不在发起人范围内。 <Link to="/workbench/desk">返回岗位工作台</Link></p>;
+  return <ApplyPage initialTemplate={template} onClose={() => navigate('/workbench/desk')} onSubmitted={() => navigate('/workbench/started')} />;
+}
 
 const RECENT_KEY = 'kudesi.apply.recent';
 const readRecent = (): string[] => { try { const v = JSON.parse(remember.get(RECENT_KEY, '[]')); return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []; } catch { return []; } };

@@ -28,6 +28,12 @@ class Sample {
   @RequireResourceAction('delete')
   resourceDelete() {}
 
+  @RequirePermission('flow.templates.view')
+  flowManagement() {}
+
+  @RequirePermission('flow.apply.view')
+  flowApplication() {}
+
   forgotten() {}
 }
 
@@ -48,6 +54,13 @@ const userWith = (allow: string[], deny: string[] = [], admin = false): AuthUser
 
 describe('PermissionsGuard（默认拒绝）', () => {
   const guard = new PermissionsGuard(new Reflector());
+
+  it('流程管理只允许公司管理员，员工发起权限独立生效', () => {
+    const employee = userWith(['flow.*']);
+    expect(() => guard.canActivate(contextFor('flowManagement', employee))).toThrow(/公司管理员/);
+    expect(guard.canActivate(contextFor('flowApplication', employee))).toBe(true);
+    expect(guard.canActivate(contextFor('flowManagement', userWith([], [], true)))).toBe(true);
+  });
 
   it('不可变收支历史允许授权查看；管理员也不能通过写接口改写或删除', () => {
     const admin = userWith([], [], true);

@@ -1098,7 +1098,7 @@ export class FlowService {
       const result=await listSkuApplications(this.dataSource,user,q,ids=>this.userNames(this.dataSource.manager,user.companyId,ids),(await this.labelMap(user.companyId)).get('sku-batch-apply') ?? 'SKU批量申请');
       const rows=[];for(const row of result.rows){let canDelete=false;try{if(row.batchRef.startsWith('B'))canDelete=(await this.applicationDraftHeader(user,'sku-batch-apply',row.batchRef)).canDelete;}catch(error){if(!(error instanceof NotFoundException))throw error;}rows.push({...row,canDelete});}return {...result,rows};
     }
-    if (q.view === 'all') this.need(user, 'flow.overview.view', '没有查看流程总览的权限');
+    if (q.view === 'all' && !user.permissions.isCompanyAdmin) throw new ForbiddenException('仅公司管理员可查看流程总览');
     const where = ['r.company_id = ?'];
     const args: unknown[] = [user.companyId];
     let join = '';

@@ -1,6 +1,8 @@
 import { useCallback, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import type { NavPage, SummaryCard } from '@kudesi/shared';
+import { useAuth } from '../../auth/AuthContext';
+import { SkuApplicationCenter } from '../flow/SkuApplicationCenter';
 import { FlowSection } from './FlowSection';
 import { PersonalTaskPanel } from './PersonalTaskPanel';
 import { SummaryCards } from './SummaryCards';
@@ -10,6 +12,7 @@ export interface DeskView {
   subtitle: string;
   links: NavPage[];
   linksHint?: string;
+  skuApplication?: boolean;
   cards: SummaryCard[];
   pending: string[];
   blank?: boolean;
@@ -19,6 +22,8 @@ export interface DeskView {
 
 /** 工作台主体：今日概览 → 常用业务 → 流程与待办 → 个人任务。岗位工作台和个人工作台共用。 */
 export function RoleDesk({ view }: { view: DeskView }) {
+  const { user } = useAuth();
+  const [skuOpen, setSkuOpen] = useState(false);
   const [tick, setTick] = useState(0);
   const [counts, setCounts] = useState<{ todo: number | null; overdue: number | null; mine: number | null }>({ todo: null, overdue: null, mine: null });
   const onCounts = useCallback((c: { todo: number | null; overdue: number | null; mine: number | null }) => setCounts((cur) => ({ todo: c.todo ?? cur.todo, overdue: c.overdue ?? cur.overdue, mine: c.mine ?? cur.mine })), []);
@@ -36,21 +41,23 @@ export function RoleDesk({ view }: { view: DeskView }) {
       <SummaryCards label="今日待办概览" cards={[...base, ...view.cards]} />
       {typeof view.top==='function'?view.top(tick):view.top}
       {view.blank && <section className="card ws-section"><div className="ws-head"><h2>专属业务</h2></div><p className="muted ws-pad">这个岗位还没有配置专属业务；常用的流程与任务在下面。</p></section>}
-      {(view.links.length > 0 || view.pending.length > 0) && (
+      {(view.skuApplication || view.links.length > 0 || view.pending.length > 0) && (
         <section className="card ws-section" aria-label="岗位常用业务">
           <div className="ws-head"><h2>常用业务</h2>{view.linksHint && <span className="muted">{view.linksHint}</span>}</div>
           <div className="ws-links">
+            {view.skuApplication && <button type="button" className="ws-link" onClick={() => setSkuOpen(true)}><span>SKU 批量申请</span><small>新建与查看我的 SKU 申请</small></button>}
             {view.links.map((l) => <Link key={l.path} to={l.path} className="ws-link"><span>{l.label}</span><small>{l.group ?? ''}</small></Link>)}
-            {view.links.length === 0 && <span className="muted">暂无已授权的业务入口</span>}
+            {!view.skuApplication && view.links.length === 0 && <span className="muted">暂无已授权的业务入口</span>}
           </div>
           {view.pending.length > 0 && <p className="muted ws-pad">待接入业务：{view.pending.join('、')}（新系统暂未提供）</p>}
         </section>
       )}
       <div className="ws-layout">
-        <FlowSection refreshKey={tick} onCounts={onCounts} />
+        <FlowSection isCompanyAdmin={user?.permissions?.isCompanyAdmin} refreshKey={tick} onCounts={onCounts} />
         <PersonalTaskPanel refreshKey={tick} />
       </div>
-      <p className="muted ws-foot">发起新申请请到 <Link to="/flow/apply">申请中心</Link>；新建、指派任务请到 <Link to="/workbench/tasks">任务中心</Link>。</p>
+      <p className="muted ws-foot">{user?.permissions?.isCompanyAdmin && <>发起新申请请到 <Link to="/flow/apply">申请中心</Link>；</>}新建、指派任务请到 <Link to="/workbench/tasks">任务中心</Link>。</p>
+      {skuOpen && view.skuApplication && <SkuApplicationCenter onClose={() => setSkuOpen(false)} />}
     </div>
   );
 }

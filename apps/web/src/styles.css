@@ -734,6 +734,7 @@ div.ws-task { cursor: default; }
 .ws-empty { padding: 28px 16px; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
 .ws-links { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 4px 16px 8px; }
 .ws-link, .ws-tile { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); text-decoration: none; }
+button.ws-link { text-align: left; cursor: pointer; }
 .ws-link:hover, .ws-tile:hover { border-color: var(--accent); background: var(--accent-soft); }
 .ws-link small, .ws-tile small { color: var(--muted); }
 .ws-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
