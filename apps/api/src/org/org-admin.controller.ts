@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Post, Put } from '@nestjs/common';
-import { ArrayMaxSize, IsArray, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, Min, ValidateIf } from 'class-validator';
+import { IsObject, MinLength, ArrayMaxSize, IsArray, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, Min, ValidateIf } from 'class-validator';
 import { permissionCatalog } from '@kudesi/shared';
 import { AuthenticatedOnly, AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
 import { DeskAccessService } from './desk-access.service';
@@ -38,7 +38,13 @@ class StaffImportDto {
 class PermissionsDto {
   @IsArray() @IsString({ each: true }) permissions!: string[];
 }
-class CreateStaffDto {
+class WorkforceEditorFields {
+  @IsOptional() @IsString() @Matches(/^\d{4}-\d{2}-\d{2}$/) contractStartDate?: string | null;
+  @IsOptional() @IsString() @Matches(/^\d{4}-\d{2}-\d{2}$/) contractEndDate?: string | null;
+  @IsOptional() @IsObject() workforceData?: Record<string, unknown>;
+  @IsOptional() @IsString() @MinLength(8) @MaxLength(72) password?: string;
+}
+class CreateStaffDto extends WorkforceEditorFields {
   @IsString() @Matches(/^[A-Za-z0-9_.-]{2,64}$/, { message: '账号只能用字母、数字、下划线、点和横线，2 到 64 位' }) account!: string;
   @IsString() @IsNotEmpty() @MaxLength(50) name!: string;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(1) departmentId?: number | null;
@@ -51,9 +57,8 @@ class CreateStaffDto {
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(0) hourlyRate?: number | null;
   @IsOptional() @IsIn([...EMPLOYMENT_TYPES]) employmentType?: 'regular' | 'part_time' | 'temp';
 }
-class UpdateStaffDto {
-  @IsOptional() @IsString() @Matches(/^\d{4}-\d{2}-\d{2}$/) contractStartDate?: string | null;
-  @IsOptional() @IsString() @Matches(/^\d{4}-\d{2}-\d{2}$/) contractEndDate?: string | null;
+class UpdateStaffDto extends WorkforceEditorFields {
+  @IsOptional() @IsString() @Matches(/^[A-Za-z0-9_.-]{2,64}$/) account?: string;
   @IsOptional() @IsIn([...PAY_TYPES]) payType?: 'monthly' | 'hourly';
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(0) hourlyRate?: number | null;
   @IsOptional() @IsIn([...EMPLOYMENT_TYPES]) employmentType?: 'regular' | 'part_time' | 'temp';

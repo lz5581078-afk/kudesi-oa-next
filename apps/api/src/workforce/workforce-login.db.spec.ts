@@ -11,6 +11,8 @@ import { buildServices } from '../test-support';
 import { AuthService } from '../auth/auth.service';
 import { WorkforceLoginService } from './workforce-login.service';
 import { workforceBlockFor } from './workforce-contract';
+import { createTrialPerson } from './create-trial-person';
+import { livePeople } from '../live/live-access';
 
 const d=process.env.RESOURCE_DB_TEST==='1'?describe:describe.skip;
 d('兼职临时工账号与密码（真实数据库）',()=>{
@@ -24,7 +26,10 @@ d('兼职临时工账号与密码（真实数据库）',()=>{
     const u=await ds.manager.save(User,ds.manager.create(User,{companyId:company.id,account:account(),passwordHash:'!test-only',name:'管理',status:'active',isCompanyAdmin:true,mustChangePassword:false}));
     actor={id:u.id,companyId:company.id,name:u.name,permissions:{isCompanyAdmin:true,allow:[],deny:[]}};
     const c=await ds.manager.save(Company,ds.manager.create(Company,{code:account(),name:'其他公司',status:'active'}));foreign={...actor,companyId:c.id};
-    admin=new OrgAdminService(ds);login=new WorkforceLoginService(ds,admin,buildServices(ds).crypto);resources=buildServices(ds).resources;
+    const services = buildServices(ds);
+    resources = services.resources;
+    admin = new OrgAdminService(ds, resources, services.crypto);
+    login = new WorkforceLoginService(ds, admin, services.crypto);
   },30000);
   afterAll(async()=>{await ds?.destroy();});
   async function filed(type:'part_time'|'temp'='part_time') {
@@ -107,6 +112,36 @@ d('兼职临时工账号与密码（真实数据库）',()=>{
     expect((await login.display(actor,[person.id]))[0]).toMatchObject({account:next,loginPassword:'Trial-password-321'});
     expect(await ds.manager.count(ResourceRecord,{where:{companyId:actor.companyId,type:'workforce'}})).toBe(beforeCount);
     await expect(login.update(foreign,person.id,{account:account()},true)).rejects.toThrow();
+  });
+
+  it('同一员工编辑原子建立账号、建档及退出试播，旧的已建档试播标记也按普通主播读取', async () => {
+    const trial = await createTrialPerson(ds, actor, { name: '仅姓名试播主播' });
+    const position = await ds.manager.save(Position, ds.manager.create(Position, {
+      companyId: actor.companyId, name: '测试主播岗', workspaceType: 'live_anchor', status: 'active',
+    }));
+    expect((await livePeople(ds.manager, actor.companyId)).anchors.find(person => person.id === trial.id)?.trial).toBe(true);
+    const input = {
+      account: account(), password: 'Local-password-791', name: '主播已建档', positionId: position.id,
+      employmentType: 'part_time' as const, contractStartDate: todayShanghai(),
+      workforceData: { phone: '13900000001', payMethod: 'hourly', payRate: 4000, note: '原人员补齐档案' },
+    };
+    await expect(admin.updateStaff(actor, trial.id, { ...input, positionId: null })).rejects.toThrow('请设置主播岗位');
+    expect((await admin.getStaff(actor, trial.id))).toMatchObject({ account: '', workforceId: null, trial: true });
+    const updated = await admin.updateStaff(actor, trial.id, input);
+    expect(updated).toMatchObject({ id: trial.id, trial: false, account: input.account, hourlyRate: 4000 });
+    expect(updated.workforceId).toBeGreaterThan(0);
+    expect((await resources.get(actor, 'workforce', updated.workforceId!)).data).toMatchObject({
+      userId: trial.id, phone: '13900000001', payRate: 4000,
+    });
+    const [saved] = await ds.query('SELECT live_trial,password_hash FROM users WHERE company_id=? AND id=?', [actor.companyId, trial.id]);
+    expect(saved.live_trial).toBe(0);
+    expect(await bcrypt.compare(input.password, saved.password_hash)).toBe(true);
+    const logs = await ds.manager.find(AuditLog, { where: { companyId: actor.companyId, resourceId: String(trial.id) } });
+    expect(JSON.stringify(logs)).not.toContain(input.password);
+
+    await ds.query('UPDATE users SET live_trial=1 WHERE company_id=? AND id=?', [actor.companyId, trial.id]);
+    expect((await livePeople(ds.manager, actor.companyId)).anchors.find(person => person.id === trial.id)).toMatchObject({ name: '主播已建档', partTime: true });
+    expect((await admin.getStaff(actor, trial.id)).trial).toBe(false);
   });
 
 });

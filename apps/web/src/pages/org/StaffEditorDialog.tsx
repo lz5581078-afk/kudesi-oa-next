@@ -4,15 +4,17 @@ import { createChecker } from '@kudesi/shared';
 import { useAuth } from '../../auth/AuthContext';
 import { StaffDialog } from './StaffDialog';
 import { orgApi, type DepartmentNode, type PositionDto, type StaffDetail, type StaffDto } from './orgApi';
+import { resourceApi, type ResourceDto } from '../../resources/api';
 import { errText } from './OrgDialogs';
 
 /** 部门和岗位只持有成员摘要，编辑前读取完整员工资料，避免覆盖主岗、兼任、上级和薪资。 */
-export function StaffEditorDialog({ id, onClose, onSaved }: { id: number; onClose: () => void; onSaved: () => void }) {
+export function StaffEditorDialog({ id, workforce = false, onClose, onSaved }: { id: number | null; workforce?: boolean; onClose: () => void; onSaved: (created?: { account: string; password: string }) => void }) {
   const { user } = useAuth();
   const can = user ? createChecker(user.permissions) : () => false;
-  const allowed = can('org.staff.view') && can('org.staff.edit');
+  const allowed = can('org.staff.view') && (id === null ? can('org.staff.create') && can('resource.workforce.create') : can('org.staff.edit'));
   const [data, setData] = useState<{
-    staff: StaffDetail;
+    staff: StaffDetail | null;
+    record: ResourceDto | null;
     all: StaffDto[];
     tree: DepartmentNode[];
     positions: PositionDto[];
@@ -24,9 +26,10 @@ export function StaffEditorDialog({ id, onClose, onSaved }: { id: number; onClos
     let current = true;
     setData(null);
     setError('');
-    Promise.all([orgApi.staffOne(id), orgApi.staff(), orgApi.departments(), orgApi.positions()])
-      .then(([staff, all, tree, positions]) => {
-        if (current) setData({ staff, all, tree, positions });
+    Promise.all([id === null ? Promise.resolve(null) : orgApi.staffOne(id), orgApi.staff(), orgApi.departments(), orgApi.positions()])
+      .then(async ([staff, all, tree, positions]) => {
+        const record = workforce && staff?.workforceId ? await resourceApi.get('workforce', staff.workforceId) : null;
+        if (current) setData({ staff, record, all, tree, positions });
       })
       .catch((e) => {
         if (current) setError(errText(e, '员工资料加载失败'));
@@ -34,16 +37,21 @@ export function StaffEditorDialog({ id, onClose, onSaved }: { id: number; onClos
     return () => {
       current = false;
     };
-  }, [id, allowed, retry]);
+  }, [id, workforce, allowed, retry]);
   if (allowed && data)
     return (
       <StaffDialog
-        key={id}
+        key={id ?? 'new'}
         staff={data.staff}
         all={data.all}
         departments={data.tree}
         positions={data.positions}
         canSalary={can('org.staff.salary')}
+        workforce={workforce ? {
+          record: data.record,
+          canAccount: id === null || can('resource.workforce.edit'),
+          canPassword: can('org.staff.reset') && (id === null || can('resource.workforce.edit')),
+        } : undefined}
         onClose={onClose}
         onSaved={onSaved}
       />

@@ -63,6 +63,12 @@ export async function workforceAfterSave(ctx: AfterSaveContext): Promise<void> {
   if (!person) return;
   const data = record.data;
 
+  const cleared = await em.query(
+    'UPDATE users SET live_trial=0 WHERE company_id=? AND id=? AND live_trial=1',
+    [user.companyId, person.id],
+  );
+  if (cleared.affectedRows) await auditUser(em, ctx, person, 'live.trial.file', { workforceId: record.id });
+
   // 1) 用工类型同步给员工账号（人员档案、直播主播名单都按它认兼职）
   const type = data.employmentType as WorkforceEmployment;
   if (person.employmentType !== type) {

@@ -1,3 +1,4 @@
+import { storeWorkforcePassword, validateWorkforcePassword } from './workforce-password';
 import { CryptoService } from '../common/crypto.service';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -18,13 +19,9 @@ export class WorkforceLoginService {
     if(!/^[A-Za-z0-9_.-]{2,64}$/.test(account))throw new BadRequestException('账号只能用字母、数字、下划线、点和横线，2 到 64 位');
     return account;
   }
-  private password(value:string|undefined) {
-    // bcrypt only distinguishes the first 72 UTF-8 bytes. Never silently truncate a configured password.
-    if(value!==undefined&&(typeof value!=='string'||value.length<8||Buffer.byteLength(value,'utf8')>72))throw new BadRequestException('密码至少8位，且不能超过72字节');
+  private password(value: string | undefined) {
+    if (value !== undefined) validateWorkforcePassword(value);
     return value;
-  }
-  private async store(em:EntityManager,actor:AuthUser,person:User,password:string) {
-    await em.query('INSERT INTO workforce_login_secrets(company_id,user_id,password_cipher,password_hash_snapshot,updated_by) VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE password_cipher=VALUES(password_cipher),password_hash_snapshot=VALUES(password_hash_snapshot),updated_by=VALUES(updated_by)',[actor.companyId,person.id,this.crypto.encrypt(password),person.passwordHash,actor.id]);
   }
   async display(actor:AuthUser,ids:number[]) {
     const can=createChecker(actor.permissions);
@@ -55,7 +52,7 @@ export class WorkforceLoginService {
     if(!input.name.trim())throw new BadRequestException('请填写姓名');
     const account=this.account(input.account),password=this.password(input.password);
     const {password:_,...staff}=input;
-    return this.admin.createStaff(actor,{...staff,account},password,(em,person,plain)=>this.store(em,actor,person,plain));
+    return this.admin.createStaff(actor,{...staff,account},password,(em,person,plain)=>storeWorkforcePassword(em,this.crypto,actor,person,plain));
   }
   async update(actor:AuthUser,id:number,input:{account:string;password?:string},unfiled=false) {
     const can=createChecker(actor.permissions);
@@ -81,7 +78,7 @@ export class WorkforceLoginService {
       await em.save(person);
       // Keep searchable account snapshot consistent; derived views continue reading the same user ID.
       if(record){record.data={...record.data,account};await em.save(record);}
-      if(password!==undefined)await this.store(em,actor,person,password);
+      if(password!==undefined)await storeWorkforcePassword(em,this.crypto,actor,person,password);
       await em.save(AuditLog,em.create(AuditLog,{companyId:actor.companyId,actorId:actor.id,action:'user.workforce_login.update',resourceType:'user',resourceId:String(person.id),detail:{...(unfiled?{}:{recordId:id}),accountFrom:before,accountTo:account,passwordChanged:hash!==undefined}}));
       return {ok:true,account};
     });

@@ -166,7 +166,7 @@ class RoomSettingsDto {
 }
 class TrialPersonDto {
   @IsString() @MaxLength(50) name!:string;
-  @IsInt() @Min(1) @Max(100_000_000) hourlyRateCents!:number;
+  @IsOptional() @IsInt() @Min(1) @Max(100_000_000) hourlyRateCents?:number;
 }
 class ManualDto {
   @IsOptional() @IsBoolean() confirmUnlinkedStores?:boolean;

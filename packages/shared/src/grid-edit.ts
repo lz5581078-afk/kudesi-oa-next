@@ -16,6 +16,7 @@ export const GRID_SAVE_MAX_ROWS = 200;
  * 在详情页里改。后端同样拒绝，不只是前端隐藏。
  */
 const GRID_DISABLED: Record<string, string> = {
+  workforce: '兼职与临时工资料请在人员编辑中维护',
   'finance-bundles': '组合的构成、命名、验证、同步聚水潭走专属页面和专属接口，不能绕过它们直接改字段',
   'finance-bundle-lines': '组合构成行随组合的专属编辑页一起保存（会重算组合名称），不能单独批量改',
   'finance-bundle-revisions': '组合修订由系统生成，没有可手工修改的字段',
@@ -31,7 +32,6 @@ const GRID_DISABLED: Record<string, string> = {
 
 /** 只能改、不能在网格里新增的资料（新增要走专属表单：编码规则、构成录入等） */
 const GRID_NO_CREATE: Record<string, string> = {
-  workforce: '已有账号请在员工编辑中修改用工类型与合作期限；新增人员请使用入职码或“新增账号并建档”',
   'finance-products': '商品档案的新增要选档案类型并生成编码，请用“＋ 新增”',
   'finance-base-codes': '基础编码的新增要填构成，请用“＋ 新增”',
 };

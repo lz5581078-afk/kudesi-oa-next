@@ -1,3 +1,6 @@
+import { CryptoService } from '../common/crypto.service';
+import { storeWorkforcePassword, validateWorkforcePassword } from '../workforce/workforce-password';
+import { unfiledTrialSql } from '../workforce/trial-status';
 import { accountTransaction } from '../auth/account-transaction';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -56,7 +59,7 @@ export interface StaffDto {
 /** 部门、岗位、员工与权限管理。所有查询都带 companyId（取自令牌），所有变更写审计。 */
 @Injectable()
 export class OrgAdminService {
-  constructor(@InjectDataSource() private readonly ds: DataSource,@Optional() private readonly resources?:ResourcesService) {}
+  constructor(@InjectDataSource() private readonly ds: DataSource,@Optional() private readonly resources?:ResourcesService, @Optional() private readonly crypto?: CryptoService) {}
 
   private audit(em: EntityManager, actor: AuthUser, action: string, resourceType: string, resourceId: number, detail: Record<string, unknown> | null) {
     return em.save(AuditLog, em.create(AuditLog, { companyId: actor.companyId, actorId: actor.id, action, resourceType, resourceId: String(resourceId), detail }));
@@ -514,7 +517,13 @@ export class OrgAdminService {
 
   private async staffWorkforceTerms(em: EntityManager, companyId: number, id: number) {
     const record = await staffWorkforceRecord(em, companyId, id);
-    return { contractStartDate: record?.data.contractStartDate ?? null, contractEndDate: record?.data.contractEndDate ?? null };
+    const [person] = await em.query(`SELECT ${unfiledTrialSql('u')} trial FROM users u WHERE u.company_id=? AND u.id=?`, [companyId, id]);
+    return {
+      contractStartDate: record?.data.contractStartDate ?? null,
+      contractEndDate: record?.data.contractEndDate ?? null,
+      workforceId: record && !record.archivedAt ? record.id : null,
+      trial: Boolean(Number(person?.trial)),
+    };
   }
 
   private async mustPosition(em: EntityManager, companyId: number, id: number | null | undefined) {
@@ -523,9 +532,15 @@ export class OrgAdminService {
   }
 
   /** 默认随机初始密码；兼职专用入口可传入已验证的设置值。仅本次返回，首次登录必须改。 */
-  async createStaff(actor: AuthUser, input: { account: string; name: string; departmentId?: number | null; positionId?: number | null; managerId?: number | null; title?: string; baseSalary?: number | null; payType?: 'monthly' | 'hourly'; hourlyRate?: number | null; employmentType?: 'regular' | 'part_time' | 'temp'; extraPositionIds?: number[] }, configuredPassword?: string, afterCreate?: (em:EntityManager, person:User, password:string)=>Promise<void>) {
+  async createStaff(actor: AuthUser, input: StaffWorkforceTerms & { password?: string; account: string; name: string; departmentId?: number | null; positionId?: number | null; managerId?: number | null; title?: string; baseSalary?: number | null; payType?: 'monthly' | 'hourly'; hourlyRate?: number | null; employmentType?: 'regular' | 'part_time' | 'temp'; extraPositionIds?: number[] }, configuredPassword?: string, afterCreate?: (em:EntityManager, person:User, password:string)=>Promise<void>) {
     const account = input.account.trim();
-    const initialPassword = configuredPassword ?? generatePassword();
+    const filing = input.workforceData !== undefined;
+    if (filing && (!input.employmentType || input.employmentType === 'regular')) throw new BadRequestException('请选择兼职或临时工');
+    if (input.password !== undefined) {
+      if (!filing || !createChecker(actor.permissions)('org.staff.reset')) throw new ForbiddenException('没有设置登录密码的权限');
+      validateWorkforcePassword(input.password);
+    }
+    const initialPassword = input.password ?? configuredPassword ?? generatePassword();
     const passwordHash = await bcrypt.hash(initialPassword, 10);
     const id = await accountTransaction(this.ds, account, async (em) => {
       await this.mustDepartment(em, actor.companyId, input.departmentId);
@@ -542,6 +557,8 @@ export class OrgAdminService {
         payType: input.payType ?? 'monthly', hourlyRate: input.hourlyRate ?? null, employmentType: input.employmentType ?? 'regular',
         isCompanyAdmin: false, status: 'active', mustChangePassword: true,
       }));
+      if (filing) await syncStaffWorkforce(em, actor, u, input, this.resources);
+      if (input.password !== undefined) await this.storeStaffWorkforcePassword(em, actor, u, input.password);
       if (afterCreate) await afterCreate(em,u,initialPassword);
       await this.audit(em, actor, 'user.create', 'user', u.id, { account, positionId: u.positionId, extraPositionIds: u.extraPositionIds });
       return u.id;
@@ -569,9 +586,33 @@ export class OrgAdminService {
     return type === 'hourly' ? `时薪 ${yuan(hourly)} 元/小时` : `月薪 ${yuan(base)} 元/月`;
   }
 
-  async updateStaff(actor: AuthUser, id: number, input: StaffWorkforceTerms & { name?: string; departmentId?: number | null; positionId?: number | null; managerId?: number | null; title?: string | null; baseSalary?: number | null; payType?: 'monthly' | 'hourly'; hourlyRate?: number | null; employmentType?: 'regular' | 'part_time' | 'temp'; extraPositionIds?: number[] }) {
-    await this.ds.transaction(async (em) => {
+  async updateStaff(actor: AuthUser, id: number, input: StaffWorkforceTerms & { account?: string; password?: string; name?: string; departmentId?: number | null; positionId?: number | null; managerId?: number | null; title?: string | null; baseSalary?: number | null; payType?: 'monthly' | 'hourly'; hourlyRate?: number | null; employmentType?: 'regular' | 'part_time' | 'temp'; extraPositionIds?: number[] }) {
+    const account = input.account?.trim();
+    const password = input.password;
+    const can = createChecker(actor.permissions);
+    if (account !== undefined && !/^[A-Za-z0-9_.-]{2,64}$/.test(account)) throw new BadRequestException('登录账号格式不正确');
+    if (password !== undefined) {
+      if (!can('org.staff.reset')) throw new ForbiddenException('没有设置登录密码的权限');
+      validateWorkforcePassword(password);
+    }
+    const hash = password === undefined ? undefined : await bcrypt.hash(password, 10);
+    const save = async (em: EntityManager) => {
       const u = await this.mustEditable(em, actor, id, true);
+      if (account !== undefined || hash !== undefined) {
+        if (u.isCompanyAdmin || !['part_time', 'temp'].includes(u.employmentType) || !can('resource.workforce.edit')) {
+          throw new ForbiddenException('没有设置兼职与临时工登录账号的权限');
+        }
+        if (!u.account && (!account || !hash)) throw new BadRequestException('建立账号时请同时设置登录账号和密码');
+        if (account && account !== u.account) {
+          const duplicate = await em.findOne(User, { where: { account } });
+          if ((duplicate && duplicate.id !== id) || await em.findOne(PlatformAdmin, { where: { account } })) throw new ConflictException('这个账号已经存在，请换一个');
+          u.account = account;
+        }
+        if (hash !== undefined) {
+          u.passwordHash = hash;
+          u.mustChangePassword = true;
+        }
+      }
       if ((input.positionId !== undefined || input.extraPositionIds !== undefined) && id === actor.id && !actor.permissions.isCompanyAdmin) throw new ForbiddenException('不能修改自己的岗位');
       if (input.name !== undefined) u.name = input.name.trim();
       if (input.departmentId !== undefined) { await this.mustDepartment(em, actor.companyId, input.departmentId); u.departmentId = input.departmentId; }
@@ -606,10 +647,25 @@ export class OrgAdminService {
       }
       if (input.payType !== undefined) u.payType = input.payType;
       if (input.hourlyRate !== undefined) u.hourlyRate = input.hourlyRate;
+      if (input.workforceData !== undefined) {
+        const [classification] = await em.query(
+          `SELECT ${unfiledTrialSql('u')} trial FROM users u WHERE u.company_id=? AND u.id=?`,
+          [actor.companyId, id],
+        );
+        if (Number(classification?.trial)) {
+          if (!u.account || u.passwordHash.startsWith('!')) throw new BadRequestException('请先设置登录账号和密码');
+          const positionIds = [u.positionId, ...(u.extraPositionIds ?? [])].filter((positionId): positionId is number => !!positionId);
+          const anchor = positionIds.length && await em.findOne(Position, {
+            where: { id: In(positionIds), companyId: actor.companyId, status: 'active', workspaceType: 'live_anchor' },
+          });
+          if (!anchor) throw new BadRequestException('请设置主播岗位');
+        }
+      }
       await em.save(u);
       await syncStaffWorkforce(em, actor, u, input, this.resources);
-      const { baseSalary: _salary, hourlyRate: _hourly, ...logged } = input;
-      await this.audit(em, actor, 'user.update', 'user', id, { ...logged });
+      if (password !== undefined) await this.storeStaffWorkforcePassword(em, actor, u, password);
+      const { baseSalary: _salary, hourlyRate: _hourly, password: _password, workforceData: _workforceData, ...logged } = input;
+      await this.audit(em, actor, 'user.update', 'user', id, { ...logged, ...(hash !== undefined ? { passwordChanged: true } : {}) });
       if (salaryChange) await this.audit(em, actor, 'user.salary', 'user', id, salaryChange);
       // 月薪、时薪或计薪方式变了：写一条薪资变更记录（员工档案的“薪资变更”里看）
       const payChanged = beforePay.type !== u.payType || (u.payType === 'hourly' ? beforePay.hourly !== (u.hourlyRate ?? null) : beforePay.base !== (u.baseSalary ?? null));
@@ -623,8 +679,15 @@ export class OrgAdminService {
           sourceType: 'employee_profile', actorId: actor.id, payPeriod: null, sourceId: null,
         });
       }
-    });
+    };
+    if (account) await accountTransaction(this.ds, account, save);
+    else await this.ds.transaction(save);
     return this.getStaff(actor, id);
+  }
+
+  private async storeStaffWorkforcePassword(em: EntityManager, actor: AuthUser, person: User, password: string) {
+    if (!this.crypto) throw new BadRequestException('未配置密码加密服务');
+    await storeWorkforcePassword(em, this.crypto, actor, person, password);
   }
 
   async setOverrides(actor: AuthUser, id: number, allow: string[], deny: string[]) {

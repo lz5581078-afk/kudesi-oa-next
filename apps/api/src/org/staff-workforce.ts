@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
-import { createChecker, todayShanghai, validateWorkforceTerms } from '@kudesi/shared';
+import { createChecker, getResourceDef, todayShanghai, validateWorkforceTerms } from '@kudesi/shared';
 import { EntityManager } from 'typeorm';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceRecord, User } from '../entities';
@@ -9,6 +9,7 @@ export interface StaffWorkforceTerms {
   employmentType?: 'regular' | 'part_time' | 'temp';
   contractStartDate?: string | null;
   contractEndDate?: string | null;
+  workforceData?: Record<string, unknown>;
 }
 
 export async function staffWorkforceRecord(em: EntityManager, companyId: number, userId: number) {
@@ -22,7 +23,7 @@ export async function staffWorkforceRecord(em: EntityManager, companyId: number,
 
 /** 只在明确编辑用工类型/合作期时联动；与员工更新使用同一事务，档案仍走通用资料引擎。 */
 export async function syncStaffWorkforce(em: EntityManager, actor: AuthUser, person: User, input: StaffWorkforceTerms, resources?: ResourcesService) {
-  if (input.employmentType === undefined && input.contractStartDate === undefined && input.contractEndDate === undefined) return;
+  if (input.employmentType === undefined && input.contractStartDate === undefined && input.contractEndDate === undefined && input.workforceData === undefined) return;
   const existing = await staffWorkforceRecord(em, actor.companyId, person.id);
   const can = createChecker(actor.permissions);
   const requireResources = () => {
@@ -30,7 +31,7 @@ export async function syncStaffWorkforce(em: EntityManager, actor: AuthUser, per
     return resources;
   };
   if (person.employmentType === 'regular') {
-    if (input.contractStartDate || input.contractEndDate) throw new BadRequestException('正式员工不设置兼职合作期限');
+    if (input.contractStartDate || input.contractEndDate || input.workforceData !== undefined) throw new BadRequestException('正式员工不设置兼职合作期限');
     if (existing && !existing.archivedAt) {
       if (!can('resource.workforce.edit')) throw new ForbiddenException('没有修改兼职与临时工档案的权限');
       await requireResources().setWorkforceHistory(em, actor, existing.id, true);
@@ -41,11 +42,15 @@ export async function syncStaffWorkforce(em: EntityManager, actor: AuthUser, per
   if (person.isCompanyAdmin) throw new BadRequestException('公司管理员不能列为兼职或临时工');
   const contractStartDate = input.contractStartDate !== undefined ? input.contractStartDate : existing?.data.contractStartDate ?? todayShanghai();
   const contractEndDate = input.contractEndDate !== undefined ? input.contractEndDate : existing?.data.contractEndDate ?? null;
-  const values = { employmentType: person.employmentType, contractStartDate, contractEndDate };
+  const details = Object.fromEntries(getResourceDef('workforce')!.fields
+    .filter(field => !field.readonly && field.key !== 'userId' && (!field.permission || can(field.permission)) &&
+      Object.prototype.hasOwnProperty.call(input.workforceData ?? {}, field.key))
+    .map(field => [field.key, input.workforceData![field.key]]));
+  const values = { ...details, employmentType: person.employmentType, contractStartDate, contractEndDate };
   const problem = validateWorkforceTerms(values);
   if (problem) throw new BadRequestException(problem);
   if (String(contractStartDate) < '1000-01-01') throw new BadRequestException('合作开始日期不合法');
-  const changed = !existing || !!existing.archivedAt || Object.entries(values).some(([key, value]) => (existing.data[key] ?? null) !== (value ?? null));
+  const changed = !existing || !!existing.archivedAt || existing.title !== person.name || (existing.data.account ?? '') !== (person.account ?? '') || Object.entries(values).some(([key, value]) => JSON.stringify(existing.data[key] ?? null) !== JSON.stringify(value ?? null));
   if (!changed) return;
   if (!can(existing ? 'resource.workforce.edit' : 'resource.workforce.create')) throw new ForbiddenException(existing ? '没有修改兼职与临时工档案的权限' : '没有创建兼职与临时工档案的权限');
   const service = requireResources();

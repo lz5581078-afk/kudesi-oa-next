@@ -10,6 +10,7 @@ const auth = { user: { permissions: { isCompanyAdmin: true, allow: [], deny: [] 
 vi.mock('../auth/AuthContext', () => ({ useAuth: () => auth }));
 vi.mock('./RecordForm', () => ({ RecordForm: () => <div>表单</div>, loadRefOptions: async () => [{ value: 3, label: '小王' }] }));
 vi.mock('./RecordDetail', async () => ({ RecordDetail: ({ id }: { id: number }) => <div>详情{id}</div>, useResourceCan: (await import('./useResourceCan')).useResourceCan }));
+vi.mock('../pages/org/StaffEditorDialog', () => ({ StaffEditorDialog: ({ id }: { id: number }) => <div>人员编辑{id}</div> }));
 vi.mock('./CategoryTree', () => ({ CategoryTree: () => null }));
 vi.mock('./api', async (orig) => {
   const mod = await orig<typeof import('./api')>();
@@ -33,7 +34,7 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.clearAllMocks(); Object.assign(def, orig); });
 
 describe('列表壳：配置驱动的能力入口', () => {
-  it.each([false, true])('兼职临时工页只保留新增账号，桌面/手机（%s）和空列表不再提供已有账号建档', async mobile => {
+  it.each([false, true])('兼职临时工页在桌面/手机（%s）空列表提供新增人员和试播登记', async mobile => {
     const original = window.matchMedia;
     window.matchMedia = ((query: string) => ({ matches: query.includes('max-width') ? mobile : !mobile, addEventListener() {}, removeEventListener() {} })) as never;
     try {
@@ -41,7 +42,8 @@ describe('列表壳：配置驱动的能力入口', () => {
       render(<MemoryRouter><ResourcePage type="workforce" /></MemoryRouter>);
       await screen.findByText('还没有兼职与临时工');
       if (mobile) fireEvent.click(screen.getByRole('button', { name: '更多' }));
-      expect(screen.getByRole('button', { name: '新增账号并建档' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: '新增人员' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: '新增试播主播' })).toBeTruthy();
       expect(screen.queryByRole('button', { name: '为已有账号建档' })).toBeNull();
       expect(screen.queryByRole('button', { name: /^＋ 新增/ })).toBeNull();
     } finally { window.matchMedia = original; }
@@ -56,7 +58,7 @@ describe('列表壳：配置驱动的能力入口', () => {
       expect(await screen.findByRole('button', { name: '记录' })).toBeTruthy();
       expect(screen.getByRole('button', { name: '停用' })).toBeTruthy();
       fireEvent.click(screen.getByRole('button', { name: '编辑' }));
-      expect(await screen.findByText('表单')).toBeTruthy();
+      expect(await screen.findByText('人员编辑7')).toBeTruthy();
       expect(screen.queryByText('详情5')).toBeNull();
     } finally { window.matchMedia = original; }
   });

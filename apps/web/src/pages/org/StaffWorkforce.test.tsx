@@ -53,3 +53,20 @@ it('各入口共用完整员工详情，回填已有合作期后再允许保存'
   fireEvent.click(screen.getByRole('button', { name: '保存' }));
   await waitFor(() => expect(orgApi.updateStaff).toHaveBeenCalledWith(7, expect.objectContaining({ contractStartDate: '2025-01-01', contractEndDate: '2099-01-01' })));
 });
+
+it('建立试播账号时在同一份人员编辑提交合作期、岗位、登录设置和档案内容', async () => {
+  const trial: StaffDetail = { ...person, account: '', name: '试播小白', employmentType: 'part_time', trial: true };
+  render(<StaffDialog staff={trial} all={[]} departments={[]} canSalary
+    positions={[{ id: 12, name: '主播', departmentId: null, workspaceType: 'live_anchor', permissions: [], userCount: 0,
+      level: 'staff', supervisorPositionId: null, description: null, status: 'active' }]}
+    workforce={{ record: null, canAccount: true, canPassword: true }} onClose={vi.fn()} onSaved={vi.fn()} />);
+  fireEvent.change(screen.getByLabelText('登录账号'), { target: { value: 'trial-profile' } });
+  fireEvent.change(screen.getByLabelText('登录密码'), { target: { value: 'New-password-800' } });
+  fireEvent.change(screen.getByLabelText('确认密码'), { target: { value: 'New-password-800' } });
+  fireEvent.change(screen.getByLabelText('手机号'), { target: { value: '13900000001' } });
+  fireEvent.click(screen.getByRole('button', { name: '保存' }));
+  await waitFor(() => expect(orgApi.updateStaff).toHaveBeenCalledWith(trial.id, expect.objectContaining({
+    account: 'trial-profile', password: 'New-password-800', positionId: 12, employmentType: 'part_time',
+    workforceData: { phone: '13900000001' },
+  })));
+});

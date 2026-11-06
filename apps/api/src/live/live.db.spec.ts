@@ -1267,6 +1267,7 @@ d('直播管理（真实数据库）', () => {
     const scheduleInput={date:'2027-01-05',roomId:room,anchorId:trial.id,controlId:cc.id,operatorId:null,douyinAccountId:account,storeId:shop,startTime:'10:00',endTime:'12:00'};
     await expect(schedules.create(manager,input(scheduleInput))).rejects.toThrow(/试播主播时薪/);
     const plan=await schedules.create(manager,input({...scheduleInput,trialHourlyRateCents:7250}));
+    const nextPlan=await schedules.create(manager,input({...scheduleInput,date:'2027-01-06',trialHourlyRateCents:7250}));
     const row=(await sessions.workbench(cc)).schedules.find(s=>s.id===plan.id)!;
     expect(row.anchorTrial).toBe(true);
     const start={actualCheckin:true,role:'control' as const,scheduleId:plan.id,scheduleFingerprint:row.fingerprint,confirmDetails:true,productIds:[ids.p1]};
@@ -1320,6 +1321,18 @@ d('直播管理（真实数据库）', () => {
     expect(final.commissions.some(c=>c.role==='anchor'&&c.userId===trial.id&&c.amountCents>0)).toBe(true);
     expect(await ds.query("SELECT id FROM audit_logs WHERE company_id=? AND resource_id=? AND action IN ('live.trial.start','live.trial.end')",[company,String(made.id)])).toHaveLength(2);
     expect(await ds.query('SELECT id FROM live_wage_records WHERE company_id=? AND session_id=? AND user_id=?',[company,made.id,trial.id])).toHaveLength(1);
+
+    const anchorPosition = await position(company, '建档后的主播岗', 'live_anchor');
+    await ds.query('UPDATE users SET position_id=? WHERE company_id=? AND id=?', [anchorPosition, company, trial.id]);
+    const filedAnchor = au(trial.id, company, trial.name, ['features.live-desk.view']);
+    clock('2027-01-06 10:00:00');
+    const next = (await sessions.workbench(filedAnchor)).schedules.find(s => s.id === nextPlan.id)!;
+    expect(next.anchorTrial).toBe(false);
+    const ordinary = await sessions.start(filedAnchor, {
+      actualCheckin: true, role: 'anchor', scheduleId: nextPlan.id, scheduleFingerprint: next.fingerprint, productIds: [ids.p1],
+    });
+    const ordinaryDetail = await sessions.detail(manager, ordinary.id);
+    expect(ordinaryDetail).toMatchObject({ anchorTrial: false, trialHourlyRateCents: null, anchor: { id: trial.id } });
   },30000);
 
   it.each([false,true])('中控实际下播按真实主播打卡结束房间（主播已上播=%s），排班不冒充打卡',async(anchorJoined)=>{

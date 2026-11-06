@@ -14,12 +14,15 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
-it('列表编辑直接使用原档案，按钮点击不触发整行查看', () => {
+it('只有用工编辑权限时保留档案字段编辑，按钮不触发整行查看', () => {
+  auth.user.permissions = { isCompanyAdmin: false, allow: ['resource.workforce.edit', 'org.staff.view', 'resource.workforce.disable'], deny: [] };
   const onEdit = vi.fn(), onOpen = vi.fn();
   render(<div onClick={onOpen}><WorkforceActions record={record} onEdit={onEdit} onLogs={() => undefined} onChanged={() => undefined} /></div>);
   fireEvent.click(screen.getByRole('button', { name: '编辑' }));
-  expect(onEdit).toHaveBeenCalledWith(record); expect(onOpen).not.toHaveBeenCalled();
-  expect(screen.getByRole('button', { name: '记录' })).toBeTruthy(); expect(screen.getByRole('button', { name: '停用' })).toBeTruthy();
+  expect(onEdit).toHaveBeenCalledWith(record);
+  expect(onOpen).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: '记录' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: '停用' })).toBeTruthy();
 });
 
 it('停用先填写原因，确认后仅调用统一资料状态接口并刷新', async () => {
