@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { ApiError } from '../../api/client';
 import { FlowFieldsForm } from './FlowFields';
 import { RunDetail } from './RunDetail';
-import { SKU_TEMPLATE, skuApi } from './SkuApply';
+import { SKU_TEMPLATE } from './SkuApply';
+import { SkuApplicationCenter } from './SkuApplicationCenter';
 import { flowApi, newRequestKey, type TemplateInfo } from './flowApi';
 import { remember } from './flowUi';
 
@@ -43,21 +44,7 @@ export function ApplyPage({initialTemplate,onClose,onSubmitted}:{initialTemplate
     setBusy(true);
     setError('');
     try {
-      const { splitSpecs, ...rest } = values;
-      const split = sel.key === SKU_TEMPLATE && splitSpecs === true && Array.isArray(rest.specs) && rest.specs.length > 1;
-      if (split) {
-        // 每个规格独立办理：拆成一规格一条流程；有失败的规格单独提示，已发起的不受影响
-        const out = await skuApi.startSplit(rest, keyRef.current);
-        if(!out.runs.length){setError(`所有规格均未发起成功：${out.failed.map(item=>`${item.specName}（${item.message}）`).join('；') || '请核对后重试'}`);return;}
-        keyRef.current = newRequestKey();
-        setSubmitted(`「${sel.label}」已拆成 ${out.runs.length} 条独立流程（${out.runs.map((r) => `#${r.id}`).join('、')}）${out.failed.length ? `；${out.failed.length} 个规格没发起成功：${out.failed.map((f) => `${f.specName}（${f.message}）`).join('；')}` : ''}。`);
-        setSel(null);
-        setValues({});
-        if(onSubmitted){onSubmitted(out.batchKey);return;}
-        if (out.runs[0]) setOpenRun(out.runs[0].id);
-        return;
-      }
-      const run = await flowApi.start(sel.key, rest, keyRef.current);
+      const run = await flowApi.start(sel.key, values, keyRef.current);
       keyRef.current = newRequestKey();
       const next = [sel.key, ...recent.filter((k) => k !== sel.key)].slice(0, 6);
       setRecent(next);
@@ -99,14 +86,15 @@ export function ApplyPage({initialTemplate,onClose,onSubmitted}:{initialTemplate
                 <ol className="step-progress">{t.steps.map((st, i) => <li key={`${st.name}${i}`}>{st.name}</li>)}</ol>
               </details>
             )}
-            {t.active
+            {t.active || t.key===SKU_TEMPLATE
               ? <button type="button" className="primary-button" onClick={() => { setSel(t); setValues({}); setError(''); setSubmitted(''); }}>发起申请</button>
               : <span className="pill warn">管理员还没有配置并启用</span>}
           </section>
         ))}
       </div>
       </>}
-      {sel && (
+      {sel?.key===SKU_TEMPLATE && <SkuApplicationCenter onClose={closeForm}/>}
+      {sel && sel.key!==SKU_TEMPLATE && (
         <div className="modal-backdrop" role="presentation">
           <form className="modal card" role="dialog" aria-label={`发起${sel.label}`} onSubmit={(e) => { e.preventDefault(); void submit(); }}>
             <div className="modal-head between"><strong>{sel.label}</strong><button type="button" className="icon-button" aria-label="关闭" onClick={closeForm}>✕</button></div>

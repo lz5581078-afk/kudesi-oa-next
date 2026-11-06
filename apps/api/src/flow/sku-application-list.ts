@@ -1,7 +1,8 @@
 import {DataSource} from 'typeorm';
 import type {AuthUser} from '../common/auth.decorators';
+import {SKU_GROUP_PATTERN} from './sku-batch-reference';
 const TEMPLATE='sku-batch-apply';
-const KEY="CASE WHEN REGEXP_LIKE(JSON_UNQUOTE(JSON_EXTRACT(r.payload, '$._batchKey')), '^B[0-9a-z]{1,19}$', 'c') THEN JSON_UNQUOTE(JSON_EXTRACT(r.payload, '$._batchKey')) ELSE CONCAT('run-',r.id) END";
+const KEY=`CASE WHEN REGEXP_LIKE(JSON_UNQUOTE(JSON_EXTRACT(r.payload, '$._batchKey')), '^(${SKU_GROUP_PATTERN})$', 'c') THEN JSON_UNQUOTE(JSON_EXTRACT(r.payload, '$._batchKey')) ELSE CONCAT('run-',r.id) END`;
 interface Header {id:number;batchRef:string;title:string;userId:number;createdAt:Date|string}
 interface Member {id:number;batchRef:string;title:string;batchName:string|null;status:string;requesterName:string;specCount:number;createdAt:Date|string;stepName:string|null;recipients:number[]|string|null;enteredVia:string|null}
 const recipients=(value:Member['recipients']):number[]=>{try{const rows=typeof value==='string'?JSON.parse(value):value;return Array.isArray(rows)?rows.filter(id=>Number.isSafeInteger(id)&&id>0):[];}catch{return [];}};

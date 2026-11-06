@@ -15,6 +15,19 @@ export interface JobOutcome { remoteId?: string; categoryAbsent?: boolean }
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
+export function assertArchiveBundleIdentity(original: unknown, remote: Record<string, unknown>) {
+  const expected = original as Record<string, unknown> | undefined;
+  if (!Array.isArray(expected?.childList) || !expected.childList.length) {
+    throw Object.assign(new Error('缺少原上传组成记录，请核对聚水潭原商品后再处理'), {permanentFailure:true});
+  }
+  const children = (value: unknown) => JSON.stringify(Array.isArray(value)
+    ? value.map(row => [String(row.src_sku_id), Number(row.qty)]).sort() : []);
+  const sameFields = ['i_id','name','properties_value'].every(key => !expected[key] || String(expected[key])===String(remote[key]));
+  if (!sameFields || children(expected.childList)!==children(remote.childList)) {
+    throw Object.assign(new Error('聚水潭组合装和原上传资料不一致，请核对原商品后再处理'), {permanentFailure:true});
+  }
+}
+
 async function priceLog(ds: DataSource, job: OutboxJob, status: string, message: string, extra: Record<string, unknown> = {}) {
   const p = job.payloadJson;
   await ds.query('INSERT INTO bundle_price_logs (company_id, bundle_id, status, price_cents, message, outbox_job_id, evidence_json) VALUES (?, ?, ?, ?, ?, ?, ?)',

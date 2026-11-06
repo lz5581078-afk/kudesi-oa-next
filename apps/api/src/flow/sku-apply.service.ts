@@ -1,3 +1,4 @@
+import {initialSkuWarehouseDraft} from './sku-warehouse-draft';
 import {skuDuplicateState} from './sku-duplicate-confirmation';
 import {bundleLaborUnit} from '../resources/bundle-component-validation';
 import {costCompositionFacts} from '../resources/cost-components';
@@ -104,7 +105,7 @@ export class SkuApplyService {
   async preview(user: AuthUser, runId: number,checkRevision?:number) {
     if(checkRevision!==undefined)return this.ds.transaction(async em=>{
       const run=await this.flow.lockRun(em,user,runId,checkRevision);
-      if(run.templateKey!==SKU_TEMPLATE||run.payload._applicationDraftOrigin!==true)throw new BadRequestException('此申请不支持原申请资料校验');
+      if (run.templateKey !== SKU_TEMPLATE) throw new BadRequestException('这不是 SKU 批量申请');
       const step=await em.findOne(FlowStep,{where:{companyId:user.companyId,runId,status:'active'},order:{seq:'DESC'}});
       const ownDraft=run.status==='draft'&&run.requesterId===user.id&&createChecker(user.permissions)('flow.apply.view');
       const mine=run.status==='running'&&step&&await em.findOne(WorkItem,{where:{companyId:user.companyId,runId,stepId:step.id,assigneeId:user.id,status:'open'}});
@@ -119,9 +120,14 @@ export class SkuApplyService {
     const runId=run.id;
     if (run.templateKey !== SKU_TEMPLATE) throw new BadRequestException('这不是 SKU 批量申请');
     const canCost = createChecker(user.permissions)('product.cost.view');
-    const activeWarehouse=run.payload._applicationDraftOrigin===true&&run.currentStepKey==='warehouse'?await em.findOne(FlowStep,{where:{companyId:user.companyId,runId,status:'active',stepKey:'warehouse'}}):null;
-    const savedWarehouse=activeWarehouse?.form?.config;
-    const wh = (Array.isArray(savedWarehouse)?savedWarehouse:run.payload._warehouse) as WarehouseSpec[]|undefined;
+    const applicationDraft = run.payload._applicationDraftOrigin === true;
+    const activeWarehouse = run.currentStepKey === 'warehouse' ? await em.findOne(FlowStep, {
+      where: { companyId: user.companyId, runId, status: 'active', stepKey: 'warehouse' },
+    }) : null;
+    const warehouse = activeWarehouse
+      ? (activeWarehouse.form ?? await initialSkuWarehouseDraft(em, run)).config
+      : run.payload._warehouse;
+    const wh = Array.isArray(warehouse) ? warehouse as WarehouseSpec[] : undefined;
     const created = (run.payload._created as CreatedBundle[] | undefined) ?? null;
     const specs = normalizeSpecs(run.payload.specs,{quantityScale:run.payload._applicationDraftOrigin===true?6:0}).specs;
     const label = async (type: string, id: number | null | undefined) => (id ? (await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type }, select: ['id', 'title'] }))?.title ?? '' : '');
@@ -132,9 +138,24 @@ export class SkuApplyService {
     };
     let plan: Awaited<ReturnType<typeof checkApplication>>['plan'] | null = null;
     let planError = '';
+    let applicationWarnings: string[] = [];
     // 已完成的申请不再做检查（编码已经生成，再预览会显示成“已有”）
     if (run.status === 'running'||run.status==='draft') {
-      try { if(activeWarehouse&&!wh)throw new BadRequestException('请先保存仓库配置，再查重与校验');if(wh&&!(run.payload._applicationDraftOrigin===true&&(run.status==='draft'||run.currentStepKey==='apply'))){const validation=normalizeWarehouse(wh,specs.map(spec=>spec.name),{quantityScale:run.payload._applicationDraftOrigin===true?6:3});if(validation.errors.length)throw new BadRequestException(validation.errors.join('；'));} plan = (await checkApplication(em, user, this.bundles, { ...run.payload }, { strict:run.payload._applicationDraftOrigin===true&&(run.status==='draft'||run.currentStepKey==='apply'), selfRunId: run.id, warehouse: wh,requireBrand:run.payload._applicationDraftOrigin===true,allowGeneratedDuplicates:run.payload._applicationDraftOrigin===true })).plan; } catch (e) { planError = (e as Error).message; }
+      try {
+        const checkingApplication = run.status === 'draft' || run.currentStepKey === 'apply';
+        if (activeWarehouse && !wh) throw new BadRequestException('请先保存仓库配置，再查重与校验');
+        if (wh && !checkingApplication) {
+          const validation = normalizeWarehouse(wh, specs.map(spec => spec.name), { quantityScale: applicationDraft ? 6 : 3 });
+          if (validation.errors.length) throw new BadRequestException(validation.errors.join('；'));
+        }
+        const checked = await checkApplication(em, user, this.bundles, { ...run.payload }, {
+          strict: checkingApplication, selfRunId: run.id,
+          warehouse: !applicationDraft && checkingApplication ? undefined : wh,
+          requireBrand: applicationDraft, allowGeneratedDuplicates: applicationDraft, includeApplicationWarnings: true,
+        });
+        plan = checked.plan;
+        applicationWarnings = checked.applicationWarnings;
+      } catch (e) { planError = (e as Error).message; }
     }
     const rows = [];
     for (const [i, s] of specs.entries()) {
@@ -160,7 +181,7 @@ export class SkuApplyService {
       batch: run.payload._batchKey ? { key: str(run.payload._batchKey), index: num(run.payload._splitIndex), total: num(run.payload._splitTotal) } : null,
       runId, status: run.status, batchName: str(run.payload.batchName), scenario: await label('finance-scenarios', num(run.payload.scenarioId)), platforms,
       ...(run.payload._applicationDraftOrigin===true&&plan&&!planError?await skuDuplicateState(em,user.companyId,run,run.payload,wh,plan):{generatedDuplicates:undefined,duplicateToken:undefined}),
-      warehouseDone: !!run.payload._warehouse&&!activeWarehouse, canCost, planError, specs: rows, costNote: '物料成本含人工，不含运费',
+      warehouseDone: !!run.payload._warehouse&&!activeWarehouse, canCost, planError, applicationWarnings, specs: rows, costNote: '物料成本含人工，不含运费',
     };
   }
 

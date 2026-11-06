@@ -43,3 +43,10 @@ it('我的申请显示真实数字编号和上海无秒；单页无额外分页�
 it('新建替换mine为单层弹窗，X和历史申请均同源回mine，历史入口刷新列表',async()=>{
  render(<Page/>);await screen.findByText('我的合成申请');let dialog=await openCreate();expect(screen.getAllByRole('dialog')).toHaveLength(1);expect(screen.queryByText('我的合成申请')).toBeNull();fireEvent.click(within(dialog).getByRole('button',{name:'关闭新建申请'}));await screen.findByText('我的合成申请');dialog=await openCreate();const before=mocks.runs.mock.calls.length;fireEvent.click(within(dialog).getByRole('button',{name:'历史申请'}));await screen.findByText('我的合成申请');await waitFor(()=>expect(mocks.runs.mock.calls.length).toBeGreaterThan(before));
 });
+it('隐藏退役历史版本，新建优先使用当前已发布版本',async()=>{
+ const live={...draftTemplate,id:6,version:3,status:'active',label:'当前版本'};
+ mocks.draftTemplates.mockResolvedValue({templates:[{...draftTemplate,id:9,version:4,label:'草稿版本'},live,{...draftTemplate,id:3,version:1,status:'retired',label:'历史版本'}]});
+ render(<Page/>);const dialog=await openCreate();await searchAndNext(dialog);
+ expect((within(dialog).getByLabelText('流程模板') as HTMLSelectElement).value).toBe('6');
+ expect(within(dialog).queryByRole('option',{name:/历史版本/})).toBeNull();
+});

@@ -34,4 +34,27 @@ describe('SKU 迁移口径', () => {
     expect(rule.data).toMatchObject({ categoryId: { legacyRef: { type: 'finance-categories', id: 'c:supplier_oem' } }, codeFields: 'brand,variety,totalSpec', stylePrefix: '', nameOverrides: 'category=旧编码分类' });
     expect(out.records.find(r => r.type === 'finance-bundles')?.data.brandId).toEqual({ legacyRef: { type: 'finance-brands', id: 'brand:组合品牌' } });
   });
+  it('保留来源目录上的显式父规则；不把继承物化为子规则，也不要求档案分类已引用', async () => {
+    const out = await readFakeLegacy({
+      companies: [{ id: 7, name: '测试公司' }],
+      finance_product_code_dictionary: [
+        { id: 11, company_id: 7, dictionary_type: 'product_category', item_name: '根分类', item_code: 'ROOT', status: 'active' },
+        { id: 12, parent_id: 11, company_id: 7, dictionary_type: 'product_category', item_name: '子分类', item_code: 'CHILD', status: 'active' },
+      ],
+      finance_bundle_naming_rules: [{
+        company_id: 7, category_id: 11, rule_json: { prefix: 'ZH-', namePrefix: '', stylePrefix: true,
+          codeFields: ['custom','variety'], nameFields: ['category','custom'], customCode: 'ABC',
+          customName: '自定义名称', nameOverrides: { category: '指定类目' } },
+      }],
+    });
+    expect(out.records.filter(row => row.type === 'finance-bundle-naming-rules')).toEqual([{
+      type: 'finance-bundle-naming-rules', id: 'code:11', status: 'active', data: {
+        codeDictionaryCategoryId: { legacyRef: { type: 'finance-code-dictionaries', id: '11' } },
+        prefix: 'ZH-', namePrefix: '', stylePrefix: 'ZH-', codeFields: 'custom,variety', nameFields: 'category,custom',
+        customCode: 'ABC', customName: '自定义名称', codeOverrides: '', nameOverrides: 'category=指定类目',
+      },
+    }]);
+    expect(out.exclusions.filter(row => row.type === 'finance-bundle-naming-rules')).toEqual([]);
+  });
+
 });

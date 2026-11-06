@@ -30,9 +30,10 @@ export interface BatchItem { runId: number; revision: number; stepId?: number | 
 export interface BatchBoard {
   ref: string; batchKey: string | null; batchName: string; requesterName: string; total: number; runCount: number;
   applicationHeader?:ApplicationHeader;
+  workflowSteps?:ApplicationHeader['steps'];
   counts: { draft?:number;running: number; completed: number; ended: number; returned: number; mine: number };
   me: { isRequester: boolean; holdStepKey: string | null; holdStepName: string; holdCount: number; canReturnAll: boolean };
-  items: Array<{ runId: number; canEditDraft?:boolean; specIndex: number; specName: string; specCount: number; runStatus: string; revision: number; stepId: number | null; stepKey: string | null; stepName: string; enteredVia: string | null; dueAt: string | null; overdue: boolean; recipients: string[]; mine: boolean; canResubmit: boolean; returnReason: string | null; returnedBy: string | null; returnedAt: string | null }>;
+  items: Array<{ runId: number; canEditDraft?:boolean; canSaveWarehouseDraft?:boolean; specIndex: number; specName: string; specCount: number; runStatus: string; revision: number; stepId: number | null; stepKey: string | null; stepName: string; stepType?: string | null; enteredVia: string | null; dueAt: string | null; overdue: boolean; recipients: string[]; mine: boolean; canResubmit: boolean; returnReason: string | null; returnedBy: string | null; returnedAt: string | null }>;
   history: Array<{ id: number; runId: number; action: string; note: string | null; actorName: string; createdAt: string; specNames: string[] }>;
 }
 export interface BatchOutcome { results: Array<{ runId: number; ok: boolean; message?: string }>; ok: number; failed: number }
@@ -325,6 +326,7 @@ export function SkuWarehouseFields({ specs, values, onChange,sourceQuantity=fals
 }
 
 export interface SkuPreviewDto {
+  applicationWarnings?: string[];
   generatedDuplicates?:Array<{id:number;code:string;name:string}>;duplicateToken?:string;
   batch?: { key: string; index: number | null; total: number | null } | null;
   runId: number; status: string; batchName: string; scenario: string; platforms: Array<{ id: number; name: string }>; warehouseDone: boolean; canCost: boolean; planError: string; costNote: string;
@@ -362,6 +364,7 @@ function SkuPreviewView({ runId, refreshKey }: { runId: number; refreshKey: numb
       {data.batch && <BatchPeers batchKey={data.batch.key} runId={runId} index={data.batch.index} total={data.batch.total} />}
       <p className="muted">销售场景：{data.scenario} · 销售平台：{data.platforms.map((p) => p.name).join('、')} · {data.warehouseDone ? '仓库已提交配置' : '仓库还没有提交配置'}</p>
       {data.planError && <div role="alert" className="notice error">{data.planError}</div>}
+      {!!data.applicationWarnings?.length && <p className="notice">其他未完成申请有相同主商品及数量：{data.applicationWarnings.join("、")}。请核对，编码未冲突时可继续。</p>}
       {data.specs.map((s) => (
         <section key={s.name} className="sku-spec card">
           <strong>{s.name}</strong>
