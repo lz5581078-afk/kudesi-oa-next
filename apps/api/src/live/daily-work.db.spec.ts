@@ -342,6 +342,28 @@ d('排班日常工作（真实MySQL）', () => {
     );
     expect(after.status).toBe('approved');
   });
+  it('直播待审核包含历史提交，审核后工资按本人和公司隔离且不含待审金额', async () => {
+    const r = await schedule(control, '2026-12-02');
+    clock('2026-12-02 09:00:00');
+    await service.start(control, r.id);
+    clock('2026-12-02 09:30:00');
+    await service.finish(control, r.id, '设备整理完成');
+    const submitted = await service.submit(control, r.id);
+    clock('2027-01-02 09:00:00');
+    expect((await service.ledger(boss, 'review')).rows.some(x => x.id === r.id)).toBe(true);
+    expect((await service.ledger(control, 'wages', '2026-12')).summary?.amountCents).toBe(0);
+    await expect(service.ledger(control, 'review')).rejects.toThrow(/权限/);
+    const run = await flow.detail(boss, submitted.runId);
+    await flow.pass(boss, run.id, { revision: run.revision, stepId: run.activeStep!.id, form: {} });
+    expect((await service.ledger(boss, 'review')).rows.some(x => x.id === r.id)).toBe(false);
+    const wages = await service.ledger(control, 'wages', '2026-12');
+    expect(wages.summary).toEqual({ amountCents: 3000, minutes: 30 });
+    expect(wages.rows.map(x => x.id)).toEqual([r.id]);
+    expect((await service.ledger(anchor, 'wages', '2026-12')).total).toBe(0);
+    expect((await service.ledger(foreign, 'wages', '2026-12')).total).toBe(0);
+    await expect(service.ledger(boss, 'wages', '2026-13')).rejects.toThrow(/月份/);
+    await expect(service.ledger(boss, 'review', undefined, '0')).rejects.toThrow(/页码/);
+  });
   it('人工修正工资也检查重叠；相邻工时不冲突，跨公司隔离', async () => {
     await expect(
       ds.transaction((em) =>
