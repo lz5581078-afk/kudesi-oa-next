@@ -55,7 +55,7 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
   const value = values[field.key] ?? '';
   const flat = field.ref === 'user' || field.ref === 'department';
   const [reload, setReload] = useState(0);
-  const queryKey = JSON.stringify([type, field.key, tab, status, showHidden, reloadKey, reload]);
+  const queryKey = JSON.stringify([type, field.key, tab, status, showHidden, ...(referenceProduct ? [] : [reloadKey, reload])]);
   const [loadedTree, setLoadedTree] = useState<{ key: string; result: CategoryTreeResult } | null>(null);
   const tree = loadedTree?.key === queryKey ? loadedTree.result : null;
   const [error, setError] = useState('');
@@ -78,12 +78,12 @@ function BrowseTree({ type, fields, tab, status, showHidden, values, reloadKey, 
   useEffect(() => { setKw(''); setAdding(null); setRenaming(null); if (!manageable) setManage(false); }, [field.key, manageable]);
   useEffect(() => {
     let alive = true;
-    setLoadedTree(null);
+    if (!referenceProduct) setLoadedTree(null);
     resourceApi.categoryTree(type, { field: field.key, tab: tab || undefined, status: status || undefined, showHidden })
       .then((r) => { if (alive) { setLoadedTree({ key: queryKey, result: r }); setError(''); } })
       .catch(() => alive && setError('分类目录加载失败'));
     return () => { alive = false; };
-  }, [type, field.key, tab, status, showHidden, reloadKey, reload]);
+  }, [type, field.key, tab, status, showHidden, reloadKey, reload, queryKey, referenceProduct]);
 
   const kids = useMemo(() => {
     const m = new Map<number, Node[]>();
