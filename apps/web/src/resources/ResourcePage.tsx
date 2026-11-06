@@ -215,6 +215,7 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
   useEffect(()=>{setProductTemplateBusy(false);},[productTransferScope]);
   useEffect(()=>{referenceTransferMounted.current=true;referenceImportSequence.current++;referenceImportPending.current=false;setReferenceImportBusy(false);return()=>{referenceTransferMounted.current=false;referenceImportSequence.current++;};},[referenceTransferScope]);
   const [data, setData] = useState<ListResult | null>(null);
+  const [productDirectoryRevision, setProductDirectoryRevision] = useState(0);
   const directoryTotal=useRef<number|undefined>(undefined);
   if(data)directoryTotal.current=data.total;
   const [error, setError] = useState('');
@@ -328,7 +329,7 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
   }, [searchParams, setSearchParams, type]);
 
   const listRequest=useRef(0);
-  const load = useCallback(async () => {
+  const fetchList = useCallback(async () => {
     const serial=++listRequest.current;
     try {
       const result=await resourceApi.list(type, { page: wantGroup ? 1 : page, pageSize: wantGroup ? 200 : pageSize, keyword:referenceFee?undefined:keyword.trim()||undefined, referenceSearch:referenceFee?keyword.trim()||undefined:undefined, referenceOrder:referenceFee||undefined, tab: tab || undefined, status: status || undefined, showHidden, archived, expiring, sortBy: sort?.by, sortDir: sort?.dir, filters: filterVals, colFilters });
@@ -353,14 +354,19 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
     }
   }, [expenseSort?.revision,referenceList,referenceListIdentity,referenceArchive,referenceFee,type, page, keyword, tab, status, showHidden, archived, expiring, pageSize, sort, filterVals, colFilters, wantGroup]);
 
+  // The product directory counts the whole archive, independently of list filters.
+  const load = useCallback(() => {
+    if (referenceProduct) setProductDirectoryRevision(revision => revision + 1);
+    return fetchList();
+  }, [referenceProduct, fetchList]);
   const currentLoad=useRef(load);currentLoad.current=load;
   useEffect(() => { setArchived(false); setExpiring(false); setSort(null); }, [type]);
 
   useEffect(() => {
     if(referenceList){listRequest.current++;setData(null);}
-    const t = setTimeout(() => void load(), 200); // 输入搜索时稍作防抖
+    const t = setTimeout(() => void fetchList(), 200); // 输入搜索时稍作防抖
     return () => {clearTimeout(t);if(referenceList)listRequest.current++;};
-  }, [load,referenceList]);
+  }, [fetchList,referenceList]);
 
   const workforceActions = (row: ResourceDto) => <span className="workforce-actions" onClick={e => e.stopPropagation()}>
     <WorkforceActions record={row} onEdit={setEditRow} onLogs={() => { setDetailTab('logs'); setSelected(row.id); }} onChanged={() => void load()} />
@@ -769,6 +775,7 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
       <div className={browseFields.length ? 'res-body with-tree' : 'res-body'}>
         {browseFields.length > 0 && (
           <CategoryTree
+            key={referenceProduct ? referenceListIdentity : undefined}
             referenceProduct={referenceProduct}
             type={type}
             fields={browseFields}
@@ -776,7 +783,7 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
             status={status}
             showHidden={showHidden}
             values={filterVals}
-            reloadKey={referenceArchive?directoryTotal.current:data?.total}
+            reloadKey={referenceProduct ? productDirectoryRevision : referenceArchive ? directoryTotal.current : data?.total}
             onPath={setPath}
             rootId={hier?.rootId}
             onBack={hier?.onBack}
@@ -785,7 +792,7 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
             onLeaf={hier ? setLeaf : undefined}
             canManage={(f) => Boolean(def.treeManage?.includes(f.key) && f.ref && me && createChecker(me.permissions)(resourcePermission(permissionOwner(f.ref), 'edit')))}
             canCreate={f=>Boolean(f.ref&&me&&createChecker(me.permissions)(resourcePermission(permissionOwner(f.ref),'create')))}
-            onChanged={() => void load()}
+            onChanged={() => void fetchList()}
             onSelect={(key, id) => { if (gridLocked) return; setFilterVals((v) => ({ ...v, [key]: !id && rootVal && key === treeField?.key ? rootVal : id })); setPage(1); }}
           />
         )}
