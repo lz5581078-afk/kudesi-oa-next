@@ -1,6 +1,6 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const {JSDOM}=require('jsdom');
-const {allowedJst,oaOrigin,allowedOaNavigation,feishuClientLink,isAfterSalesLaunch,trustedSender,boundsOf,pngBytes}=require('../src/security.cjs');
+const {allowedJst,oaOrigin,allowedOaNavigation,feishuClientLink,isAfterSalesLaunch,isAfterSalesSourceLaunch,trustedSender,boundsOf,pngBytes}=require('../src/security.cjs');
 const {extractVisible,mergeFrames}=require('../src/extractor.cjs');
 test('only exact HTTPS platform hosts, never lookalikes, credentials or local URLs',()=>{
  assert.equal(allowedJst('https://erp321.com/epaas'),true);assert.equal(allowedJst('https://innerorder.scm121.com/afterSales'),true);
@@ -46,6 +46,9 @@ test('the website protocol accepts only the fixed after-sales launch action',()=
  assert.equal(isAfterSalesLaunch('kudesi-oa://after-sales'),true);
  assert.equal(isAfterSalesLaunch('KUDESI-OA://AFTER-SALES/'),true);
  for(const value of ['kudesi-oa://after-sales?url=https://example.com','kudesi-oa://after-sales#access_token=x','kudesi-oa://after-sales/other','kudesi-oa://after-sales.example.com','kudesi-oa://user@after-sales','https://after-sales'])assert.equal(isAfterSalesLaunch(value),false);
+ assert.equal(isAfterSalesSourceLaunch('kudesi-oa://after-sales/source'),true);
+ assert.equal(isAfterSalesSourceLaunch('kudesi-oa://after-sales'),false);
+ assert.equal(isAfterSalesSourceLaunch('kudesi-oa://after-sales/source?url=https://example.com'),false);
 });
 test('native bounds clamp to content viewport and reject non-finite values',()=>{
  assert.deepEqual(boundsOf({x:-20,y:20,width:1200,height:900},[800,600]),{x:0,y:20,width:800,height:580});
@@ -90,4 +93,17 @@ test('visible order form values are captured, hidden and password fields are nev
 test('legacy JT grid maps archived source labels and ignores hidden refund-account columns',()=>{
  const r=runDom('<p>演示公司 [客服]</p><div><div><div><div class="_jt_cell_head">售后单号</div><div class="_jt_cell_head">内部订单号</div><div class="_jt_cell_head">申请日期</div><div class="_jt_cell_head">状态</div><div hidden class="_jt_cell_head">买家退款账号</div></div></div><div class="_jt_row"><div>85110001</div><div><a>4400001</a></div><div>2025-10-09 12:00:00</div><div>已确认</div><div>never-read-bank</div></div></div>','https://erp321.com/app/Service/aftersale/aftersale.aspx');
  assert.equal(r.rows.length,1);assert.equal(r.rows[0].fields['申请时间'],'2025-10-09 12:00:00');assert.equal(r.rows[0].fields['售后单状态'],'已确认');assert.equal(JSON.stringify(r).includes('never-read-bank'),false);
+});
+test('each archived source field can be captured from its visible list column',()=>{
+ const fs=require('node:fs'),path=require('node:path');
+ const shared=fs.readFileSync(path.join(__dirname,'../../../packages/shared/src/desktop-after-sales.ts'),'utf8');
+ const block=shared.match(/export const AFTER_SALES_FIELDS = \[(.*?)\] as const;/)[1];
+ const fields=[...block.matchAll(/'([^']+)'/g)].map(m=>m[1]);
+ const r=runDom(`<table><thead><tr><th>售后单号</th><th>内部订单号</th>${fields.map(f=>`<th>${f}</th>`).join('')}</tr></thead><tbody><tr><td>85110001</td><td>4400001</td>${fields.map((_,i)=>`<td>字段 ${i}</td>`).join('')}</tr></tbody></table>`,'https://erp321.com/epaas');
+ assert.deepEqual(Object.keys(r.rows[0].fields),fields);
+ assert.equal(r.rows[0].fields[fields.at(-1)],`字段 ${fields.length-1}`);
+});
+test('list aliases, icon labels and hidden field cells are handled without reading image URLs',()=>{
+ const r=runDom('<table><thead><tr><th>售后单号</th><th>内部订单号</th><th>申请日期</th><th>买家图片凭证</th><th>卖家退款账号</th></tr></thead><tbody><tr><td>85110001</td><td>4400001</td><td>2026-11-06 10:00:00</td><td><img alt="买家凭证" src="https://example.test/private"></td><td hidden>不读取</td></tr></tbody></table>','https://erp321.com/epaas');
+ assert.deepEqual({...r.rows[0].fields},{申请时间:'2026-11-06 10:00:00',买家图片凭证:'买家凭证'});
 });

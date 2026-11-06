@@ -12,6 +12,9 @@ function isAfterSalesLaunch(value) {
   const normalized = value.toLowerCase();
   return normalized === launch || normalized === launch + '/';
 }
+function isAfterSalesSourceLaunch(value) {
+  return typeof value === 'string' && value.toLowerCase() === launch + '/source';
+}
 function allowedJst(url, {subframe=false} = {}) {
   try { const u = new URL(url); return u.protocol === 'https:' && !u.username && !u.password && (!u.port || u.port === '443') && (JST_HOSTS.has(u.hostname) || (subframe && u.hostname === 'src.erp321.com')); } catch { return false; }
 }
@@ -63,4 +66,4 @@ function replaceShortcut(shortcuts, previous, value, callback) {
   if(typeof previous==='string'&&value!==previous)shortcuts.unregister(previous);
   return true;
 }
-module.exports = { allowedJst, oaOrigin, allowedOaNavigation, feishuClientLink, isAfterSalesLaunch, trustedSender, boundsOf, pngBytes, replaceShortcut };
+module.exports = { allowedJst, oaOrigin, allowedOaNavigation, feishuClientLink, isAfterSalesLaunch, isAfterSalesSourceLaunch, trustedSender, boundsOf, pngBytes, replaceShortcut };

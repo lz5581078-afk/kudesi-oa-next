@@ -8,14 +8,16 @@ const desktopRoutes=require('../build/navigation.json');
 const {createRequestWatch}=require('./request-watch.cjs');
 const fs = require('node:fs/promises');
 const {writePngClipboard}=require('./native.cjs');
-const { allowedJst, oaOrigin, allowedOaNavigation, feishuClientLink, isAfterSalesLaunch, trustedSender, boundsOf, pngBytes, replaceShortcut } = require('./security.cjs');
+const { allowedJst, oaOrigin, allowedOaNavigation, feishuClientLink, isAfterSalesLaunch, isAfterSalesSourceLaunch, trustedSender, boundsOf, pngBytes, replaceShortcut } = require('./security.cjs');
 const { extractVisible, mergeFrames, openVisibleOrder } = require('./extractor.cjs');
 app.setAppUserModelId('com.kudesi.oa.desktop');
 let win, workspace, view, localHost, latestView, collector, localReader, latestReader, shot, tray, origin, jstSession, mounted = false, quitting = false;
+let sourceWindow, pendingSource = process.argv.some(isAfterSalesSourceLaunch);
 const popups = new Set();
 let accelerator = 'CommandOrControl+Shift+S';
 let captureContext = null,readGeneration=0;
 const sourceLoads = new Map();
+const loginRetryAt = new WeakMap();
 let requestWatch;
 let readyToOpen = false, pendingAfterSales = process.argv.some(isAfterSalesLaunch), pendingMain = false;
 let sourceNavigationPending = false, sourceNavigation;
@@ -35,10 +37,24 @@ async function ensureView(target){
   throw error;
  }
 }
-async function prepare(target){
+async function prepare(target,retryLogin=false){
  await ensureView(target);
- const raw=await target.webContents.mainFrame.executeJavaScript(`(${extractVisible.toString()})()`);
+ const readCompany=()=>target.webContents.mainFrame.executeJavaScript(`(${extractVisible.toString()})()`);
+ let raw=await readCompany();
+ if(retryLogin&&!raw.sourceCompany&&Date.now()-(loginRetryAt.get(target)??0)>30000){
+  loginRetryAt.set(target,Date.now());
+  sourceLoads.delete(target);
+  await ensureView(target);
+  raw=await readCompany();
+ }
  return {sourceCompany:raw.sourceCompany||''};
+}
+async function prepareCollection(){
+ const result=await prepare(latestView,true);
+ if(!result.sourceCompany)return result;
+ if(await latestReader.hasCurrent())return result;
+ await latestReader.openCurrent();
+ return await latestReader.hasCurrent()?result:{sourceCompany:''};
 }
 const icon = path.join(__dirname, '../build/icon.png');
 function reloadPage(contents, ignoreCache = false) {
@@ -55,7 +71,7 @@ function registerWindowsRefresh(contents, refresh = ignoreCache => reloadPage(co
     refresh(input.control && (f5 || input.shift));
   });
 }
-function guardJst(contents,background=false) {
+function guardJst(contents,background=false,visibleSource) {
   if (!background) registerWindowsRefresh(contents, ignoreCache=>{
     if(mounted&&contents===view?.webContents)sourceNavigationPending=true;
     reloadPage(contents,ignoreCache);
@@ -70,11 +86,12 @@ function guardJst(contents,background=false) {
   contents.setWindowOpenHandler(({url}) => {
     if(!allowedJst(url)&&!(url==='about:blank'&&!background))return {action:'deny'};
     return {action:'allow',overrideBrowserWindowOptions:{
-      parent:background ? collector : workspace ?? localHost,show:!background&&mounted,width:1100,height:820,icon,
+      parent:visibleSource??(background ? collector : workspace ?? localHost),show:!!visibleSource||(!background&&mounted),width:1100,height:820,icon,
       webPreferences:{session:jstSession,sandbox:true,nodeIntegration:false,contextIsolation:true},
     }};
   });
   contents.on('did-create-window', child => {
+    if(visibleSource){guardJst(child.webContents,false,child);return;}
     child.oaBackground=background;
     child.oaReadGeneration=readGeneration;
     popups.add(child);
@@ -165,6 +182,11 @@ function openMain() {
   target.on('closed',()=>{if(win===target)win=null;});
 }
 function handleLaunch(args=[]) {
+  if(args.some(isAfterSalesSourceLaunch)){
+    if(readyToOpen)openSourceWindow();
+    else pendingSource=true;
+    return;
+  }
   const afterSales=args.some(isAfterSalesLaunch);
   if(!readyToOpen){
     if(afterSales)pendingAfterSales=true;
@@ -173,6 +195,30 @@ function handleLaunch(args=[]) {
   }
   if(afterSales)openAfterSales();
   else openMain();
+}
+function openSourceWindow(){
+  if(sourceWindow&&!sourceWindow.isDestroyed()){showWindow(sourceWindow);return true;}
+  const target=new BrowserWindow({title:'聚水潭售后',width:1440,height:960,icon,
+    webPreferences:{session:jstSession,sandbox:true,contextIsolation:true,nodeIntegration:false}});
+  sourceWindow=target;
+  const reader=createReader(target.webContents,()=>ensureView(target));
+  let entering=false;
+  const enter=async()=>{
+    if(entering)return;
+    entering=true;
+    try{
+      for(let attempt=0;attempt<20&&!target.isDestroyed();attempt++){
+        try{if(await reader.openCurrent())break;}catch{/* login or ERP tabs are still loading */}
+        await new Promise(resolve=>setTimeout(resolve,400));
+      }
+    }finally{entering=false;}
+  };
+  guardJst(target.webContents,false,target);
+  target.on('closed',()=>{sourceLoads.delete(target);if(sourceWindow===target)sourceWindow=null;});
+  target.webContents.on('did-finish-load',()=>{void enter();});
+  target.webContents.on('did-navigate-in-page',()=>{void enter();});
+  void ensureView(target).catch(e=>{if(!target.isDestroyed())showError(e);});
+  return true;
 }
 function resetWorkspace() {
   hideSource();
@@ -202,12 +248,12 @@ async function createWindow() {
   latestView=new WebContentsView({webPreferences:{session:jstSession,sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
   latestView.setBounds({x:0,y:0,width:1440,height:1000});
   guardJst(latestView.webContents,true);
-  localReader=createReader(view.webContents,()=>ensureView(view),requestWatch.forContents(view.webContents.id));
-  latestReader=createReader(latestView.webContents,()=>ensureView(latestView),requestWatch.forContents(latestView.webContents.id));
+  localReader=createReader(view.webContents,()=>prepare(view,true),requestWatch.forContents(view.webContents.id));
+  latestReader=createReader(latestView.webContents,()=>prepare(latestView,true),requestWatch.forContents(latestView.webContents.id));
   const resumeSourceNavigation=()=>{if(mounted&&sourceNavigationPending)void openSourceAfterSales().catch(()=>{});};
   view.webContents.on('did-finish-load',resumeSourceNavigation);
   view.webContents.on('did-navigate-in-page',resumeSourceNavigation);
-  try{const saved=JSON.parse(await fs.readFile(path.join(app.getPath('userData'),'collection.json'),'utf8'));if(/^[\da-f-]{36}$/i.test(saved.clientId))collectionPreferences={clientId:saved.clientId,enabled:!!saved.enabled,sourceCompany:typeof saved.sourceCompany==='string'?saved.sourceCompany:''};}catch{/* first launch */}
+  try{const saved=JSON.parse(await fs.readFile(path.join(app.getPath('userData'),'collection.json'),'utf8'));if(/^[\da-f-]{36}$/i.test(saved.clientId))collectionPreferences={clientId:saved.clientId,enabled:!!saved.enabled,sourceCompany:typeof saved.sourceCompany==='string'?saved.sourceCompany:'',companyId:Number.isSafeInteger(saved.companyId)?saved.companyId:undefined};}catch{/* first launch */}
   await fs.writeFile(path.join(app.getPath('userData'),'collection.json'),JSON.stringify(collectionPreferences))
     .catch(error=>console.error('无法保存本机采集设置',error.code));
   // An ordinary OA renderer owns its auth session. The native process never handles OA bearer tokens.
@@ -223,7 +269,8 @@ async function createWindow() {
   registerShortcut(accelerator);
   readyToOpen=true;
   if(pendingAfterSales)openAfterSales();
-  if(!pendingAfterSales||pendingMain)openMain();
+  if(pendingSource)openSourceWindow();
+  if((!pendingAfterSales&&!pendingSource)||pendingMain)openMain();
 }
 function openSourceAfterSales(){
   if(!mounted)return false;
@@ -299,9 +346,10 @@ ipcMain.handle('oa:desktop',async(event,command,value)=>{
     return true;
   }
   const foreground=trustedSender(event,workspace,origin)&&new URL(event.senderFrame.url).pathname===desktopRoutes.workspace;
+  const mainWorkspace=trustedSender(event,win,origin)&&new URL(event.senderFrame.url).pathname===desktopRoutes.workspace;
   const background=trustedSender(event,collector,origin)&&new URL(event.senderFrame.url).pathname===desktopRoutes.collector;
-  if(!foreground&&!background)throw new Error('无权限调用桌面功能');
-  if(background&&!['preferences','prepareLatest','latest'].includes(command))throw new Error('后台采集不可操作原单或桌面');
+  if(!foreground&&!background&&!(mainWorkspace&&['openSourceWindow','query'].includes(command)))throw new Error('无权限调用桌面功能');
+  if(background&&!['preferences','prepareLatest','joinCollection','latest'].includes(command))throw new Error('后台采集不可操作原单或桌面');
   if(command==='latest'&&!background)throw new Error('最新协同轮次只能由后台采集器执行');
   switch(command) {
     case 'mount': {
@@ -321,13 +369,25 @@ ipcMain.handle('oa:desktop',async(event,command,value)=>{
     }
     case 'hide': hideSource();return true;
     case 'openSourceAfterSales': return openSourceAfterSales();
+    case 'openSourceWindow': return openSourceWindow();
     case 'preferences': return {shortcut:accelerator,registered:globalShortcut.isRegistered(accelerator),collection:collectionPreferences};
     case 'collection': {
       if(!value||typeof value.enabled!=='boolean'||typeof value.sourceCompany!=='string'||value.sourceCompany.length>100)throw new Error('采集设置无效');collectionPreferences={...collectionPreferences,enabled:value.enabled,sourceCompany:value.sourceCompany.trim()};
       await fs.writeFile(path.join(app.getPath('userData'),'collection.json'),JSON.stringify(collectionPreferences));return true;
     }
     case 'prepare': return prepare(view);
-    case 'prepareLatest': return prepare(latestView);
+    case 'prepareLatest': return prepareCollection();
+    case 'joinCollection': {
+      if(!background||!value||!Number.isSafeInteger(value.companyId)||value.companyId<1||
+        typeof value.sourceCompany!=='string'||!value.sourceCompany||value.sourceCompany.length>100)return false;
+      if(collectionPreferences.companyId&&collectionPreferences.companyId!==value.companyId)return false;
+      const {sourceCompany}=await prepareCollection();
+      if(sourceCompany!==value.sourceCompany)return false;
+      const next={...collectionPreferences,companyId:value.companyId,sourceCompany,enabled:true};
+      await fs.writeFile(path.join(app.getPath('userData'),'collection.json'),JSON.stringify(next));
+      collectionPreferences=next;
+      return true;
+    }
     case 'query': return localReader.query(value,false);
     case 'latest': {
       if(!collectionPreferences.enabled)throw new Error('本机最新采集已停止');
@@ -390,7 +450,7 @@ ipcMain.handle('shot:finish',async(event,{action,image})=>{
 if(!app.requestSingleInstanceLock())app.quit();else{
   app.on('second-instance',(_,argv)=>handleLaunch(argv));
   app.on('open-url',(event,url)=>{
-    if(!isAfterSalesLaunch(url))return;
+    if(!isAfterSalesLaunch(url)&&!isAfterSalesSourceLaunch(url))return;
     event.preventDefault();
     handleLaunch([url]);
   });

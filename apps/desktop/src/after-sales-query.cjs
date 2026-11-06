@@ -27,7 +27,9 @@ function domQuery(command,query){
  if(command==='state'){
   const body=document.body?.innerText??'';
   const legacy=!!document.querySelector('._jt_cell_head');
-  const total=body.match(/共\s*([\d,]+)\s*条/)?.[1]??body.match(/([\d,]+)\s*条记录/)?.[1];
+  const empty=[...document.querySelectorAll('.ant-empty-normal,.ant-table-placeholder,.ant-alert')]
+   .some(e=>visible(e)&&/暂无数据|没有匹配|请在历史售后单查看/.test(text(e)));
+  const total=body.match(/共\s*([\d,]+)\s*条/)?.[1]??body.match(/([\d,]+)\s*条记录/)?.[1]??(empty?'0':undefined);
   const current=document.querySelector('.ant-pagination-item-active,.pagination .active');
   const pair=body.match(/(\d+)\s*\/\s*(\d+)\s*页/);
   const size=body.match(/(\d+)\s*条\s*\/\s*页/)?.[1];
@@ -155,6 +157,6 @@ function createReader(contents,ensure,watch){
   const result=latest?latestPage(records,query.from,query.until,state.hasNext):{records,hasNext:state.hasNext};
   return {...result,total:state.total,page:state.page,pageSize:state.pageSize,sourceCompany:query.sourceCompany,kind:query.kind};
  }
- return {openCurrent,query:(q,latest=false)=>{const task=queue.then(()=>queryPage(q,latest)).finally(()=>watch?.stop());queue=task.catch(()=>{});return task;}};
+ return {openCurrent,hasCurrent:async()=>!!await listFrame('current'),query:(q,latest=false)=>{const task=queue.then(()=>queryPage(q,latest)).finally(()=>watch?.stop());queue=task.catch(()=>{});return task;}};
 }
 module.exports={validateQuery,domQuery,createReader,latestPage,activeFrame};
