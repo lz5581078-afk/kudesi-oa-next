@@ -9,7 +9,7 @@ const SOURCES: AssigneeSource[] = ['employee', 'position', 'position_type', 'dut
 
 /** 单个节点的属性面板：办理人、时限、条件、退回目标、督促时效、字段权限、办理页面。 */
 export function NodeEditor({ step, index, steps, tpl, custom, canEdit, lookups, stepFields, onChange, onFields }: {
-  step: StepDef; index: number; steps: StepDef[]; tpl: Pick<FlowTemplate, 'fields' | 'stepFields'>; custom: boolean; canEdit: boolean; lookups: Lookups;
+  step: StepDef; index: number; steps: StepDef[]; tpl: Pick<FlowTemplate, 'fields' | 'stepFields'> & Partial<Pick<FlowTemplate, 'key'>>; custom: boolean; canEdit: boolean; lookups: Lookups;
   stepFields: FieldDef[]; onChange: (patch: Partial<StepDef>) => void; onFields: (f: FieldDef[]) => void;
 }) {
   const locked = !!step.locked;
@@ -176,12 +176,12 @@ export function NodeEditor({ step, index, steps, tpl, custom, canEdit, lookups, 
         </fieldset>
       )}
 
-      {!locked && (
+      {(!locked || (tpl.key==='sku-batch-apply' && ['warehouse','review'].includes(step.key))) && (
         <fieldset className="fd-section">
           <legend>退回</legend>
           <label>被退回时回到
             <select aria-label="退回目标" disabled={dis} value={step.returnToKey ?? ''} onChange={(e) => onChange({ returnToKey: e.target.value || null })}>
-              <option value="">上一个实际办理的步骤（默认）</option>
+              <option value="">{tpl.key==='sku-batch-apply' && step.type==='finance' && steps.filter(item=>item.type==='finance').length>1 ? '仓库完善（默认）' : '上一个实际办理的步骤（默认）'}</option>
               {earlier.map((s) => <option key={s.key} value={s.key}>{s.name}{s.type === 'submit' ? '（发起人修改后重新提交）' : ''}</option>)}
             </select>
           </label>

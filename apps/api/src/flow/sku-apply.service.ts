@@ -138,6 +138,7 @@ export class SkuApplyService {
     };
     let plan: Awaited<ReturnType<typeof checkApplication>>['plan'] | null = null;
     let planError = '';
+    let applicationWarnings: string[] = [];
     // 已完成的申请不再做检查（编码已经生成，再预览会显示成“已有”）
     if (run.status === 'running'||run.status==='draft') {
       try {
@@ -150,9 +151,10 @@ export class SkuApplyService {
         const checked = await checkApplication(em, user, this.bundles, { ...run.payload }, {
           strict: checkingApplication, selfRunId: run.id,
           warehouse: !applicationDraft && checkingApplication ? undefined : wh,
-          requireBrand: applicationDraft, allowGeneratedDuplicates: applicationDraft,
+          requireBrand: applicationDraft, allowGeneratedDuplicates: applicationDraft, includeApplicationWarnings: true,
         });
         plan = checked.plan;
+        applicationWarnings = checked.applicationWarnings;
       } catch (e) { planError = (e as Error).message; }
     }
     const rows = [];
@@ -179,7 +181,7 @@ export class SkuApplyService {
       batch: run.payload._batchKey ? { key: str(run.payload._batchKey), index: num(run.payload._splitIndex), total: num(run.payload._splitTotal) } : null,
       runId, status: run.status, batchName: str(run.payload.batchName), scenario: await label('finance-scenarios', num(run.payload.scenarioId)), platforms,
       ...(run.payload._applicationDraftOrigin===true&&plan&&!planError?await skuDuplicateState(em,user.companyId,run,run.payload,wh,plan):{generatedDuplicates:undefined,duplicateToken:undefined}),
-      warehouseDone: !!run.payload._warehouse&&!activeWarehouse, canCost, planError, specs: rows, costNote: '物料成本含人工，不含运费',
+      warehouseDone: !!run.payload._warehouse&&!activeWarehouse, canCost, planError, applicationWarnings, specs: rows, costNote: '物料成本含人工，不含运费',
     };
   }
 

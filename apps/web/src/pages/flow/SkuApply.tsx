@@ -326,6 +326,7 @@ export function SkuWarehouseFields({ specs, values, onChange,sourceQuantity=fals
 }
 
 export interface SkuPreviewDto {
+  applicationWarnings?: string[];
   generatedDuplicates?:Array<{id:number;code:string;name:string}>;duplicateToken?:string;
   batch?: { key: string; index: number | null; total: number | null } | null;
   runId: number; status: string; batchName: string; scenario: string; platforms: Array<{ id: number; name: string }>; warehouseDone: boolean; canCost: boolean; planError: string; costNote: string;
@@ -363,6 +364,7 @@ function SkuPreviewView({ runId, refreshKey }: { runId: number; refreshKey: numb
       {data.batch && <BatchPeers batchKey={data.batch.key} runId={runId} index={data.batch.index} total={data.batch.total} />}
       <p className="muted">销售场景：{data.scenario} · 销售平台：{data.platforms.map((p) => p.name).join('、')} · {data.warehouseDone ? '仓库已提交配置' : '仓库还没有提交配置'}</p>
       {data.planError && <div role="alert" className="notice error">{data.planError}</div>}
+      {!!data.applicationWarnings?.length && <p className="notice">其他未完成申请有相同主商品及数量：{data.applicationWarnings.join("、")}。请核对，编码未冲突时可继续。</p>}
       {data.specs.map((s) => (
         <section key={s.name} className="sku-spec card">
           <strong>{s.name}</strong>

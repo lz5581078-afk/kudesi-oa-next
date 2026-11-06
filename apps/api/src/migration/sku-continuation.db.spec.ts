@@ -148,6 +148,19 @@ suite('旧SKU在原运营节点续办（真实数据库）', () => {
     expect(await ds.manager.count(WorkItem, { where: { runId: run.id } })).toBe(0);
     await expect(flow.resubmit(ops, run.id, { revision: run.revision, payload: run.payload })).rejects.toThrow('整数');
   });
+  it('续办保留旧模板多级财务顺序和配置的上游退回路径',async()=>{
+    const old=source('returned');
+    const nodes=old.batch.template_snapshot;
+    nodes[2].next_node_keys=['finance2'];
+    nodes.splice(3,0,{...nodes[2],id:74,node_key:'finance2',node_name:'原财务终审',handler_source_type:'employee',handler_source_id:30,due_hours:90,next_node_keys:['end'],reject_to_node_key:'finance'});
+    const imported=await importOne(old);
+    const run=await ds.manager.findOneByOrFail(FlowRun,{id:imported.runId,companyId:ops.companyId});
+    expect(run.stepsSnapshot).toEqual(expect.arrayContaining([
+      expect.objectContaining({key:'review',type:'finance',returnToKey:'warehouse'}),
+      expect.objectContaining({key:'review_2',type:'finance',returnToKey:'review'}),
+    ]));
+    expect(run.currentStepKey).toBe('apply');
+  });
   it('事务回滚同时撤销续办与原始证据；公司或当前节点不同直接拒绝', async () => {
     const s = source('draft');
     await expect(importOne(s, [], true)).rejects.toThrow('rollback resume');

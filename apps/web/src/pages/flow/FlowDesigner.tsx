@@ -158,6 +158,12 @@ export function FlowDesigner({ flowKey, onBack, onOpen }: { flowKey: string; onB
             </div>
             {canManage && <span className="muted small">拖动节点或用“上移/下移”调整顺序；点节点在右侧设置</span>}
           </div>
+          {canManage && flowKey === 'sku-batch-apply' && <button type="button" className="secondary-button" onClick={() => {
+            const after = steps.map(step=>step.type).lastIndexOf('finance');
+            if (after < 0) return;
+            const key = uniqueKey(steps.map(step => step.key), 'finance');
+            insertAt(after, { key, name: '财务复核', type: 'finance' });
+          }}>添加财务审核级别</button>}
           <div className="fd-design-layout">
             <div className="fd-canvas-wrap">
               <DesignerCanvas steps={steps} selected={sel} tpl={tpl} lookup={lookup} canEdit={canManage} mode={mode} onSelect={setSel} onMove={doMove} canMove={canMoveFn}
@@ -165,7 +171,7 @@ export function FlowDesigner({ flowKey, onBack, onOpen }: { flowKey: string; onB
             </div>
             <aside className="fd-panel card" aria-label="节点设置">
               {current ? <NodeEditor key={current.key} step={current} index={sel} steps={steps} tpl={tpl} custom={custom} canEdit={canManage} lookups={lookups}
-                stepFields={schema?.stepFields[current.key] ?? [...(tpl.stepFields[current.key] ?? [])]} onChange={(p) => patchStep(sel, p)} onFields={(f) => setStepFields(current.key, f)} /> : <p className="muted">点一个节点来设置。</p>}
+                stepFields={schema?.stepFields[current.key] ?? [...(tpl.stepFields[current.key] ?? (flowKey==='sku-batch-apply'&&current.type==='finance'?tpl.stepFields.review:[]))]} onChange={(p) => patchStep(sel, p)} onFields={(f) => setStepFields(current.key, f)} /> : <p className="muted">点一个节点来设置。</p>}
             </aside>
           </div>
           <label style={{ display: 'block', marginTop: 12 }}>超时升级对象（步骤逾期时额外通知，可多选）

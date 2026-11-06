@@ -6,7 +6,7 @@ import { randomBytes } from 'crypto';
 import { DataSource, EntityManager, In } from 'typeorm';
 import { FLOW_TEMPLATES, createChecker, normalizeSpecs, type SkuSpec, type StepDef, type WarehouseSpec } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
-import { AuditLog, FlowEvent, FlowRun, FlowStep, Notification, WorkItem } from '../entities';
+import { AuditLog, Company, FlowEvent, FlowRun, FlowStep, Notification, WorkItem } from '../entities';
 import { BundleToolsService } from '../resources/bundle-tools.service';
 import { FlowService } from './flow.service';
 import { supportsSkuWarehouseDraft } from './sku-warehouse-draft';
@@ -166,6 +166,7 @@ export class SkuBatchService {
     if (!reason) throw new BadRequestException('整单退回要写原因');
     if (!b.items?.length || b.items.length > 200) throw new BadRequestException('退回的规格数量不对');
     const out = await this.ds.transaction(async (em) => {
+      await em.findOneOrFail(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}});
       this.flow.markQuiet(em);
       const { all: runs, visible } = await this.members(em, user, b.ref);
       if (runs.length > 200) throw new ConflictException('申请单规格超过整单退回上限，请分批办理');
@@ -209,6 +210,7 @@ export class SkuBatchService {
     const want = new Set((b.specs ?? []).map((x) => x.trim()).filter(Boolean));
     if (!want.size) throw new BadRequestException('请选择要退回的规格');
     const out = await this.ds.transaction(async (em) => {
+      await em.findOneOrFail(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}});
       this.flow.markQuiet(em);
       const run = await this.flow.lockRun(em, user, b.runId, b.revision);
       if (run.templateKey !== SKU_TEMPLATE) throw new BadRequestException('这不是 SKU 批量申请');
@@ -233,6 +235,8 @@ export class SkuBatchService {
       const restPayload: Record<string, unknown> = { ...run.payload, specs: pick(specs, false), _batchKey: batchKey };
       const carvedPayload: Record<string, unknown> = { ...run.payload, specs: pick(specs, true), _batchKey: batchKey };
       delete carvedPayload._reviewSig;
+      const reservations = run.payload._skuCodeReservations;
+      if (Array.isArray(reservations)) restPayload._skuCodeReservations = reservations.filter(item => !want.has(item.name));
       if (wh && wh.length === specs.length) { restPayload._warehouse = pick(wh, false); carvedPayload._warehouse = pick(wh, true); } else { delete restPayload._warehouse; delete carvedPayload._warehouse; delete restPayload._reviewSig; }
       // 财务已经核对过的指纹是按全部规格算的，剩下的规格要重新算，否则财务通过时会报“编码发生了变化”
       if (run.payload._reviewSig && Array.isArray(restPayload._warehouse)) restPayload._reviewSig = await reviewSignature(em, user, this.bundles, restPayload, restPayload._warehouse as WarehouseSpec[], run.id);

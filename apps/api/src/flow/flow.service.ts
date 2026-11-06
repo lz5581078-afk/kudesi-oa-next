@@ -69,7 +69,16 @@ export class FlowService {
   private tpl(em: EntityManager, companyId: number, key: string, definitionId?: number | null) { return loadTemplate(em, companyId, key, definitionId); }
   private async runTpl(em: EntityManager, run: FlowRun) {
     const template=await loadTemplate(em,run.companyId,run.templateKey,run.definitionId),adapt=adapterFor(template);
-    return adapt.stepFields?{...template,stepFields:Object.fromEntries(Object.entries(template.stepFields).map(([key,fields])=>[key,adapt.stepFields!(run,key,fields)]))}:template;
+    if (!adapt.stepFields) return template;
+    const fields = { ...template.stepFields };
+    if (run.templateKey === 'sku-batch-apply') {
+      const steps = run.stepsSnapshot as StepDef[];
+      const finance = steps.filter(step => step.type === 'finance');
+      for (const step of finance) fields[step.key] = step.key === finance.at(-1)?.key
+        ? template.stepFields.review
+        : template.stepFields.review.filter(field => field.key !== 'syncToJst');
+    }
+    return {...template,stepFields:Object.fromEntries(Object.entries(fields).map(([key,defs])=>[key,adapt.stepFields!(run,key,defs)]))};
   }
   /** Adapter opt-in uses the existing transaction; immutable run policy is read outside its RR snapshot. */
   private async runCommandTransaction<T>(user:AuthUser,id:number,work:(em:EntityManager)=>Promise<T>):Promise<T>{
@@ -460,7 +469,10 @@ export class FlowService {
   removeApplicationDraft(user:AuthUser,id:number,revision:number,reason:string){return this.applicationDrafts().remove(user,id,revision,reason);}
 
   async start(user: AuthUser, templateKey: string, payloadIn: Record<string, unknown>, requestKey?: string, opts: { internal?: boolean } = {}) {
-    return this.dataSource.transaction(em=>this.startIn(em,user,templateKey,payloadIn,requestKey,opts));
+    return this.dataSource.transaction(async em=>{
+      if(templateKey==='sku-batch-apply')await em.findOneOrFail(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}});
+      return this.startIn(em,user,templateKey,payloadIn,requestKey,opts);
+    });
   }
 
   /** 同一现入场内核；批量业务传入外层事务，不另外开启连接或流程引擎。 */
@@ -620,7 +632,7 @@ export class FlowService {
 
   /** Save only the current handler's declared form; no transitions or side effects. */
   async saveStepDraft(user:AuthUser,runId:number,p:{revision:number;stepId:number;form?:Record<string,unknown>;draftContext?:Record<string,unknown>}) {
-    return this.dataSource.transaction(async em=>{
+    return this.runCommandTransaction(user,runId,async em=>{
       const run=await this.lockRun(em,user,runId,p.revision);
       if(run.status!=='running')throw new ConflictException('当前流程不能保存办理资料');
       const step=await this.activeStep(em,run,p.stepId);
@@ -710,7 +722,7 @@ export class FlowService {
   async returnBack(user: AuthUser, runId: number, p: { revision: number; stepId: number; reason: string }, opts: { quiet?: boolean } = {}) {
     if(typeof p.reason!=='string'||p.reason.length>500)throw new BadRequestException('原因最多500字');
     if (!p.reason?.trim()) throw new BadRequestException('退回要写原因');
-    return this.dataSource.transaction(async (em) => {
+    return this.runCommandTransaction(user,runId,async (em) => {
       if (opts.quiet) this.markQuiet(em);
       await this.returnBackIn(em, user, runId, p);
       return this.detailIn(em, user, runId);
@@ -802,7 +814,7 @@ export class FlowService {
 
   async resubmit(user: AuthUser, runId: number, p: { revision: number; payload: Record<string, unknown>;confirmation?:FlowConfirmation;comment?:string }, opts: { quiet?: boolean } = {}) {
     if(p.comment!==undefined&&(typeof p.comment!=='string'||p.comment.length>500))throw new BadRequestException('备注最多500字');
-    return this.dataSource.transaction(async (em) => {
+    return this.runCommandTransaction(user,runId,async (em) => {
       if (opts.quiet) this.markQuiet(em);
       const run = await this.lockRun(em, user, runId, p.revision);
       const t = await this.runTpl(em, run);
