@@ -40,6 +40,19 @@ it('桌面客户端访问网页时先显示工作台，只有主动点击才打�
  fireEvent.click(screen.getByRole('button',{name:'打开本机聚水潭工具'}));
  await waitFor(()=>expect(desktop.openAfterSales).toHaveBeenCalledOnce());
 });
+it('独立售后窗口默认挂载聚水潭原页，并能切换回 OA 档案',async()=>{
+ const desktop=window.oaDesktop!;
+ desktop.surface='after-sales';
+ desktop.openSourceAfterSales=vi.fn().mockResolvedValue(true);
+ render(<DesktopAfterSalesPage/>);
+ const toolbar=screen.getByRole('group',{name:'售后功能区'});
+ await waitFor(()=>expect(desktop.openSourceAfterSales).toHaveBeenCalledOnce());
+ expect(desktop.mount).toHaveBeenCalledOnce();
+ expect(screen.queryByRole('table')).toBeNull();
+ fireEvent.click(within(toolbar).getByRole('button',{name:'OA 售后档案'}));
+ await screen.findByRole('table');
+ await waitFor(()=>expect(desktop.hide).toHaveBeenCalledOnce());
+});
 it('建档前必须选择正确 OA 店铺并确认来源公司，内部订单通过原页面打开',async()=>{
  render(<DesktopAfterSalesPage/>);await choose();fireEvent.click(within(screen.getByRole('dialog',{name:'售后 85110001'})).getByText('4400001'));await waitFor(()=>expect(window.oaDesktop!.openOrder).toHaveBeenCalledWith('4400001'));
  fireEvent.click(screen.getByText('读取当前页面'));await screen.findByText('读取结果 · 1 条');

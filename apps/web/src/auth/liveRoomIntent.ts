@@ -1,3 +1,5 @@
+import { AFTER_SALES_WINDOW_PATH } from '../pages/service/afterSalesWindow';
+
 const KEY='oa.live-room-intent', TIME='oa.live-room-intent-time';
 export function liveRoomTarget(value:string):string|null {
   try {
@@ -17,16 +19,20 @@ function uploadTarget(value:string) {
     return '/features/live?tab=scripts&upload='+id+'&section='+section;
   return null;
 }
+function loginTarget(value: string) {
+  return value === AFTER_SALES_WINDOW_PATH ? AFTER_SALES_WINDOW_PATH : liveRoomTarget(value) ?? uploadTarget(value);
+}
 export function rememberLiveRoom() {
-  const value=liveRoomTarget(location.pathname+location.search) || uploadTarget(location.pathname+location.search);
+  const value=loginTarget(location.pathname+location.search);
   if(value){sessionStorage.setItem(KEY,value);sessionStorage.setItem(TIME,String(Date.now()));}
   else if(location.pathname==='/features/live-desk'&&['room','company','token'].some(key=>new URLSearchParams(location.search).has(key)))clearLiveRoom();
 }
 export function pendingLiveRoom() {
+  if(window.oaDesktop?.surface==='after-sales')return AFTER_SALES_WINDOW_PATH;
   // This timeout only clears an abandoned login redirect; the QR itself has no expiry.
   const time=Number(sessionStorage.getItem(TIME));
   if(!time||Date.now()-time>30*60_000){clearLiveRoom();return '/';}
-  const value=sessionStorage.getItem(KEY)??'';return liveRoomTarget(value)??uploadTarget(value)??'/';
+  const value=sessionStorage.getItem(KEY)??'';return loginTarget(value)??'/';
 }
 export function consumeLiveRoom(){return pendingLiveRoom();}
 export function clearLiveRoom(){sessionStorage.removeItem(KEY);sessionStorage.removeItem(TIME);}

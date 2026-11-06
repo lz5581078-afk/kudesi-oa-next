@@ -9,7 +9,7 @@ import { HomePage } from '../pages/workspace/HomePage';
 vi.mock('../pages/workspace/workspaceApi', () => ({ workspaceApi: { catalog: vi.fn() } }));
 vi.mock('./NotificationBell', () => ({ NotificationBell: () => null }));
 let user = { id: 1, companyId: 1, name: '员工', account: 'employee', companyName: '测试公司', positionName: '会计' };
-const can = createChecker({ isCompanyAdmin: false, allow: ['workbench.*'], deny: [] });
+const can = createChecker({ isCompanyAdmin: false, allow: ['workbench.*', 'after-sales.workspace.view'], deny: [] });
 vi.mock('../auth/AuthContext', () => ({ useAuth: () => ({ user, can, logout: vi.fn() }) }));
 const catalog: DeskCatalog = { canBrowse: true, defaultPositionId: 11, positions: [
   { id: 11, name: '会计', departmentId: 1, departmentPath: '总部 / 财务部', workspaceType: 'finance', level: 'staff', assigned: true, isPrimary: true },
@@ -53,4 +53,23 @@ describe('外壳岗位直达菜单', () => {
     expect(await screen.findByRole('link', { name: '岗位工作台' })).toBeTruthy();
     expect(screen.getByRole('link', { name: '我的待办' })).toBeTruthy();
   });
+});
+
+it('实时售后从功能菜单打开独立窗口并保留 OA 当前页面', async () => {
+  const openAfterSales = vi.fn().mockResolvedValue(true);
+  vi.stubGlobal('oaDesktop', { surface: 'main', openAfterSales });
+  try {
+    mount();
+    await waitFor(() => expect(screen.getByLabelText('当前位置').textContent).toContain('会计工作台'));
+    fireEvent.click(within(screen.getByLabelText('一级导航')).getByRole('button', { name: '功能' }));
+    const link = within(screen.getByRole('region', { name: '售后处理' })).getByRole('link', { name: '实时售后处理' });
+    expect(link.getAttribute('href')).toBe('kudesi-oa://after-sales');
+    const download = screen.getByRole('link', { name: '下载 Windows 售后工具' });
+    expect(download.getAttribute('href')).toContain('/releases/download/oa-desktop-v0.2.2/KudesiOA-Setup-0.2.2-x64.exe');
+    fireEvent.click(link);
+    expect(openAfterSales).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText('当前位置').textContent).toContain('会计工作台');
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });

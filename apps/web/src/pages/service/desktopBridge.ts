@@ -6,6 +6,7 @@ export interface DesktopBridge {
  version:string;
  surface?:'main'|'after-sales'|'collector';
  openAfterSales?():Promise<boolean>;
+ openSourceAfterSales?():Promise<boolean>;
  openFeishuLogin?(authorizationUrl:string):Promise<boolean>;
  preferences():Promise<{shortcut:string;registered:boolean;collection?:{clientId:string;enabled:boolean;sourceCompany?:string}}>;
  collection?(value:{enabled:boolean;sourceCompany:string}):Promise<boolean>;

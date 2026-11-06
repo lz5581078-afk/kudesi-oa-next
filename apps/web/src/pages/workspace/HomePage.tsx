@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { WorkspaceLink } from '../../layout/WorkspaceLink';
 import { groupPages, searchNav, type NavPage } from '@kudesi/shared';
 import { useNavigationSections } from '../../layout/NavigationContext';
 
@@ -28,7 +28,7 @@ export function HomePage() {
     setRecent(next);
     try { window.localStorage.setItem(RECENT_KEY, JSON.stringify(next)); } catch { /* 只记在本机，写不进去不影响使用 */ }
   };
-  const Tile = ({ page, hint }: { page: NavPage; hint: string }) => <Link to={page.path} className="ws-tile" onClick={() => remember(page)}><strong>{page.label}</strong><small>{hint}</small></Link>;
+  const Tile = ({ page, hint }: { page: NavPage; hint: string }) => <WorkspaceLink to={page.path} className="ws-tile" onClick={() => remember(page)}><strong>{page.label}</strong><small>{hint}</small></WorkspaceLink>;
   return (
     <div className="ws-page">
       <div className="page-head"><div><h1>功能首页</h1><p className="muted">按你的权限列出所有可用功能；搜一下名称，或点最近用过的直接进入。</p></div></div>

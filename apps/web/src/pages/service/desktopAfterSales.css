@@ -7,4 +7,6 @@
 
 .desktop-sales .ds-flow .modal-backdrop{z-index:1300}
 
-.ds-native-overlay.ds-native-detached{inset:15px}
+.ds-native-overlay.ds-native-detached{inset:0;border-radius:0;box-shadow:none}
+.ds-native-detached .ds-native-title{flex-shrink:0;border-bottom:1px solid #d7e0ea}
+.ds-native-detached .ds-error{margin:0}
