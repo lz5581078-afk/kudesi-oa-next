@@ -40,7 +40,7 @@ export function RecruitOpenings() {
             <li key={p.id}><label><input type="checkbox" disabled={p.imported} checked={p.imported || picked.includes(p.id)}
               onChange={(e) => setPicked((v) => (e.target.checked ? [...v, p.id] : v.filter((x) => x !== p.id)))} /> {p.departmentName ? `${p.departmentName} / ` : ''}{p.name}{p.imported ? '（已导入）' : ''}</label></li>
           ))}</ul>
-          {picker.length === 0 && <p className="muted">还没有可导入的部门岗位，请先在“资料 → 组织架构”里建岗位。</p>}
+          {picker.length === 0 && <p className="muted">还没有可导入的部门岗位，请先在“资料 → 岗位档案”里建岗位。</p>}
           <div className="toolbar"><button className="primary" disabled={!picked.length} onClick={() => void doImport()}>导入所选（{picked.length}）</button><button onClick={() => setPicker(null)}>取消</button></div>
         </div>
       )}
