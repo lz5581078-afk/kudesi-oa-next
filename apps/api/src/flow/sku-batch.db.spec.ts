@@ -291,6 +291,52 @@ d('SKU 申请汇总（真实数据库）', () => {
     const submitKey=key(),first=await flow.submitApplicationDrafts(ops,'sku-batch-apply',created.batchKey,created.runs,submitKey);expect(first).toMatchObject({ok:1,failed:1});expect((await flow.detail(ops,created.runs[1].id)).status).toBe('draft');const todoCount=await ds.manager.count(WorkItem,{where:{companyId:ops.companyId,runId:created.runs[0].id}});const replay=await flow.submitApplicationDrafts(ops,'sku-batch-apply',created.batchKey,created.runs,submitKey);expect(replay).toMatchObject({ok:1,failed:1});expect(await ds.manager.count(WorkItem,{where:{companyId:ops.companyId,runId:created.runs[0].id}})).toBe(todoCount);expect((await batch.board(ops,created.batchKey)).total).toBe(2);
   });
 
+  it('按最终编码查重：草稿只提示、赠品不同可继续、同码并发仅一人提交、退回清快照后重新校验', async () => {
+    const definition = await ds.manager.findOneByOrFail(FlowDefinition,{companyId:ops.companyId,templateKey:'sku-batch-apply',status:'active'});
+    const qty = nextQty();
+    const draft = async (user:AuthUser,name:string,giftQty:number) => {
+      const data=payload([{...qspec(name,ids.pearBc,qty),gift:[{baseCodeId:ids.giftBc,qty:giftQty}]}],{platformIds:[ids.tb]});
+      return (await flow.createApplicationDrafts(user,{templateKey:'sku-batch-apply',definitionId:definition.id,confirmations:{referenceSearched:true},requestKey:key(),payloads:[data]})).runs[0];
+    };
+    const a=await draft(ops,'同码甲',1), b=await draft(stranger,'同码乙',1), variant=await draft(ops,'赠品变体',2);
+    expect(await sku.preview(ops,a.id,a.revision)).toMatchObject({planError:'',applicationWarnings:['同码甲']});
+    const results=await Promise.allSettled([flow.submitApplicationDraft(ops,a.id,a.revision,key()),flow.submitApplicationDraft(stranger,b.id,b.revision,key())]);
+    expect(results.filter(result=>result.status==='fulfilled')).toHaveLength(1);
+    const first=results[0].status==='fulfilled', winner=first?a:b, loser=first?b:a, loserUser=first?stranger:ops;
+    const failure=results.find(result=>result.status==='rejected');
+    expect(failure?.reason.message).toMatch(/最终编码.*已被另一条在办申请占用/);
+    expect(failure?.reason.message).not.toContain(first?'同码甲':'同码乙');
+    expect(await sku.preview(loserUser,loser.id,loser.revision)).toMatchObject({planError:expect.stringContaining('占用')});
+    expect(await sku.preview(ops,variant.id,variant.revision)).toMatchObject({planError:'',applicationWarnings:['赠品变体']});
+    await flow.submitApplicationDraft(ops,variant.id,variant.revision,key());
+    const active=await flow.detail(wh,winner.id);
+    await flow.returnBack(wh,winner.id,{revision:active.revision,stepId:active.activeStep!.id,reason:'按旧逻辑退回重填'});
+    await flow.submitApplicationDraft(loserUser,loser.id,loser.revision,key());
+    const winnerUser=first?ops:stranger, returned=await flow.detail(winnerUser,winner.id);
+    expect(await sku.preview(winnerUser,winner.id,returned.revision)).toMatchObject({planError:expect.stringContaining('占用')});
+  });
+
+  it('最终编码占用跨场景身份比较，并在仓库提交和财务审核时重新核对', async () => {
+    const sameSegment=(await resources.create(admin,'finance-scenarios',{code:'alternate-standard',name:'另一个标准场景',segment:''})).id;
+    const qty=nextQty(), first=qspec('原规格',ids.pearBc,qty), variant={...first,name:'跨场景规格'};
+    const run=await toWarehouse([first],{platformIds:[ids.tb]});
+    await expect(toWarehouse([variant],{platformIds:[ids.tb],scenarioId:sameSegment})).rejects.toThrow(/最终编码.*占用/);
+    const other=await toWarehouse([qspec('既有待办',ids.pearBc,nextQty())],{platformIds:[ids.tb]});
+    const submitted=await ds.manager.findOneByOrFail(FlowRun,{companyId:ops.companyId,id:run.id});
+    const [{codes:[code]}]=submitted.payload._skuCodeReservations as Array<{codes:string[]}>;
+    const record=await ds.manager.findOneByOrFail(FlowRun,{companyId:ops.companyId,id:other.id});
+    const original=record.payload._skuCodeReservations as Array<{name:string;codes:string[]}>;
+    const reserve=(value:typeof original)=>ds.manager.update(FlowRun,{companyId:ops.companyId,id:other.id},{payload:{...record.payload,_skuCodeReservations:value}});
+    // 模拟历史在办单保留的已提交编码（即使其当前资料身份不同）。
+    await reserve([{name:'既有待办',codes:[code]}]);
+    await expect(whPass(wh,run,[whLines()])).rejects.toThrow(/最终编码.*占用/);
+    await reserve(original);
+    const review=await whPass(wh,run,[whLines()]);
+    await reserve([{name:'既有待办',codes:[code]}]);
+    await expect(finPass(fin,review)).rejects.toThrow(/最终编码.*占用/);
+    await reserve(original);
+  });
+
   it('汇总待办：同一张申请单的多个规格在办理人待办里只占一行，带规格数；汇总看板列出每个规格', async () => {
     const out = await split(3);
     const todos = await flow.todos(wh, { tab: 'pending', page: 1, pageSize: 50 });
