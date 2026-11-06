@@ -22,7 +22,6 @@ import { DutyGroupSummary } from './DutyGroupSummary';
 import { AssetActionBar, AssetFlowPanel, AssetStoragePanel, LocationContentsPanel } from './AssetPanels';
 import { StoreMetricsPanel } from './StoreMetricsPanel';
 import { WorkforceActions } from './WorkforceActions';
-import { WorkforceAccountNote } from './WorkforcePanels';
 import { ProductCostSummary } from './ProductCostSummary';
 import { StoresPopButton } from './StoresPop';
 import { DerivedStoresPanel, PartnerSubjectPanel, PhoneArchiveButton, ReturnBorrowButton, StoreAssignButton, StoreReleaseButton } from './CertPanels';
@@ -385,6 +384,8 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
     <Link className="res-btn" to={`/resource/fee-settings?tab=${def.key === 'phones' ? 'all' : 'broadband'}&q=${encodeURIComponent(record.title)}`} title="在费用模块里查看这条的费用、主子卡和绑定关系">在费用模块查看</Link>
   ) : null;
   const jstRefresh = def.key === 'stores' && live && can('edit') && record.data.jushuitanShopId ? <StoreJstRefresh key={record.id} id={record.id} onDone={reloadAll} /> : null;
+  const workforcePersonEditor = def.key === 'workforce' && Number(record.data.userId) > 0 &&
+    me && createChecker(me.permissions)('org.staff.view') && createChecker(me.permissions)('org.staff.edit');
   const quick = def.key === 'workforce' ? <WorkforceActions key={record.id} record={record} employeeAction onLogs={() => setTab('logs')} onChanged={reloadAll} /> : jstRefresh || phoneRecharge || assetBar || feeLink || record.warehouseMode ? <>{jstRefresh}{phoneRecharge}{feeLink}{assetBar}{record.warehouseMode && <WarehousePhotoUpload record={record} onDone={(r) => { setRecord(r); onChanged(); }} />}</> : undefined;
 
   const finance = FINANCE_DETAIL_TYPES.has(def.key);
@@ -408,7 +409,7 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
         onToggleWide={() => setWide((v) => !v)}
         onClose={editing ? () => closeEditor.current?.() : onClose}
         statusSlot={editing ? undefined : statusSlot}
-        primary={live && can('edit') ? <button type="button" className="res-btn primary" disabled={editing} onClick={() => { setTab('info'); setEditGroup(null); setEditing(true); }}>编辑</button> : undefined}
+        primary={live && can('edit') && !workforcePersonEditor ? <button type="button" className="res-btn primary" disabled={editing} onClick={() => { setTab('info'); setEditGroup(null); setEditing(true); }}>编辑</button> : undefined}
         more={!editing && moreItems.length > 0 ? (
           <MoreMenu items={moreItems} />
         ) : undefined}
@@ -450,12 +451,12 @@ export function RecordDetail({ def, id, nav, onClose, onChanged, onCopy, initial
                 <PhoneArchiveButton type="partners" record={record} numberKey="cardPhone" idKey="cardPhoneId" holder={String(record.data.cardPhoneHolder ?? record.title)} onDone={reloadAll} onError={setError} />
               )}
               {def.key === 'duty-groups' && <DutyGroupSummary groupId={record.id} departmentLabel={record.refLabels.departmentId ?? ''} />}
-              {def.key === 'workforce' && <><WorkforceAccountNote recordId={record.id} account={String(record.data.account??'')} onChanged={reloadAll} editable={!record.archived}/>{Number(record.data.userId)>0&&<div className="workforce-live-month"><AnchorMonthPanel key={Number(record.data.userId)} userId={Number(record.data.userId)}/></div>}</>}
+              {def.key === 'workforce' && <>{Number(record.data.userId)>0&&<div className="workforce-live-month"><AnchorMonthPanel key={Number(record.data.userId)} userId={Number(record.data.userId)}/></div>}</>}
               {sectionList.map(({ group, fields, shown }) => (
                 <section key={group} id={secId(group)} className="rd-sec" data-layout={shown.length <= 2 ? 'compact' : 'full'}>
                   <h3 className="rd-sec-title">
                     <span>{groupTitle(def, group, record.data)}</span>
-                    {can('edit') && !record.archived && editGroup !== group && fields.some((f) => !f.readonly) && (
+                    {!workforcePersonEditor && can('edit') && !record.archived && editGroup !== group && fields.some((f) => !f.readonly) && (
                       <button type="button" className="link-button" aria-label={`编辑${group}`} onClick={() => setEditGroup(group)}>编辑本区</button>
                     )}
                   </h3>

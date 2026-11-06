@@ -1,3 +1,4 @@
+import { createTrialPerson } from './create-trial-person';
 import { ArrayMaxSize, IsArray, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, Min, MinLength } from 'class-validator';
 import { WorkforceLoginService } from './workforce-login.service';
 import { Body, Controller, Query, Get, Header, Param, ParseIntPipe, Post, Put } from '@nestjs/common';
@@ -7,6 +8,7 @@ import { AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorat
 import { unfiledWorkforce } from './workforce-contract';
 
 class DisplayDto { @IsArray() @ArrayMaxSize(200) @IsInt({each:true}) @Min(1,{each:true}) ids!:number[]; }
+class TrialNameDto { @IsString() @IsNotEmpty() @MaxLength(50) name!: string; }
 class LoginDto {
   @IsString() @Matches(/^[A-Za-z0-9_.-]{2,64}$/) account!:string;
   @IsOptional() @IsString() @MinLength(8) @MaxLength(72) password?:string;
@@ -31,6 +33,12 @@ export class WorkforceController {
   @RequirePermission('resource.workforce.edit','org.staff.edit')
   @Put('users/:id/login')
   updateUnfiled(@CurrentUser() user:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() input:LoginDto){return this.login.update(user,id,input,true);}
+
+  @RequirePermission('resource.workforce.create','org.staff.create')
+  @Post('trial-people')
+  createTrial(@CurrentUser() user: AuthUser, @Body() input: TrialNameDto) {
+    return createTrialPerson(this.ds, user, input);
+  }
 
   @RequirePermission('resource.workforce.create','org.staff.create')
   @Post('accounts')

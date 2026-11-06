@@ -1,3 +1,4 @@
+import { unfiledTrialSql } from '../workforce/trial-status';
 import { EntityManager } from 'typeorm';
 import { liveRooms, type LiveLocation, type LiveRoom, type LiveProductSnapshot, type LiveProductEntry } from '@kudesi/shared';
 import type { AuthUser } from '../common/auth.decorators';
@@ -100,7 +101,7 @@ export async function livePeople(em: EntityManager, companyId: number): Promise<
     if (r.workspace_type === 'live_anchor') anchors.set(person.id, person);
     else controls.set(person.id, person);
   }
-  const trials: Row[] = await em.query("SELECT id,name FROM users WHERE company_id=? AND status='active' AND live_trial=1 ORDER BY id", [companyId]);
+  const trials: Row[] = await em.query(`SELECT u.id,u.name FROM users u WHERE u.company_id=? AND u.status='active' AND ${unfiledTrialSql('u')} ORDER BY u.id`, [companyId]);
   for (const r of trials) anchors.set(Number(r.id), { id:Number(r.id), name:r.name, detail:'试播主播', partTime:true, trial:true });
   for (const person of await traditionalControlPeople(em, companyId)) if (!controls.has(person.id)) controls.set(person.id, person);
   return { anchors: [...anchors.values()], controls: [...controls.values()].sort((a, b) => a.id - b.id) };

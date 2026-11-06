@@ -2,18 +2,18 @@ import { useState } from 'react';
 import { liveApi, type Person } from './liveApi';
 import { errText, yuanCents } from './liveFormat';
 import { Modal } from './liveUi';
-export function TrialPersonDialog({ onClose, onDone }: { onClose: () => void; onDone: (p: Person, cents:number) => void }) {
+export function TrialPersonDialog({ onClose, onDone }: { onClose: () => void; onDone: (p: Person, cents?:number) => void }) {
   const [name, setName] = useState(''),
     [rate, setRate] = useState(''),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
   async function save() {
     const cents = yuanCents(rate);
-    if (!name.trim() || !cents || !Number.isSafeInteger(cents) || cents <= 0)
-      return setError('请填写姓名和大于零的时薪');
+    if (!name.trim()) return setError('请填写姓名');
+    if (rate.trim() && (!cents || !Number.isSafeInteger(cents) || cents <= 0)) return setError('请填写大于零的时薪');
     setBusy(true);
     try {
-      onDone(await liveApi.trialPerson({ name: name.trim(), hourlyRateCents: cents }), cents);
+      onDone(await liveApi.trialPerson({ name: name.trim(), ...(cents ? { hourlyRateCents: cents } : {}) }), cents || undefined);
     } catch (e) {
       setError(errText(e));
     } finally {
@@ -38,7 +38,7 @@ export function TrialPersonDialog({ onClose, onDone }: { onClose: () => void; on
           <input aria-label="试播姓名" maxLength={50} value={name} onChange={(e) => setName(e.target.value)} />
         </label>
         <label className="live-field">
-          试播时薪（元）
+          试播时薪（元，可在排班时填写）
           <input aria-label="试播时薪" inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} />
         </label>
       </div>

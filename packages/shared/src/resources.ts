@@ -927,7 +927,7 @@ export const RESOURCE_DEFS: readonly ResourceDef[] = [
     ],
     alerts: [{ field: 'contractEndDate', withinDays: 7, label: '7 天内合作结束' }],
     fields: [
-      ref('userId', '姓名', '基本信息', 'user', { required: true, list: true, help: '新员工通过入职码或“新增账号并建档”加入；已有人员在员工编辑里维护用工类型与合作期限，自动补齐对应档案' }),
+      ref('userId', '姓名', '基本信息', 'user', { required: true, list: true, help: '通过入职码或新增人员加入；试播主播可在人员编辑中建立账号并补齐档案' }),
       text('name', '姓名', '基本信息', { readonly: true, list: false, search: true, maxLength: 80 }),
       files('photo', '人员照片', '人员照片', { accept: 'image', maxFiles: 1, phoneUpload: true, imageCrop: 'square', help: '可直接上传或手机扫码上传，支持裁剪；每人一张，保存档案后可在直播总览点击主播姓名查看' }),
       select('employmentType', '用工类型', '基本信息', o('part_time:兼职', 'temp:临时工'), { required: true, list: true, help: '兼职和临时工均可不限期，合作期限可由人事维护' }),

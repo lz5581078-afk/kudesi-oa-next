@@ -1,3 +1,4 @@
+import { createTrialPerson } from '../workforce/create-trial-person';
 import { scheduleProducts } from './live-schedule.service';
 import { liveSessionResult, liveHandover } from './live-notification-events';
 import { channelStores, channelsOf, validateChannels, assertAccountTime, checkStoreLines, persistStoreLines } from './live-platforms';
@@ -89,28 +90,9 @@ export class LiveManagementService {
       return { ok: true };
     });
   }
-  async trial(user: AuthUser, input: { name: string; hourlyRateCents: number }) {
+  async trial(user: AuthUser, input: { name: string; hourlyRateCents?: number }) {
     await this.manage(user);
-    return this.ds.transaction(async (em) => {
-      await lockCompany(em, user.companyId);
-      const name = text(input.name, 50);
-      if (!name) liveFail('请填写试播主播姓名', 400);
-      const [dup] = await em.query(
-        "SELECT id FROM users WHERE company_id=? AND name=? AND live_trial=1 AND status='active'",
-        [user.companyId, name],
-      );
-      if (dup) liveFail('已有同名试播主播，请从列表选择；如为不同人员，请在姓名后加区分信息', 400);
-      // 无账号身份使用现有人员主键，不能登录，也不授予岗位或权限。
-      const res = await em.query(
-        `INSERT INTO users(company_id,account,password_hash,name,status,must_change_password,live_trial,employment_type,pay_type,hourly_rate) VALUES (?,NULL,'!no-login',?,'active',0,1,'part_time','hourly',?)`,
-        [user.companyId, name, input.hourlyRateCents],
-      );
-      await this.audit(em, user, 'live.trial.create', 'user', res.insertId, {
-        name,
-        hourlyRateCents: input.hourlyRateCents,
-      });
-      return { id: Number(res.insertId), name };
-    });
+    return createTrialPerson(this.ds, user, input);
   }
   async updateRule(user: AuthUser, id: number, input: { effectiveFrom: string; note?: string; rules: LiveRulesInput }) {
     await this.manage(user);

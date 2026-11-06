@@ -17,7 +17,7 @@ const row={id:7,type:'workforce',title:'正式建档主播',status:'active',stat
 beforeEach(()=>{
  localStorage.clear();auth.user.permissions={isCompanyAdmin:true,allow:[],deny:[]};
  vi.mocked(resourceApi.list).mockResolvedValue({items:[row],total:1,page:1,pageSize:20,tabCounts:{}});
- request.mockImplementation(async(path:string)=>path==='/workforce/unfiled'?[{id:80,name:'试播小白',account:null,employmentType:'part_time'}]:path==='/workforce/login-display'?[{id:70,account:'oa70',loginPassword:'Preview-only-123',feishuBound:false},{id:80,account:null,loginPassword:'未设置',feishuBound:true}]:[]);
+ request.mockImplementation(async(path:string)=>path==='/workforce/unfiled'?[{id:80,name:'试播小白',account:null,employmentType:'part_time',trial:true}]:path==='/workforce/login-display'?[{id:70,account:'oa70',loginPassword:'Preview-only-123',feishuBound:false},{id:80,account:null,loginPassword:'未设置',feishuBound:true}]:[]);
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 describe('用工列表姓名账号及试播人员',()=>{
@@ -25,13 +25,13 @@ describe('用工列表姓名账号及试播人员',()=>{
   render(<MemoryRouter><ResourcePage type="workforce"/></MemoryRouter>);
   const trial=await screen.findByText('试播小白');
   expect(trial.closest('tr')?.classList.contains('workforce-incomplete')).toBe(true);
-  expect(screen.getAllByText('待补资料').length).toBeGreaterThan(0);
+  expect(screen.getAllByText('试播主播').length).toBeGreaterThan(0);
   expect(screen.getByText('oa70')).toBeTruthy();expect(screen.getByText('Preview-only-123')).toBeTruthy();
   expect(screen.queryByText('登录账号（员工）')).toBeNull();
   expect((screen.getByRole('checkbox',{name:'勾选 试播小白'}) as HTMLInputElement).disabled).toBe(true);
   fireEvent.click(screen.getByRole('checkbox',{name:'本页全选'}));
   expect((screen.getByRole('checkbox',{name:'勾选 试播小白'}) as HTMLInputElement).checked).toBe(false);
-  fireEvent.click(screen.getByRole('button',{name:'补资料'}));
+  fireEvent.click(screen.getByRole('button',{name:'建立账号'}));
   expect(await screen.findByText('员工编辑80')).toBeTruthy();
  });
  it('按员工编号预览待补资料人员的绑定，已建档未绑定人员没有解绑按钮',async()=>{
@@ -45,16 +45,15 @@ describe('用工列表姓名账号及试播人员',()=>{
   await screen.findByRole('dialog',{name:'解绑员工飞书'});
   expect(preview).toHaveBeenCalledWith(80);preview.mockRestore();
  });
- it('搜索过滤试播，未建档账号设置使用人员ID而不伪造档案ID',async()=>{
+ it('试播和已建档人员都进入同一个员工编辑，取消网格和独立账号设置',async()=>{
   render(<MemoryRouter><ResourcePage type="workforce"/></MemoryRouter>);
   const trial=await screen.findByText('试播小白');
-  fireEvent.click(within(trial.closest('tr')!).getByRole('button',{name:'设置账号密码'}));
-  // The action opens the same login dialog for a user without a resource record.
-  expect(await screen.findByRole('dialog',{name:'设置登录账号和密码'})).toBeTruthy();
-  fireEvent.change(screen.getByLabelText('登录账号'),{target:{value:'trial80'}});
-  fireEvent.click(screen.getByRole('button',{name:'保存登录设置'}));
-  await waitFor(()=>expect(request).toHaveBeenCalledWith('/workforce/users/80/login',{method:'PUT',body:{account:'trial80'}}));
-  await waitFor(()=>expect(screen.queryByRole('dialog',{name:'设置登录账号和密码'})).toBeNull());
+  fireEvent.click(within(trial.closest('tr')!).getByRole('button',{name:'建立账号'}));
+  expect(await screen.findByText('员工编辑80')).toBeTruthy();
+  fireEvent.click(within(screen.getByText('正式建档主播').closest('tr')!).getByRole('button',{name:'编辑'}));
+  expect(await screen.findByText('员工编辑70')).toBeTruthy();
+  expect(screen.queryByRole('button',{name:'设置账号密码'})).toBeNull();
+  expect(screen.queryByRole('button',{name:'表格编辑'})).toBeNull();
   fireEvent.change(screen.getByLabelText('搜索'),{target:{value:'不匹配'}});
   await waitFor(()=>expect(screen.queryByText('试播小白')).toBeNull());
  });

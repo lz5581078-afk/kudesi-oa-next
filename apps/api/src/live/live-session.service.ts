@@ -1,3 +1,4 @@
+import { unfiledTrialSql } from '../workforce/trial-status';
 import { createHash, randomBytes } from 'node:crypto';
 import { assertNoDailyWork } from './daily-work-core';
 import { saveCheckoutFeedback,checkoutFeedbackRecords,checkoutAttendance,type LiveFeedbackInput } from './live-feedback';
@@ -275,7 +276,10 @@ export class LiveSessionService {
       }
       let order = 0;
       for (const p of products) await em.query('INSERT INTO live_session_products (company_id, session_id, base_code_id, code_snapshot, name_snapshot, spec_snapshot, sort_order) VALUES (?,?,?,?,?,?,?)', [a.companyId, id, p.id, p.code.slice(0, 100), (p.name || p.code).slice(0, 200), p.spec.slice(0, 300) || null, order++]);
-      if (sched) await em.query("UPDATE live_schedules SET status = 'live', session_id = ?, updated_by = ? WHERE company_id = ? AND id = ?", [id, a.userId, a.companyId, sched.id]);
+      if (sched) await em.query(
+        "UPDATE live_schedules SET status = 'live', session_id = ?, updated_by = ?, trial_hourly_rate_cents = IF(?, trial_hourly_rate_cents, NULL) WHERE company_id = ? AND id = ?",
+        [id, a.userId, trialAnchor || trial, a.companyId, sched.id],
+      );
       await liveStartedNotification(em, a.companyId, id);
       if (sched) await liveStartNotification(em, a.companyId, id);
       return { id };
@@ -616,7 +620,7 @@ export class LiveSessionService {
     const today = liveToday(now), month = today.slice(0, 7), mine = '(s.anchor_user_id = ? OR s.control_user_id = ? OR s.operator_user_id = ?)';
     const [active, schedules, recent, comm, wage, commRows, wageRows] = await Promise.all([
       em.query(`${SESSION_SELECT} WHERE s.company_id = ? AND ${mine} AND s.status IN (${ACTIVE.map(() => '?').join(',')}) ORDER BY s.start_at DESC LIMIT 20`, [c, uid, uid, uid, ...ACTIVE]) as Promise<Row[]>,
-      em.query(`SELECT s.*, DATE_FORMAT(s.schedule_date,'%Y-%m-%d') schedule_day, DATE_FORMAT(s.start_at,'%Y-%m-%d %H:%i:%s') start_text, DATE_FORMAT(s.end_at,'%Y-%m-%d %H:%i:%s') end_text, a.name anchor_name, a.live_trial anchor_trial, cc.name control_name, o.name operator_name
+      em.query(`SELECT s.*, DATE_FORMAT(s.schedule_date,'%Y-%m-%d') schedule_day, DATE_FORMAT(s.start_at,'%Y-%m-%d %H:%i:%s') start_text, DATE_FORMAT(s.end_at,'%Y-%m-%d %H:%i:%s') end_text, a.name anchor_name, ${unfiledTrialSql('a')} anchor_trial, cc.name control_name, o.name operator_name
           FROM live_schedules s JOIN users a ON a.id = s.anchor_user_id AND a.company_id = s.company_id LEFT JOIN users cc ON cc.id = s.control_user_id AND cc.company_id = s.company_id LEFT JOIN users o ON o.id = s.operator_user_id AND o.company_id = s.company_id
          WHERE s.company_id = ? AND (s.anchor_user_id = ? OR s.control_user_id = ? OR s.operator_user_id = ?) AND s.status IN ('scheduled','live') AND s.schedule_date BETWEEN ? AND ? ORDER BY s.start_at`, [c, uid, uid, uid, today, liveAddDays(today, 7)]) as Promise<Row[]>,
       em.query(`${SESSION_SELECT} WHERE s.company_id = ? AND ${mine} ORDER BY s.start_at DESC LIMIT 20`, [c, uid, uid, uid]) as Promise<Row[]>,

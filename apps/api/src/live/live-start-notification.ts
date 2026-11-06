@@ -71,7 +71,7 @@ export const HR_DEPARTMENTS = new Set(['人事部','人事综合部','人力资�
 
 /** Called under the company lock, together with the anchor's completed checkout. */
 export async function notifyTrialSeventhDay(em: EntityManager, companyId:number, session:Row) {
-  if (!Number(session.anchor_is_trial) && !Number(session.trial_proxy) && !session.scheduled_trial_rate) return;
+  if (!Number(session.anchor_is_trial) && !Number(session.trial_proxy)) return;
   const anchorId=Number(session.anchor_user_id);
   const day=session.start_text.slice(0,10);
   const [count]=await em.query(`SELECT COUNT(DISTINCT DATE(s.start_at)) days FROM live_sessions s

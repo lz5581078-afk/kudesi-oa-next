@@ -1,3 +1,4 @@
+import { unfiledTrialSql } from '../workforce/trial-status';
 import { dayEstimate } from './live-day-estimate';
 import { assertNoDailyWork } from './daily-work-core';
 import { liveManagementRecipients } from './live-management-recipients';
@@ -24,7 +25,7 @@ export interface ScheduleInput {
 }
 
 const SCHEDULE_SELECT = `SELECT s.*, DATE_FORMAT(s.schedule_date,'%Y-%m-%d') schedule_day, DATE_FORMAT(s.start_at,'%Y-%m-%d %H:%i:%s') start_text, DATE_FORMAT(s.end_at,'%Y-%m-%d %H:%i:%s') end_text,
-    (SELECT ls.status FROM live_sessions ls WHERE ls.company_id=s.company_id AND ls.id=s.session_id) session_status, a.name anchor_name, a.live_trial anchor_trial, c.name control_name, o.name operator_name
+    (SELECT ls.status FROM live_sessions ls WHERE ls.company_id=s.company_id AND ls.id=s.session_id) session_status, a.name anchor_name, ${unfiledTrialSql('a')} anchor_trial, c.name control_name, o.name operator_name
     FROM live_schedules s JOIN users a ON a.id = s.anchor_user_id AND a.company_id = s.company_id
     LEFT JOIN users c ON c.id = s.control_user_id AND c.company_id = s.company_id LEFT JOIN users o ON o.id = s.operator_user_id AND o.company_id = s.company_id`;
 
@@ -35,7 +36,7 @@ export function scheduleProducts(value: unknown): LiveProductSnapshot[] {
 
 export function serializeSchedule(s: Row) {
   return {
-    trialHourlyRateCents: s.trial_hourly_rate_cents ?? null, anchorTrial: !!s.anchor_trial, fingerprint: scheduleFingerprint(s), channels: channelsOf(s),
+    trialHourlyRateCents: s.trial_hourly_rate_cents ?? null, anchorTrial: Boolean(Number(s.anchor_trial)), fingerprint: scheduleFingerprint(s), channels: channelsOf(s),
     id: Number(s.id), roomId: Number(s.room_id), roomName: s.room_name, date: s.schedule_day, start: s.start_text, end: s.end_text,
     startTime: String(s.start_text).slice(11, 16), endTime: String(s.end_text).slice(11, 16), status: s.status, statusLabel: LIVE_SCHEDULE_STATUS[s.status] ?? s.status,
     anchor: { id: Number(s.anchor_user_id), name: s.anchor_name }, control: s.control_user_id ? { id: Number(s.control_user_id), name: s.control_name } : null,

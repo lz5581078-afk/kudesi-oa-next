@@ -51,7 +51,7 @@ import { ToolPop } from './ToolPop';
 import { referenceRecordLabel } from './referenceFormLayout';
 import { WorkforceActions } from './WorkforceActions';
 import { StaffEditorDialog } from '../pages/org/StaffEditorDialog';
-import { AddAccountDialog, WorkforceLoginDialog, type UnfiledPerson } from './WorkforcePanels';
+import { WorkforceTrialDialog, type UnfiledPerson } from './WorkforcePanels';
 import { CloseIcon, GearIcon, SearchGlyph } from './ResIcons';
 import { useColumnWidths, useDensity } from './listPrefs';
 import { useIsMobile } from './useMedia';
@@ -149,7 +149,8 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
   const [loginDisplay,setLoginDisplay]=useState<Array<{id:number;account:string|null;loginPassword?:string;feishuBound?:boolean}>>([]);
   const [unfiled,setUnfiled]=useState<UnfiledPerson[]>([]);
   const [unbindPerson,setUnbindPerson]=useState<{id:number;name:string}|null>(null);
-  const [loginRow,setLoginRow]=useState<ResourceDto|null>(null);
+  const [addingTrial,setAddingTrial]=useState(false);
+  const [newCredentials,setNewCredentials]=useState<{account:string;password:string}|null>(null);
   const [keyword, setKeyword] = useState('');
   const [tab, setTab] = useState(lockedTab ?? '');
   const [status, setStatus] = useState(() => readPrefs(type).status ?? '');
@@ -372,12 +373,11 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
     <WorkforceActions record={row} onEdit={setEditRow} onLogs={() => { setDetailTab('logs'); setSelected(row.id); }} onChanged={() => void load()} />
     {row.data.feishuBinding === '已绑定' && me?.permissions.isCompanyAdmin && colCan('org.staff.view') && colCan('org.staff.edit') &&
       <button type="button" className="row-act danger" onClick={() => setUnbindPerson({id:Number(row.data.userId),name:row.refLabels?.userId || row.title})}>解绑飞书</button>}
-    {!row.archived && can('edit') && colCan('org.staff.edit') && <button type="button" className="row-act" onClick={() => setLoginRow(row)}>设置账号密码</button>}
   </span>;
   const bindingLabel = (bound?:boolean) => bound === undefined ? '状态未知' : bound ? '已绑定' : '未绑定';
   const missingRows: ResourceDto[] = type === 'workforce' && !tab && !archived && !expiring && page === 1 && !Object.values(filterVals).some(Boolean) && !Object.keys(colFilters).length
     ? unfiled.filter(p => (!status || (p.status === 'disabled' ? 'inactive' : 'active') === status) && keyword.trim().split(/\s+/).every(k => `${p.name} ${p.account ?? ''}`.toLowerCase().includes(k.toLowerCase())))
-      .map(p => ({ id: -p.id, type: 'workforce', title: p.name, status: p.status === 'disabled' ? 'inactive' : '待补资料', statusReason: null, data: { userId: p.id, name: p.name, account: p.account ?? '未设置', accountStatus: p.status ?? 'active', loginPassword: p.loginPassword, feishuBinding:bindingLabel(p.feishuBound), employmentType: p.employmentType, profileState: '待补资料', profileIncomplete: true }, refLabels: { userId: p.name }, secretConfigured: {}, files: {}, createdAt: '', updatedAt: '' })) : [];
+      .map(p => ({ id: -p.id, type: 'workforce', title: p.name, status: p.status === 'disabled' ? 'inactive' : '待补资料', statusReason: null, data: { userId: p.id, name: p.name, account: p.account ?? '未设置', accountStatus: p.status ?? 'active', loginPassword: p.loginPassword, feishuBinding:bindingLabel(p.feishuBound), employmentType: p.employmentType, profileState: p.trial ? '试播主播' : '待补资料', profileIncomplete: true, trial: p.trial }, refLabels: { userId: p.name }, secretConfigured: {}, files: {}, createdAt: '', updatedAt: '' })) : [];
   const listRows=data?[...missingRows,...data.items.map(r=>type==='workforce'?{...r,data:{...r.data,...loginDisplay.find(c=>c.id===Number(r.data.userId)),feishuBinding:bindingLabel(loginDisplay.find(c=>c.id===Number(r.data.userId))?.feishuBound),profileState:'已建档'}}:r)]:null;
   const openListRow = (id: number) => { if (type === 'workforce' && id < 0) { if (colCan('org.staff.view') && colCan('org.staff.edit')) setEditingStaff(-id); } else setSelected(id); };
   const totalPages = data ? Math.max(1, Math.ceil(data.total / pageSize)) : 1;
@@ -631,7 +631,10 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
           } catch (e) { setBatchMsg(e instanceof ApiError ? e.message : '导入失败'); }
         }}>导入默认分类</button>
       )}
-      {type === 'workforce' && can('create') && !!me && createChecker(me.permissions)('org.staff.create') && <button type="button" className="res-btn" onClick={() => setAddingAccount(true)}>新增账号并建档</button>}
+      {type === 'workforce' && can('create') && colCan('org.staff.create') && <>
+        <button type="button" className="res-btn" onClick={() => setAddingTrial(true)}>新增试播主播</button>
+        {colCan('org.staff.view') && <button type="button" className="res-btn primary" onClick={() => setAddingAccount(true)}>新增人员</button>}
+      </>}
       {type === 'fixed-assets' && catCan('view') && resourcePagePath('asset-categories') && <Link className="res-btn" to={resourcePagePath('asset-categories')!}>分类管理</Link>}
       {type === 'fixed-assets' && can('edit') && <button type="button" className="res-btn" onClick={() => setInventory(true)}>盘点</button>}
       {type === 'tax-profiles' && can('create') && <TaxPendingButton refreshKey={data?.total} onCreated={() => void load()} />}
@@ -799,9 +802,8 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
         <section className="res-main" aria-label={`${title ?? def.label}列表`}>
           <MainFrame>
           {toolbar}
-          {type==='workforce'&&unfiled.length>0&&<p className="notice m">待补资料 {unfiled.length} 人（含试播主播），在“全部”第一页以黄色显示；点击姓名编辑员工并补齐合作期限。</p>}
+          {type==='workforce'&&unfiled.length>0&&<p className="notice m">待补资料 {unfiled.length} 人（含试播主播），可在“全部”第一页建立账号或补齐资料。</p>}
           {unbindPerson&&<StaffFeishuUnbindDialog staff={unbindPerson} onClose={()=>setUnbindPerson(null)} onDone={async()=>{setUnbindPerson(null);await load();}}/>}
-          {loginRow&&<WorkforceLoginDialog recordId={loginRow.id} currentAccount={String(loginRow.data.account==='未设置'?'':loginRow.data.account??'')} canPassword={colCan('org.staff.reset')} onClose={()=>setLoginRow(null)} onSaved={()=>{setLoginRow(null);void load();}}/>}
           {referenceFee&&<div className="reference-fee-table-tools"><ReferenceSearch label="搜索费用档案" placeholder="搜索费用编号、费用名称、分类或备注" value={keyword} onChange={value=>{setKeyword(value);setPage(1);}}/><span>共 {data?.total??0} 条</span><ColumnsPop iconOnly fields={shownFields} picked={colKeys} onChange={setColKeys} defaults={defaults} requiredKeys={['__actions']}/></div>}
           {error && <div role="alert" className="notice error m">{error}</div>}
           {referenceProduct&&productCostExcel.error&&<div role="alert" className="notice error m">{productCostExcel.error}</div>}
@@ -922,8 +924,15 @@ function ResourcePageBody({type,lockedTab,title,embedded,hier}:ResourcePageProps
       {editRow && (
         ['finance-suppliers','finance-customers','finance-fee-items'].includes(type)?<RecordDetail key={`edit:${editRow.id}`} def={def} id={editRow.id} initialEditing onClose={()=>setEditRow(null)} onChanged={()=>void load()}/>:<RecordForm def={def} record={editRow} onClose={() => setEditRow(null)} onSaved={() => { setEditRow(null); void load(); }} />
       )}
-      {editingStaff !== null && <StaffEditorDialog id={editingStaff} onClose={() => setEditingStaff(null)} onSaved={() => { setEditingStaff(null); void load(); }} />}
-      {addingAccount && <AddAccountDialog onClose={() => setAddingAccount(false)} onCreated={(userId) => { setAddingAccount(false); setCopyInit({ userId }); setCreating(true); }} />}
+      {editingStaff !== null && <StaffEditorDialog workforce id={editingStaff} onClose={() => setEditingStaff(null)} onSaved={() => { setEditingStaff(null); void load(); }} />}
+      {addingAccount && <StaffEditorDialog workforce id={null} onClose={() => setAddingAccount(false)}
+        onSaved={credentials => { setAddingAccount(false); setNewCredentials(credentials ?? null); void load(); }} />}
+      {addingTrial && <WorkforceTrialDialog onClose={() => setAddingTrial(false)} onSaved={() => { setAddingTrial(false); void load(); }} />}
+      {newCredentials && <div className="modal-backdrop"><section className="modal card small" role="dialog" aria-modal="true" aria-label="已建立账号">
+        <div className="modal-head"><strong>已建立账号</strong></div>
+        <div className="modal-body"><p>登录账号 {newCredentials.account}</p><p>初始密码 {newCredentials.password}</p></div>
+        <div className="modal-foot"><button type="button" onClick={() => setNewCredentials(null)}>关闭</button></div>
+      </section></div>}
       {inventory && <InventoryDialog onClose={() => setInventory(false)} onDone={(m) => { setInventory(false); setBatchMsg(m); void load(); }} />}
       {sorting && tab && <CategorySortDialog archiveType={tab} onClose={() => setSorting(false)} onDone={() => void load()} />}
       {reasonLib && libType && <ReasonLibraryDialog libType={libType} title={type === 'stores' ? '店铺异常原因库' : '手机号异常原因库'} onClose={() => setReasonLib(false)} />}
