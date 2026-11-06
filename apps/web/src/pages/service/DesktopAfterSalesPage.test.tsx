@@ -77,6 +77,22 @@ it('点处理自动回查当前与历史售后，并将匹配记录归档到同�
  expect(screen.getByText('等待退货 → 已完成')).toBeTruthy();
  expect(mock.mock.calls.some(([p])=>p.endsWith('/claim'))).toBe(false);
 });
+it('缺内部订单号的售后仍按售后单号回查，并在同一档案显示补齐的号码',async()=>{
+ const original=mock.getMockImplementation()!;
+ const missing={...archive().snapshot,internalOrderId:''};
+ const filled={...missing,internalOrderId:'4400001'};
+ mock.mockImplementation(async(p,o)=>p.endsWith('/1')?{...archive(),snapshot:missing}:
+  p.endsWith('/1/source')?{...archive(),snapshot:filled}:original(p,o));
+ let respond!:(result:{records:typeof filled[]})=>void;
+ window.oaDesktop!.query=vi.fn().mockReturnValue(new Promise(resolve=>{respond=resolve;}));
+ render(<DesktopAfterSalesPage/>);
+ fireEvent.click(await screen.findByText('85110001'));
+ const detail=await screen.findByRole('dialog',{name:'售后 85110001'});
+ expect((within(detail).getByRole('button',{name:'待聚水潭补齐'}) as HTMLButtonElement).disabled).toBe(true);
+ respond({records:[filled]});
+ await within(detail).findByRole('button',{name:'4400001'});
+ expect(mock).toHaveBeenCalledWith('/desktop-after-sales/1/source',{body:filled});
+});
 it('列筛选提交给服务端，拖动后的售后单号位置在重开时保留',async()=>{
  const original=mock.getMockImplementation()!;
  mock.mockImplementation(async(p,o)=>p.endsWith('/search')?{total:42,rows:[]}:original(p,o));
