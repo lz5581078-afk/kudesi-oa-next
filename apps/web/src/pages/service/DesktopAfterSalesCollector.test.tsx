@@ -24,3 +24,15 @@ it('读取失败必须上报失败，不会把本轮标为成功',async()=>{
  await waitFor(()=>expect(mock).toHaveBeenCalledWith('/desktop-after-sales-collection/1/fail',expect.objectContaining({body:expect.objectContaining({message:'聚水潭登录失效'})})));
  expect(mock.mock.calls.some(([p])=>p.endsWith('/commit'))).toBe(false);
 });
+it('登录后自动参加匹配来源，首次轮次只提交当前页',async()=>{
+ const desktop=window.oaDesktop!;
+ vi.mocked(desktop.preferences).mockResolvedValueOnce({shortcut:'',registered:true,collection:{enabled:false,clientId:'test-client'}});
+ desktop.joinCollection=vi.fn().mockResolvedValue(true);
+ vi.mocked(desktop.prepareLatest!).mockResolvedValue({sourceCompany:'演示公司'});
+ vi.mocked(desktop.latest!).mockResolvedValue({records:[],page:1,pageSize:50,total:51,hasNext:true,sourceCompany:'演示公司',kind:'current'});
+ mock.mockImplementation(async p=>p.endsWith('/join')?{id:1,enabled:true}:p.endsWith('/claim')?{...lease,firstPageOnly:true}:[]);
+ render(<DesktopAfterSalesCollector/>);
+ await waitFor(()=>expect(mock).toHaveBeenCalledWith('/desktop-after-sales-collection/1/commit',{body:{token:lease.token,page:1,records:[],completed:true}}));
+ expect(desktop.joinCollection).toHaveBeenCalledWith({companyId:1,sourceCompany:'演示公司'});
+ expect(desktop.latest).toHaveBeenCalledOnce();
+});

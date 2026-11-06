@@ -16,13 +16,24 @@ export function DesktopAfterSalesCollector(){
   const request=async<T,>(path:string,body?:unknown)=>{if(!active())throw new Error('采集身份已变化');return api<T>(path,body===undefined?{}:{body});};
   async function tick(){
    try{
-    const prefs=await bridge!.preferences();if(!active()||!prefs.collection?.enabled)return;
+    const prefs=await bridge!.preferences();
+    if(!active()||!prefs.collection||(prefs.collection.companyId&&prefs.collection.companyId!==user!.companyId))return;
     const sources=await request<DesktopCollectionSource[]>(BASE);
-    // Exactly one local source per logged-in ERP company, never page/time partitions across clients.
-    const source=sources.find(s=>s.enabled&&s.sourceCompany===prefs.collection?.sourceCompany);if(!source)return;
-    const lease=await request<DesktopCollectionLease|null>(`${BASE}/${source.id}/claim`,{clientId:prefs.collection.clientId});if(!lease)return;
+    let sourceId=sources.find(s=>s.enabled&&s.sourceCompany===prefs.collection?.sourceCompany)?.id;
+    if(!prefs.collection.enabled||sourceId===undefined||(bridge!.joinCollection&&!prefs.collection.companyId)){
+     if(!bridge!.joinCollection)return;
+     const {sourceCompany}=await bridge!.prepareLatest!();
+     if(!active()||!sourceCompany||(prefs.collection.sourceCompany&&prefs.collection.sourceCompany!==sourceCompany))return;
+     if(sources.length&&!sources.some(s=>s.enabled&&s.sourceCompany===sourceCompany))return;
+     if(!sources.length&&prefs.collection.sourceCompany)return;
+     const joined=await request<{id:number;enabled:boolean}|null>(`${BASE}/join`,{sourceCompany});
+     if(!joined?.enabled||!active()||!await bridge!.joinCollection({sourceCompany,companyId:user!.companyId}))return;
+     sourceId=joined.id;
+    }
+    const round=`${BASE}/${sourceId}`;
+    const lease=await request<DesktopCollectionLease|null>(`${round}/claim`,{clientId:prefs.collection.clientId});if(!lease)return;
     let heartbeatError:Error|null=null;
-    const heartbeat=setInterval(()=>{void request(`${BASE}/${source.id}/heartbeat`,{token:lease.token}).catch(e=>{heartbeatError=e;});},25000);
+    const heartbeat=setInterval(()=>{void request(`${round}/heartbeat`,{token:lease.token}).catch(e=>{heartbeatError=e;});},25000);
     try{
      for(let page=lease.page;active();page++){
       if(heartbeatError)throw heartbeatError;
@@ -31,10 +42,11 @@ export function DesktopAfterSalesCollector(){
       if(!active())return;
       if(heartbeatError)throw heartbeatError;
       if(result.hasNext===null)throw new Error('无法确认本轮最新售后是否完整');
-      await request(`${BASE}/${source.id}/commit`,{token:lease.token,records:result.records,page,completed:!result.hasNext});
-      if(!result.hasNext)break;
+      const completed=lease.firstPageOnly||!result.hasNext;
+      const resultCommit=await request<{completed?:boolean}>(`${round}/commit`,{token:lease.token,records:result.records,page,completed});
+      if(completed||resultCommit?.completed)break;
      }
-    }catch(e){if(active())await request(`${BASE}/${source.id}/fail`,{token:lease.token,message:(e as Error).message.slice(0,500)}).catch(()=>undefined);}
+    }catch(e){if(active())await request(`${round}/fail`,{token:lease.token,message:(e as Error).message.slice(0,500)}).catch(()=>undefined);}
     finally{clearInterval(heartbeat);}
    }catch{/* The visible page polls server health independently; cannot confirm status is never shown as healthy. */}
    finally{if(active())timer=setTimeout(()=>void tick(),5000);}
