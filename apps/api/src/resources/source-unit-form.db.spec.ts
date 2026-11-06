@@ -42,4 +42,24 @@ d('原档案单位显式整组操作',()=>{
   const markedCopy=productRequest();markedCopy.values.name='新源档案副本';markedCopy.copySource={id:product.id,version:product.version!,files:{}};expect((await svc.saveForm(user,'finance-products',markedCopy)).data.unitDictionaryKind).toBe('archive_unit');
  });
 
+ it('原装采购表单新建和复制均可使用档案单位「粒」，重量独立保存',async()=>{
+  await svc.create(user,'finance-product-units',{kind:'archive_unit',name:'粒',code:'L'});
+  await svc.create(user,'finance-product-units',{kind:'spec_unit',name:'千克',code:'KG'});
+  const category=await svc.create(user,'finance-categories',{archiveType:'original_purchase',name:'合成原装分类',code:'HC'});
+  const brand=await svc.create(user,'finance-brands',{name:'合成品牌',code:'PP'});
+  const values={archiveType:'purchased',supplyMode:'original_purchase',categoryId:category.id,brandId:brand.id,
+   name:'合成4400粒',specQty:'4400',specUnit:'L',purchaseSpec:'袋',weightManual:true,weightG:1400,
+   purchasePrice:1500,freight:53.33,handlingFee:2};
+  const save=(patch:Partial<ResourceFormInput>={})=>svc.saveForm(user,'finance-products',{
+   requestKey:randomUUID(),values,collections:[],...patch,
+  });
+  const product=await save();
+  expect(product.data).toMatchObject({specUnit:'L',unitDictionaryKind:'archive_unit',weightG:1400});
+  expect(product.data.code).toMatch(/-4400L-D$/);
+  const copy=await save({values:{...values,name:'合成4400粒副本'},copySource:{id:product.id,version:product.version!,files:{}}});
+  expect(copy.data).toMatchObject({specUnit:'L',unitDictionaryKind:'archive_unit',weightG:1400});
+  await expect(save({values:{...values,name:'合成跨字典规格',specUnit:'KG',unitDictionaryKind:'spec_unit'}}))
+   .rejects.toThrow('规格单位的取值不合法');
+ });
+
 });
