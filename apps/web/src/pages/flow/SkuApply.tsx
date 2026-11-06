@@ -30,9 +30,10 @@ export interface BatchItem { runId: number; revision: number; stepId?: number | 
 export interface BatchBoard {
   ref: string; batchKey: string | null; batchName: string; requesterName: string; total: number; runCount: number;
   applicationHeader?:ApplicationHeader;
+  workflowSteps?:ApplicationHeader['steps'];
   counts: { draft?:number;running: number; completed: number; ended: number; returned: number; mine: number };
   me: { isRequester: boolean; holdStepKey: string | null; holdStepName: string; holdCount: number; canReturnAll: boolean };
-  items: Array<{ runId: number; canEditDraft?:boolean; specIndex: number; specName: string; specCount: number; runStatus: string; revision: number; stepId: number | null; stepKey: string | null; stepName: string; enteredVia: string | null; dueAt: string | null; overdue: boolean; recipients: string[]; mine: boolean; canResubmit: boolean; returnReason: string | null; returnedBy: string | null; returnedAt: string | null }>;
+  items: Array<{ runId: number; canEditDraft?:boolean; canSaveWarehouseDraft?:boolean; specIndex: number; specName: string; specCount: number; runStatus: string; revision: number; stepId: number | null; stepKey: string | null; stepName: string; stepType?: string | null; enteredVia: string | null; dueAt: string | null; overdue: boolean; recipients: string[]; mine: boolean; canResubmit: boolean; returnReason: string | null; returnedBy: string | null; returnedAt: string | null }>;
   history: Array<{ id: number; runId: number; action: string; note: string | null; actorName: string; createdAt: string; specNames: string[] }>;
 }
 export interface BatchOutcome { results: Array<{ runId: number; ok: boolean; message?: string }>; ok: number; failed: number }

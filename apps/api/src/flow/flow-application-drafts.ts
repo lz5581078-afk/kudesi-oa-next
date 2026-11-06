@@ -139,7 +139,9 @@ export class FlowApplicationDrafts {
  async templates(user:AuthUser,key:string){
   needApply(user);const template=await this.host.template(this.ds.manager,user.companyId,key);if(!template.applicationDraft)throw new BadRequestException('此流程未启用申请草稿');
   const definitions=await this.ds.manager.find(FlowDefinition,{where:{companyId:user.companyId,templateKey:key},order:{version:'DESC'}}),rows=[];
-  for(const def of definitions)if(await this.host.starterAllowed(this.ds.manager,user,def.starterScope)){
+  // Retired definitions are snapshots of old applications, never choices for a new one.
+  const candidates=key==='sku-batch-apply' ? definitions.filter(def=>def.status==='active'||def.status==='draft') : definitions;
+  for(const def of candidates)if(await this.host.starterAllowed(this.ds.manager,user,def.starterScope)){
    const issues=validateSteps(template,def.steps as StepDef[],def.escalateUserIds),steps=[];
    for(const step of def.steps as StepDef[]){let handlerName=step.type==='submit'?'申请人':step.type==='end'?'归档':'';if(!handlerName)try{handlerName=(await this.host.handlers(this.ds.manager,user,step)).join('、')||'未配置';}catch(error){handlerName='未配置';issues.push(error instanceof HttpException?error.message:'节点处理人暂不可解析');}steps.push({key:step.key,name:step.name,type:step.type,handlerName});}
    rows.push({id:def.id,version:def.version,status:def.status,label:template.label,steps,issues});
@@ -165,6 +167,7 @@ export class FlowApplicationDrafts {
      FormDraft,{companyId:user.companyId,userId:user.id,moduleKey:`flow-application:${input.templateKey}`,sourceRecordId:ref});
    if(priorCreate&&!hit)throw new ConflictException('原申请已删除，不能重放建立请求');
    if(hit){const header=await this.ownHeader(em,user,input.templateKey,ref);if(header.data.createHash!==hash)throw new ConflictException('同一请求标识已用于其他申请内容');return {batchKey:ref,headerVersion:header.version,runs:old.map(run=>({id:run.id,revision:run.revision}))};}
+   if(input.templateKey==='sku-batch-apply'&&definition.status==='retired')throw new ConflictException('所选 SKU 流程版本已停用，请刷新后重新选择');
    for(const check of policy.confirmations??[])if(input.confirmations?.[check.key]!==true)throw new BadRequestException(`请先完成${check.label}，再建立申请`);
    if(Object.entries(input.confirmations??{}).some(([key,value])=>!policy.confirmations?.some(check=>check.key===key)||typeof value!=='boolean'))throw new BadRequestException('申请确认项目不合法');
    const normalized:Record<string,unknown>[]=[];for(const payload of input.payloads)normalized.push(await this.draftPayload(em,user,template,payload));

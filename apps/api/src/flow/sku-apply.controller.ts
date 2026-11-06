@@ -1,3 +1,4 @@
+import {SKU_BATCH_REF} from './sku-batch-reference';
 import {FlowConfirmationDto} from './flow-confirmation.dto';
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
@@ -41,7 +42,7 @@ class BatchItemDto {
   @IsOptional() @IsInt() stepId?: number;
 }
 class BatchActDto {
-  @IsString() @Matches(/^(B[0-9a-z]{1,19}|run-\d{1,10})$/) ref!: string;
+  @IsString() @Matches(SKU_BATCH_REF) ref!: string;
   @IsIn(['pass', 'return', 'reject', 'cancel', 'resubmit']) action!: BatchAction;
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(100) @ValidateNested({ each: true }) @Type(() => BatchItemDto) items!: BatchItemDto[];
   @IsOptional() @IsString() @MaxLength(500) comment?: string;
@@ -49,7 +50,7 @@ class BatchActDto {
   @IsOptional() @IsObject() forms?: Record<string, Record<string, unknown>>;
 }
 class ReturnAllDto {
-  @IsString() @Matches(/^(B[0-9a-z]{1,19}|run-\d{1,10})$/) ref!: string;
+  @IsString() @Matches(SKU_BATCH_REF) ref!: string;
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(200) @ValidateNested({ each: true }) @Type(() => BatchItemDto) items!: BatchItemDto[];
   @IsString() @MaxLength(500) reason!: string;
 }
