@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor,within } from '@testing-library/react';
+import { flushSync } from 'react-dom';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resourceApi } from './api';
@@ -32,6 +33,25 @@ import { ResourcePage } from './ResourcePage';
 const row = (id: number, name: string, status = 'active') => ({ id, type: 'finance-suppliers', title: name, status, statusReason: null, data: { name, code: `GYS-00${id}`, shortName: '简', categoryIds: [3] }, secretConfigured: {}, refLabels: {}, files: {}, createdAt: '', updatedAt: '' });
 const hier = { title: '种子供应商', subtitle: '种子相关', rootId: 1, onBack: vi.fn() };
 const renderIt = () => render(<MemoryRouter><ResourcePage type="finance-suppliers" hier={hier} /></MemoryRouter>);
+
+it('原装采购成品列表先执行编辑操作再关闭菜单', async () => {
+  const product = {
+    ...row(501, '合成原装成品'),
+    type: 'finance-products',
+    data: { name: '合成原装成品', archiveType: 'purchased', supplyMode: 'original_purchase' },
+  };
+  vi.mocked(resourceApi.list).mockResolvedValue({ items: [product], total: 1, page: 1, pageSize: 30 });
+  render(<MemoryRouter><ResourcePage type="finance-products" lockedTab="original_purchase" hier={hier} /></MemoryRouter>);
+
+  fireEvent.click(await screen.findByRole('button', { name: '操作：合成原装成品' }));
+  const edit = screen.getByRole('button', { name: '编辑：合成原装成品' });
+  // A real browser can flush the capture-phase update before the action's click handler.
+  edit.addEventListener('click', () => flushSync(() => {}), { capture: true, once: true });
+  fireEvent.click(edit);
+
+  expect(await screen.findByText('编辑表单:合成原装成品')).toBeTruthy();
+  expect(screen.queryByRole('dialog', { name: '操作：合成原装成品' })).toBeNull();
+});
 
 it.each([['raw','原料'],['shipping_material','发货物料'],['self_made','自产成品'],['original_purchase','外购成品'],['supplier_oem','外购成品'],['package','产品包装'],['oem_package','OEM包装']])('原版商品%s六项资料操作保持文件入口，导出不夹带表内筛选',async(family,noun)=>{
  const product={...row(501,'合成商品'),type:'finance-products',data:{name:'合成商品',code:'HC-PRODUCT',basicInfoFullName:'合成商品全名',archiveType:['original_purchase','supplier_oem'].includes(family)?'purchased':family,supplyMode:family,categoryId:3}};

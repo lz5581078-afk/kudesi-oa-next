@@ -50,7 +50,11 @@ export function HierRowActions({ def, row, can, onOpen, onEdit, onCopy, onCost, 
   const productArchive=def.key==='finance-products';
   const [statusBusy,setStatusBusy]=useState(false);
   async function enable(){if(statusBusy||!on)return;setStatusBusy(true);try{await resourceApi.changeStatus(def.key,row.id,on.value);clearRefCache(def.key);onDone(`「${row.title}」已启用`);}catch(e){setError(e instanceof ApiError?e.message:'操作失败');}finally{setStatusBusy(false);}}
-  const act = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); setError(''); fn(); };
+  const act = (fn: () => void) => (e: React.MouseEvent) => {
+    if (!productArchive) e.stopPropagation();
+    setError('');
+    fn();
+  };
   const actions = <>
       <button type="button" className="row-act" aria-label={`查看：${row.title}`} onClick={act(() => onOpen(row.id))}>查看</button>
       {live && can('edit') && <button type="button" className="row-act" aria-label={`编辑：${row.title}`} onClick={act(() => onEdit(row))}>编辑</button>}
