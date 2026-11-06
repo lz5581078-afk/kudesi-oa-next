@@ -1,7 +1,8 @@
 import { FeishuBindingReminder } from '../auth/FeishuBindingReminder';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { PAGE_TABS, directPage, findPageByPath, splitMobileSections, visibleSections, withDeskNavigation, isNavPathCurrent, type DeskCatalog, type VisibleSection } from '@kudesi/shared';
+import { DESKTOP_AFTER_SALES_ROUTES, PAGE_TABS, directPage, findPageByPath, splitMobileSections, visibleSections, withDeskNavigation, isNavPathCurrent, type DeskCatalog, type VisibleSection } from '@kudesi/shared';
+import { launchAfterSalesTool } from '../pages/service/afterSalesWindow';
 import { useAuth } from '../auth/AuthContext';
 import { AppbarContext, useAppbarState } from './AppbarSlot';
 import { CommandPalette } from './CommandPalette';
@@ -167,7 +168,9 @@ export function Shell() {
           onClose={() => setPaletteOpen(false)}
           onPick={(path) => {
             setPaletteOpen(false);
-            navigate(path);
+            if (path === DESKTOP_AFTER_SALES_ROUTES.workspace) {
+              void launchAfterSalesTool().catch(() => window.alert('实时售后处理窗口未能打开，请重试。'));
+            } else navigate(path);
           }}
         />
       )}

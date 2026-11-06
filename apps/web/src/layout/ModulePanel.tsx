@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { groupPages, searchNav, isNavPathCurrent, type VisibleSection } from '@kudesi/shared';
+import { WorkspaceLink } from './WorkspaceLink';
+import { DESKTOP_AFTER_SALES_ROUTES, groupPages, searchNav, isNavPathCurrent, type VisibleSection } from '@kudesi/shared';
+import { AFTER_SALES_INSTALLER_URL } from '../pages/service/afterSalesWindow';
 import { SearchIcon } from './NavIcons';
 
 /**
@@ -58,10 +59,10 @@ export function ModulePanel(props: {
               <ul className="mp-hits">
                 {hits.map((h) => (
                   <li key={h.page.path}>
-                    <Link to={h.page.path} aria-label={h.page.label} className={isCurrent(h.page.path) ? 'mp-link active' : 'mp-link'} aria-current={isCurrent(h.page.path) ? 'page' : undefined} onClick={() => props.onPick(h.page.path)}>
+                    <WorkspaceLink to={h.page.path} aria-label={h.page.label} className={isCurrent(h.page.path) ? 'mp-link active' : 'mp-link'} aria-current={isCurrent(h.page.path) ? 'page' : undefined} onClick={() => props.onPick(h.page.path)}>
                       <span>{h.page.label}</span>
                       <small>{h.sectionLabel}{h.groupTitle !== h.sectionLabel ? ` · ${h.groupTitle}` : ''}</small>
-                    </Link>
+                    </WorkspaceLink>
                   </li>
                 ))}
               </ul>
@@ -74,10 +75,11 @@ export function ModulePanel(props: {
                   <ul>
                     {g.pages.map((p) => (
                       <li key={p.path}>
-                        <Link to={p.path} aria-label={p.label} className={isCurrent(p.path) ? 'mp-link active' : 'mp-link'} aria-current={isCurrent(p.path) ? 'page' : undefined} onClick={() => props.onPick(p.path)} title={p.description}>
+                        <WorkspaceLink to={p.path} aria-label={p.label} className={isCurrent(p.path) ? 'mp-link active' : 'mp-link'} aria-current={isCurrent(p.path) ? 'page' : undefined} onClick={() => props.onPick(p.path)} title={p.description}>
                           <span className="mp-link-label">{p.label}</span>
                           {p.description && <small className="mp-link-desc">{p.description}</small>}
-                        </Link>
+                        </WorkspaceLink>
+                        {p.path === DESKTOP_AFTER_SALES_ROUTES.workspace && <a className="mp-link" href={AFTER_SALES_INSTALLER_URL} target="_blank" rel="noopener">下载 Windows 售后工具</a>}
                       </li>
                     ))}
                   </ul>

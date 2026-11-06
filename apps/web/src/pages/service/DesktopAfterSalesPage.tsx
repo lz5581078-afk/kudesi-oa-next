@@ -1,8 +1,9 @@
 import {useEffect,useRef,useState,useCallback} from 'react';
-import {AFTER_SALES_FIELDS,type DesktopSaleArchive,type DesktopSaleSnapshot,type DesktopSaleListRow,type DesktopCollectionSource} from '@kudesi/shared';
+import {AFTER_SALES_FIELDS,DESKTOP_AFTER_SALES_LINK,type DesktopSaleArchive,type DesktopSaleSnapshot,type DesktopSaleListRow,type DesktopCollectionSource} from '@kudesi/shared';
 import {Settings2,ArrowUp,ArrowDown,X,Search,ExternalLink} from 'lucide-react';
 import './desktopBridge';
 import {DesktopCollectionStatus} from './DesktopCollectionStatus';
+import {AFTER_SALES_INSTALLER_URL} from './afterSalesWindow';
 import {RunDetail} from '../flow/RunDetail';
 import {api} from '../../api/client';
 import './desktopAfterSales.css';
@@ -19,13 +20,15 @@ export function DesktopAfterSalesPage(){
  const desktop=window.oaDesktop;
  const openNative=desktop?.surface==='main'?desktop.openAfterSales:undefined;
  const bridge=desktop?.surface==='main'?undefined:desktop;
+ const nativeSource=bridge?.surface==='after-sales';
  const viewport=useRef<HTMLDivElement>(null),selectedRef=useRef<DesktopSaleArchive|null>(null),request=useRef(0);
  const [options,setOptions]=useState<Options>({stores:[],people:[]}),[list,setList]=useState<List>({total:0,rows:[]});
  const [selected,setSelected]=useState<DesktopSaleArchive|null>(null),[snapshots,setSnapshots]=useState<DesktopSaleSnapshot[]>([]),[snapshotIndex,setSnapshotIndex]=useState(0);
  const [storeId,setStoreId]=useState(''),[company,setCompany]=useState(''),[keyword,setKeyword]=useState(''),[page,setPage]=useState(1);
  const [progress,setProgress]=useState(''),[owner,setOwner]=useState(''),[nextAt,setNextAt]=useState(''),[note,setNote]=useState('');
  const [error,setError]=useState(''),[busy,setBusy]=useState(false),[tab,setTab]=useState<'follow'|'source'>('follow'),[shortcut,setShortcut]=useState('CommandOrControl+Shift+S');
- const [portal,setPortal]=useState(false),[settings,setSettings]=useState(false),[columns,setColumns]=useState<string[]>(readColumns),[columnSettings,setColumnSettings]=useState(false);
+ const [portal,setPortal]=useState(nativeSource),[settings,setSettings]=useState(false),[columns,setColumns]=useState<string[]>(readColumns),[columnSettings,setColumnSettings]=useState(false);
+ const sourceOpened=useRef(false);
  const [sort,setSort]=useState({key:'申请时间',direction:'desc'}),[sources,setSources]=useState<DesktopCollectionSource[]>([]),[sourceId,setSourceId]=useState('');
  const [localEnabled,setLocalEnabled]=useState(false),[localKind,setLocalKind]=useState<'current'|'history'>('current'),[searchField,setSearchField]=useState<'afterSaleId'|'internalOrderId'>('afterSaleId');
  const [localPage,setLocalPage]=useState(1),[localHasNext,setLocalHasNext]=useState(false),[localResult,setLocalResult]=useState(false);
@@ -59,11 +62,22 @@ export function DesktopAfterSalesPage(){
  };
  useEffect(()=>{run(async()=>{setOptions(await api<Options>('/desktop-after-sales/options'));await loadList(1);if(bridge?.preferences){const prefs=await bridge.preferences();setShortcut(prefs.shortcut);setLocalEnabled(!!prefs.collection?.enabled);if(!prefs.registered)setError('截图快捷键未注册，请在桌面设置中更换快捷键。');}});},[]);
  useEffect(()=>{refreshCollection();},[refreshCollection]);
- useEffect(()=>{if(!bridge||!portal||!viewport.current)return;const el=viewport.current;
-  const sync=()=>{const r=el.getBoundingClientRect();bridge.mount({x:r.x,y:r.y,width:r.width,height:r.height}).catch(e=>setError(e.message));};
-  const observer=new ResizeObserver(sync);observer.observe(el);window.addEventListener('resize',sync);window.addEventListener('scroll',sync,true);sync();
-  return()=>{observer.disconnect();window.removeEventListener('resize',sync);window.removeEventListener('scroll',sync,true);void bridge.hide();};
- },[bridge,portal]);
+ useEffect(()=>{
+  if(!bridge||!portal||!viewport.current)return;
+  const el=viewport.current;
+  let active=true;
+  const mount=()=>{const r=el.getBoundingClientRect();return bridge.mount({x:r.x,y:r.y,width:r.width,height:r.height});};
+  const report=(e:Error)=>{if(active)setError(e.message);};
+  const sync=()=>{void mount().catch(report);};
+  const observer=new ResizeObserver(sync);
+  observer.observe(el);window.addEventListener('resize',sync);window.addEventListener('scroll',sync,true);
+  void mount().then(()=>{
+   if(!active||!nativeSource||sourceOpened.current)return;
+   sourceOpened.current=true;
+   return bridge.openSourceAfterSales?.();
+  }).catch(report);
+  return()=>{active=false;observer.disconnect();window.removeEventListener('resize',sync);window.removeEventListener('scroll',sync,true);void bridge.hide().catch(()=>{});};
+ },[bridge,portal,nativeSource]);
  useEffect(()=>()=>{void bridge?.context(null);},[bridge]);
  useEffect(()=>{void bridge?.context(selected?{id:selected.id,afterSaleId:selected.snapshot.afterSaleId}:null);},[bridge,selected?.id]);
  useEffect(()=>{if(!bridge)return;return bridge.onScreenshot(s=>{
@@ -116,12 +130,27 @@ export function DesktopAfterSalesPage(){
   await bridge.collection({enabled:true,sourceCompany:company.trim()});setLocalEnabled(true);setSourceId(String(configured.id));refreshCollection();
  });
  return <div className="desktop-sales">
-  <header><div><h2>实时售后处理</h2><p>最新申请在前 · 原单资料与 OA 跟进统一留档</p></div><div className="ds-actions"><button onClick={()=>setColumnSettings(v=>!v)}><Settings2 size={15}/> 列设置</button><button onClick={()=>setSettings(true)}>采集连接</button>{bridge&&<><button onClick={()=>run(async()=>{const v=await bridge.read();setSnapshots(v);setSnapshotIndex(0);if(v[0]?.sourceCompany)setCompany(v[0].sourceCompany);if(!v.length)throw new Error('当前页面未读到售后');})}>读取当前页面</button><button onClick={()=>setPortal(true)}><ExternalLink size={15}/> 展开聚水潭</button><button onClick={()=>run(async()=>{await bridge.screenshot(selected?{id:selected.id,afterSaleId:selected.snapshot.afterSaleId}:null);})}>截图 / 标注</button></>}</div></header>
+  {!(nativeSource&&portal)&&<>
+  <header>
+    <div><h2>实时售后处理</h2><p>最新申请在前 · 原单资料与 OA 跟进统一留档</p></div>
+    <div className="ds-actions" role="group" aria-label="售后功能区">
+      <button onClick={()=>setColumnSettings(v=>!v)}><Settings2 size={15}/> 列设置</button>
+      <button onClick={()=>setSettings(true)}>采集连接</button>
+      {bridge&&<>
+        <button onClick={()=>run(async()=>{const v=await bridge.read();setSnapshots(v);setSnapshotIndex(0);if(v[0]?.sourceCompany)setCompany(v[0].sourceCompany);if(!v.length)throw new Error('当前页面未读到售后');})}>读取当前页面</button>
+        <button onClick={()=>setPortal(true)}><ExternalLink size={15}/> 展开聚水潭</button>
+        <button onClick={()=>run(async()=>{await bridge.screenshot(selected?{id:selected.id,afterSaleId:selected.snapshot.afterSaleId}:null);})}>截图 / 标注</button>
+      </>}
+    </div>
+  </header>
   <DesktopCollectionStatus onSettings={()=>setSettings(true)} onRefresh={refreshCollection}/>
   {error&&<div role="alert" className="ds-error">{error}<button onClick={()=>setError('')}>关闭</button></div>}
   {!bridge&&<div className="ds-notice">
     本机聚水潭查询和采集使用桌面工具。
-    {openNative&&<> <button disabled={busy} onClick={()=>run(async()=>{if(!await openNative())throw new Error('本机聚水潭工具未能打开，请重试。');})}>打开本机聚水潭工具</button></>}
+    {openNative
+      ? <> <button disabled={busy} onClick={()=>run(async()=>{if(!await openNative())throw new Error('本机聚水潭工具未能打开，请重试。');})}>打开本机聚水潭工具</button></>
+      : <> <a href={DESKTOP_AFTER_SALES_LINK}>打开本机聚水潭工具</a></>}
+    {' · '}<a href={AFTER_SALES_INSTALLER_URL} target="_blank" rel="noopener">下载 Windows 售后工具</a>
   </div>}
   <section className="ds-list-tools"><form className="ds-search" onSubmit={e=>{e.preventDefault();setLocalResult(false);setPage(1);void run(()=>loadList(1));}}><select aria-label="搜索类型" value={searchField} onChange={e=>setSearchField(e.target.value as 'afterSaleId'|'internalOrderId')}><option value="afterSaleId">售后单号</option><option value="internalOrderId">内部订单号</option></select><input aria-label="搜索售后单号或内部订单号" placeholder="输入订单号查询 OA 档案" value={keyword} onChange={e=>setKeyword(e.target.value)}/><button disabled={busy}><Search size={14}/> 搜索 OA</button><button type="button" disabled={busy} onClick={()=>run(()=>loadList())}>刷新列表</button></form>
    {bridge&&<div className="ds-actions"><select aria-label="查询来源公司" value={sourceId} onChange={e=>setSourceId(e.target.value)}><option value="">选择聚水潭公司</option>{sources.map(s=><option key={s.id} value={s.id}>{s.sourceCompany}</option>)}</select><select aria-label="本机查询范围" value={localKind} onChange={e=>{setLocalKind(e.target.value as 'current'|'history');setLocalResult(false);}}><option value="current">当前售后</option><option value="history">历史售后</option></select><button disabled={busy} onClick={()=>run(()=>localQuery(1))}>本机查询并更新 OA</button>{localResult&&<><span>原页面第 {localPage} 页</span><button disabled={busy||localPage===1} onClick={()=>run(()=>localQuery(localPage-1))}>本机上一页</button><button disabled={busy||!localHasNext} onClick={()=>run(()=>localQuery(localPage+1))}>本机下一页</button></>}</div>}
@@ -153,7 +182,20 @@ export function DesktopAfterSalesPage(){
    {sources.map(s=><div className="ds-source-config" key={s.id}><strong>{s.sourceCompany}</strong><p>最后成功：{s.lastSuccessAt?new Date(s.lastSuccessAt).toLocaleString():'无'} · {s.enabled?'已启用':'已停止'}</p><button disabled={busy} onClick={()=>run(async()=>{await api('/desktop-after-sales-collection',{body:{sourceCompany:s.sourceCompany,enabled:!s.enabled,intervalSeconds:s.intervalSeconds}});refreshCollection();})}>{s.enabled?'停止此来源最新采集':'恢复此来源最新采集'}</button>{bridge?.collection&&<button disabled={busy} onClick={()=>run(async()=>{await bridge.collection!({enabled:!localEnabled,sourceCompany:s.sourceCompany});setLocalEnabled(!localEnabled);})}>{localEnabled?'本机退出协同采集':'本机参与该来源最新采集'}</button>}</div>)}
    {bridge&&<><button disabled={busy} onClick={()=>{setSettings(false);setPortal(true);}}>打开聚水潭登录 / 核对公司</button><button disabled={busy} onClick={()=>run(async()=>{if(!bridge.prepare)throw new Error('请升级客户端');const v=await bridge.prepare();setCompany(v.sourceCompany);if(!v.sourceCompany)throw new Error('尚未识别公司，请先在原页面登录');})}>读取本机已登录公司</button><label>聚水潭公司（请核对）<input value={company} maxLength={100} onChange={e=>setCompany(e.target.value)}/></label><button className="primary" disabled={busy||!company.trim()} onClick={configure}>确认公司并启用最新补采</button><hr/><label>全局截图快捷键<input value={shortcut} onChange={e=>setShortcut(e.target.value)}/></label><button onClick={()=>run(async()=>{await bridge.shortcut(shortcut);})}>保存快捷键</button><button onClick={()=>{if(confirm('退出本机聚水潭并停止本机补采？其他已登录客户端可继续接力。'))void run(async()=>{await bridge.clearLogin();setLocalEnabled(false);});}}>退出聚水潭登录</button></>}
   </section></div>}
-  {portal&&bridge&&<div className={bridge.surface==='after-sales'?'ds-native-overlay ds-native-detached':'ds-native-overlay'}><div className="ds-native-title"><strong>聚水潭 · 本机内嵌页面</strong><span>关闭后返回 OA 售后工作台</span><button disabled={busy} onClick={()=>run(async()=>{await bridge.refresh();})}>刷新聚水潭</button><button disabled={busy} onClick={()=>run(async()=>{const v=await bridge.read();setSnapshots(v);setSnapshotIndex(0);if(v[0]?.sourceCompany)setCompany(v[0].sourceCompany);setPortal(false);if(!v.length)throw new Error('当前页面未读到售后，请打开售后列表或内部订单详情后重试');})}>读取当前页面</button><button onClick={()=>setPortal(false)}>关闭原页面</button></div><div className="ds-viewport" ref={viewport}/></div>}
   {flowId&&<div className="ds-flow"><RunDetail id={flowId} onClose={()=>setFlowId(null)} onChanged={()=>{if(selected)void run(async()=>acceptAttachment(await api<DesktopSaleArchive>(`/desktop-after-sales/${selected.id}`)));}}/></div>}
+  </>}
+  {portal&&bridge&&<div className={nativeSource?'ds-native-overlay ds-native-detached':'ds-native-overlay'}>
+    <div className="ds-native-title" role="group" aria-label="售后功能区">
+      <strong>{nativeSource?'实时售后处理':'聚水潭 · 本机内嵌页面'}</strong>
+      <span>{nativeSource?'聚水潭售后':'关闭后返回 OA 售后工作台'}</span>
+      {nativeSource&&bridge.openSourceAfterSales&&<button onClick={()=>run(async()=>{if(!await bridge.openSourceAfterSales?.())throw new Error('请在下方登录聚水潭，或从聚水潭菜单进入「售后（极速版）」。');})}>进入聚水潭售后</button>}
+      <button disabled={busy} onClick={()=>run(async()=>{await bridge.refresh();})}>刷新聚水潭</button>
+      {nativeSource&&<button disabled={busy} onClick={()=>run(async()=>{await bridge.screenshot(null);})}>截图 / 标注</button>}
+      <button disabled={busy} onClick={()=>run(async()=>{const v=await bridge.read();if(!v.length)throw new Error('当前页面未读到售后，请打开售后列表或内部订单详情后重试');setSnapshots(v);setSnapshotIndex(0);if(v[0]?.sourceCompany)setCompany(v[0].sourceCompany);setPortal(false);})}>读取当前页面</button>
+      <button onClick={()=>setPortal(false)}>{nativeSource?'OA 售后档案':'关闭原页面'}</button>
+    </div>
+    {error&&<div role="alert" className="ds-error">{error}<button onClick={()=>setError('')}>关闭提示</button></div>}
+    <div className="ds-viewport" ref={viewport}/>
+  </div>}
  </div>;
 }

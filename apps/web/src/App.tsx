@@ -1,9 +1,10 @@
 import { FeishuEnrollmentSetup } from './auth/FeishuEnrollmentSetup';
 import { FeishuBindCallback } from './auth/FeishuLogin';
-import { ComponentType } from 'react';
+import { useEffect, type ComponentType } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { DESKTOP_AFTER_SALES_ROUTES, NAV_SECTIONS, RESOURCE_COMPANIONS, PAGE_TABS, RESOURCE_VIEWS, getResourceDef, isFeishuDesktopState, type DocType } from '@kudesi/shared';
 import { DesktopAfterSalesPage } from './pages/service/DesktopAfterSalesPage';
+import { isAfterSalesWindow } from './pages/service/afterSalesWindow';
 import { DesktopAfterSalesCollector } from './pages/service/DesktopAfterSalesCollector';
 import { DesktopAfterSalesSharedPage } from './pages/service/DesktopAfterSalesSharedPage';
 import { useAuth } from './auth/AuthContext';
@@ -181,6 +182,14 @@ for (const [hostKey, tabs] of Object.entries(PAGE_TABS)) {
 export function App() {
   const { user, platformAdmin, loading, can } = useAuth();
   const location = useLocation();
+  const browserWindow = isAfterSalesWindow(location.pathname, location.search);
+  const detached = browserWindow || (window.oaDesktop?.surface === 'after-sales' && location.pathname === DESKTOP_AFTER_SALES_ROUTES.workspace);
+  useEffect(() => {
+    if (!browserWindow) return;
+    const previousTitle = document.title;
+    document.title = '实时售后处理';
+    return () => { document.title = previousTitle; };
+  }, [browserWindow]);
   if (location.pathname === DESKTOP_AFTER_SALES_ROUTES.collector) return <DesktopAfterSalesCollector />;
 
   if (location.pathname === '/login') {
@@ -206,7 +215,6 @@ export function App() {
   if (location.pathname === '/feishu-bind') return <FeishuBindCallback />;
   // 飞书绑定不强制：未绑定也能使用，只是每次进入都会在页面顶部提醒；主动去绑定时才进入绑定页。
   if (location.pathname === '/feishu-setup') return <FeishuEnrollmentSetup key={`${user.companyId}:${user.id}`} />;
-  const detached = window.oaDesktop?.surface === 'after-sales' && location.pathname === DESKTOP_AFTER_SALES_ROUTES.workspace;
   return (
     <Routes>
       <Route element={detached ? undefined : <Shell />}>
