@@ -585,12 +585,26 @@ export function validateSteps(template: FlowTemplate, steps: readonly StepDef[],
   for (const l of locked) {
     const s = steps.find((x) => x.key === l.key);
     if (s && s.type !== l.type) errors.push(`步骤「${l.name}」的类型不能改`);
-    if (s && (s.when || s.returnToKey || s.mode === 'all' || s.hiddenFields?.length)) errors.push(`业务必须的步骤「${l.name}」不能设置条件、退回目标、会签或隐藏字段`);
+    const skuReturn = template.key === 'sku-batch-apply' && ['warehouse','review'].includes(l.key);
+    if (s && (s.when || (s.returnToKey && !skuReturn) || s.mode === 'all' || s.hiddenFields?.length)) errors.push(`业务必须的步骤「${l.name}」不能设置条件、退回目标、会签或隐藏字段`);
   }
   for (const s of steps) {
     if (template.custom) {
       if (s.type !== 'submit' && s.type !== 'end' && !['approval', 'execute', 'finance'].includes(s.type)) errors.push(`步骤「${s.name}」的类型不支持`);
-    } else if (!locked.some((l) => l.key === s.key) && s.type !== 'approval') errors.push(`新增的步骤「${s.name}」只能是审批类型`);
+    } else if (!locked.some((l) => l.key === s.key) && s.type !== 'approval' && !(template.key === 'sku-batch-apply' && s.type === 'finance')) errors.push(`新增的步骤「${s.name}」只能是审批类型`);
+  }
+  if (template.key === 'sku-batch-apply') {
+    const finance = steps.filter(step => step.type === 'finance');
+    if (finance.length > 1) {
+      const first = steps.findIndex(step => step.key === 'review');
+      const chain = first < 0 ? [] : steps.slice(first, -1);
+      if (chain.length !== finance.length || chain.some(step => step.type !== 'finance')) {
+        errors.push('多级 SKU 财务审核须从财务审核节点起连续排列，末级后直接结束');
+      }
+      if (finance.some(step => step.when || step.parallel || step.exceptionToKey || step.onlyOnException || step.mode === 'all')) {
+        errors.push('SKU 财务审核须逐级办理，不能跳过、并行或会签');
+      }
+    }
   }
   errors.push(...validateGraph(steps));
   if (escalateUserIds.length > 5) errors.push('超时升级最多通知 5 人');

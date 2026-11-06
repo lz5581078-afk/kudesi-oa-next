@@ -88,7 +88,9 @@ function SkuBatchWorkspace({batchKey,onClose,onChanged,sourceLayout:preferredSou
   }
   const nameOf = (id: number) => board?.items.find((i) => i.runId === id)?.specName ?? `#${id}`;
   const isWarehouse = hold === 'warehouse';
-  const isReview = hold === 'review';
+  const holdSteps = board?.applicationHeader?.steps ?? board?.workflowSteps ?? [];
+  const isReview = hold === 'review' || holdSteps.some(step=>step.key===hold&&step.type==='finance');
+  const finalReviewKey = holdSteps.filter(step=>step.type==='finance').at(-1)?.key ?? 'review';
 
   const draftRows=board?.items.filter(item=>item.canEditDraft||(sourceLayout&&board.applicationHeader&&item.canResubmit))??[],selectedDrafts=draftRows.filter(item=>item.canEditDraft&&sel.has(item.runId)),draftIndex=draftRows.findIndex(item=>item.runId===editingDraft),header=board?.applicationHeader;
   const expected=[...new Map((board?.items??[]).map(item=>[item.runId,{id:item.runId,revision:item.revision}])).values()];
@@ -198,7 +200,8 @@ function SkuBatchWorkspace({batchKey,onClose,onChanged,sourceLayout:preferredSou
 
       {sourceLayout && sourceAction && <SkuActionDialog
         error={error} action={sourceAction} count={selected.length} busy={working}
-        syncMode={header ? 'automatic' : can(SPECIAL_PERMISSIONS.financeBundleSync) ? 'optional' : 'off'}
+        intermediateReview={sourceReview && sourceCurrent!==finalReviewKey}
+        syncMode={sourceCurrent!==finalReviewKey ? 'off' : header ? 'automatic' : can(SPECIAL_PERMISSIONS.financeBundleSync) ? 'optional' : 'off'}
         onClose={() => setSourceAction(null)}
         onConfirm={async (comment, syncToJst) => {
           if (sourceAction === 'submit' && sourceSales && selectedDrafts.length) {
@@ -231,7 +234,7 @@ function SkuBatchWorkspace({batchKey,onClose,onChanged,sourceLayout:preferredSou
         onConfirm={async (reason) => { setBusy(true); try { const r = await skuBatchApi.returnAll({ ref: batchKey, items: [...new Map(board.items.filter(i=>i.mine&&i.stepKey===hold).map(i=>[i.runId,{runId:i.runId,revision:i.revision,stepId:i.stepId??undefined}])).values()], reason }); setOutcome({ text: `整单退回：${r.count} 个规格已退回`, failed: [] }); setSel(new Set()); setDlg(null); load(); onChanged(); } finally { setBusy(false); } }} />}
       {dlg === 'pass' && (
         <div className="modal-backdrop" role="presentation">
-          <form className="modal card" role="dialog" aria-label="批量通过" style={{ width: 'min(900px, 100%)' }} onSubmit={(e) => { e.preventDefault(); void run(() => skuBatchApi.act({ ref: batchKey, action: 'pass', items, ...(sourceLayout&&isWarehouse?{forms:Object.fromEntries(items.map(item=>[String(item.runId),(Object.keys(details[item.runId]?.stepDraft?.form??{}).length?details[item.runId]?.stepDraft?.form:details[item.runId]?.initialForm??details[item.runId]?.steps.filter(step=>step.key===sourceCurrent&&step.form).at(-1)?.form)??{}]))}:{form: isWarehouse ? { config: [whForm.config ? (whForm.config as unknown[])[0] : undefined] } : { confirmed, ...(sync ? { syncToJst: true } : {}) } }) }), '批量通过'); }}>
+          <form className="modal card" role="dialog" aria-label="批量通过" style={{ width: 'min(900px, 100%)' }} onSubmit={(e) => { e.preventDefault(); void run(() => skuBatchApi.act({ ref: batchKey, action: 'pass', items, ...(sourceLayout&&isWarehouse?{forms:Object.fromEntries(items.map(item=>[String(item.runId),(Object.keys(details[item.runId]?.stepDraft?.form??{}).length?details[item.runId]?.stepDraft?.form:details[item.runId]?.initialForm??details[item.runId]?.steps.filter(step=>step.key===sourceCurrent&&step.form).at(-1)?.form)??{}]))}:{form: isWarehouse ? { config: [whForm.config ? (whForm.config as unknown[])[0] : undefined] } : { confirmed, ...(sync && hold===finalReviewKey ? { syncToJst: true } : {}) } }) }), '批量通过'); }}>
             <div className="modal-head"><strong>批量通过 {items.length} 个规格</strong></div>
             <div className="modal-body">
               {isWarehouse && !sourceLayout && (<>
@@ -241,7 +244,7 @@ function SkuBatchWorkspace({batchKey,onClose,onChanged,sourceLayout:preferredSou
               {isWarehouse&&sourceLayout&&<p>将提交所选规格已保存的发货组成。每个规格仍按当前资料逐项校验。</p>}
               {isReview && (<>
                 <label className="check"><input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} /> 我已核对这些规格的物料、重量和将生成的组合编码</label>
-                <label className="check"><input type="checkbox" checked={sync} onChange={(e) => setSync(e.target.checked)} /> 通过后加入聚水潭同步队列（需要同步维护权限；只入队，不会立刻发送）</label>
+                {hold===finalReviewKey && <label className="check"><input type="checkbox" checked={sync} onChange={(e) => setSync(e.target.checked)} /> 通过后加入聚水潭同步队列（需要同步维护权限；只入队，不会立刻发送）</label>}
               </>)}
             </div>
             <div className="modal-foot">

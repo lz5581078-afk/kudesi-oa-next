@@ -150,7 +150,9 @@ export async function importWorkflows(ctx: Context, archive: LegacyArchive, work
     try {
       const currentFinanceIds:number[]=[];
       if(workflow.currentSku){
-        const finance=(workflow.tables.workflow_template_nodes??[]).filter(n=>String(n.template_id)===workflow.currentSku!.templateId&&n.node_type==='finance');
+        const finance=(workflow.tables.workflow_template_nodes??[])
+          .filter(n=>String(n.template_id)===workflow.currentSku!.templateId&&n.node_type==='finance')
+          .sort((a,b)=>Number(a.node_order)-Number(b.node_order)).slice(-1);
         for(const node of finance){
           const pick=workflow.currentSku.picks.find(p=>p.nodeId===String(node.id));
           if(!pick)throw Error('旧SKU当前财务缺少选人证据');

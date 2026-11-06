@@ -687,6 +687,48 @@ d('SKU 申请汇总（真实数据库）', () => {
     await flow.returnBack(fin,id,{revision:review.revision,stepId:review.activeStep!.id,reason:'只退回仓库核对'});current=await flow.detail(wh,id);expect(current.stepDraft!.form).toMatchObject({config:[{notRequired:{other:'没有其他物料'}}],note:'保留的仓库说明'});await flow.returnBack(wh,id,{revision:current.revision,stepId:current.activeStep!.id,reason:'运营补充需求'});let operation=await flow.detail(ops,id);const specs=operation.payload.specs as Array<{name:string;main:Array<{baseCodeId:number;qty:number}>;gift:unknown[]}>;await flow.saveApplicationDraft(ops,id,operation.revision,{specs:[{...specs[0],note:'新运营需求'}]});operation=await flow.detail(ops,id);await flow.resubmit(ops,id,{revision:operation.revision,payload:operation.payload});current=await flow.detail(wh,id);expect((current.stepDraft!.form.config as Array<{lines:unknown[];notRequired:object}>)[0].lines).toHaveLength(3);expect(current.stepDraft!.form).toMatchObject({config:[{notRequired:{}}],note:'保留的仓库说明'});expect((await sku.preview(wh,id,current.revision)).planError).toContain('要么');expect((await ds.manager.findOneByOrFail(FlowStep,{companyId:ops.companyId,id:original.id})).form).toEqual(history);
   });
 
+  it('多级财务只在末级建码，旧入口入队失败时末级和成本一起回滚', async () => {
+    const chain = [step('apply','运营申请','submit'),step('warehouse','仓库完善','execute',wh.id),
+      step('review','财务初审','finance',finNoPerm.id),step('review_2','财务终审','finance',fin.id),step('end','结束','end')];
+    await flow.saveDraft(admin,'sku-batch-apply',chain,[]);
+    await flow.publish(admin,'sku-batch-apply');
+    try {
+      const data=payload([qspec('串审规格',ids.pearBc,nextQty())]);
+      const run=await flow.start(ops,'sku-batch-apply',data,key());
+      const first=await whPass(wh,run,[whLines()]);
+      const initialReviewer={...finNoPerm,permissions:{...finNoPerm.permissions,allow:['product.cost.view']}};
+      const count=()=>ds.manager.count(ResourceRecord,{where:{companyId:ops.companyId,type:'finance-bundles'}});
+      const costCount=()=>ds.manager.count(FinanceCostSnapshot,{where:{companyId:ops.companyId}});
+      const jobs=()=>ds.manager.count(OutboxJob,{where:{companyId:ops.companyId}});
+      const before=await count(), beforeCost=await costCount(), beforeJobs=await jobs();
+      const terminal=await finPass(initialReviewer,first);
+      expect(terminal.activeStep).toMatchObject({key:'review_2',type:'finance'});
+      expect(terminal.payload).not.toHaveProperty('_created');
+      expect(await count()).toBe(before);
+      expect(await costCount()).toBe(beforeCost);
+      const enqueue=outbox.enqueue.bind(outbox);
+      const broken=jest.spyOn(outbox,'enqueue').mockImplementationOnce(async (...args)=>{
+        const queued=await enqueue(...args);
+        expect(queued.queued).toBe(2);
+        throw new Error('模拟入队故障');
+      });
+      try {
+        await expect(finPass(fin,terminal,{confirmed:true,syncToJst:true})).rejects.toThrow('模拟入队故障');
+      } finally { broken.mockRestore(); }
+      expect((await flow.detail(fin,run.id)).activeStep?.key).toBe('review_2');
+      expect(await count()).toBe(before);
+      expect(await costCount()).toBe(beforeCost);
+      expect(await jobs()).toBe(beforeJobs);
+      const finished=await finPass(fin,terminal);
+      expect(finished.status).toBe('completed');
+      expect(await count()).toBe(before+2);
+      expect(await costCount()).toBeGreaterThan(beforeCost);
+    } finally {
+      await flow.saveDraft(admin,'sku-batch-apply',[chain[0],chain[1],step('review','财务审核','finance',fin.id),chain[4]],[]);
+      await flow.publish(admin,'sku-batch-apply');
+    }
+  });
+
   it('原申请审核同事务保留缺配置同步意图、retry不发送；真正入队异常回滚审核和生成',async()=>{
     const definition=await ds.manager.findOneByOrFail(FlowDefinition,{companyId:ops.companyId,templateKey:'sku-batch-apply',status:'active'});
     const ready=async()=>{const made=await flow.createApplicationDrafts(ops,{templateKey:'sku-batch-apply',definitionId:definition.id,confirmations:{referenceSearched:true},requestKey:key(),payloads:[payload([qspec('审批内同步',ids.appleBc,nextQty())])]});await flow.submitApplicationDraft(ops,made.runs[0].id,made.runs[0].revision,key());const run=await flow.detail(wh,made.runs[0].id);return flow.pass(wh,run.id,{revision:run.revision,stepId:run.activeStep!.id,form:{config:[whLines()]}});};

@@ -12,13 +12,14 @@ interface Props {
   count: number;
   busy: boolean;
   error?: string;
+  intermediateReview?: boolean;
   syncMode?: 'automatic' | 'optional' | 'off';
   onClose: () => void;
   onConfirm: (comment: string, syncToJst?: boolean) => Promise<void>;
 }
 
 /** 旧单按审核人勾选登记同步，新申请按原流程自动登记。 */
-export function SkuActionDialog({action,count,busy,error,syncMode='automatic',onClose,onConfirm}: Props) {
+export function SkuActionDialog({action,count,busy,error,intermediateReview=false,syncMode='automatic',onClose,onConfirm}: Props) {
   const [comment,setComment] = useState('');
   const [confirmed,setConfirmed] = useState(false);
   const [syncToJst,setSyncToJst] = useState(false);
@@ -28,7 +29,8 @@ export function SkuActionDialog({action,count,busy,error,syncMode='automatic',on
   const approving = action === 'approve';
   const needsReason = action === 'return' || action === 'cancel' || action === 'reject';
   const canConfirm = !busy && (!approving || confirmed) && (!needsReason || !!comment.trim());
-  const title = `${labels[action]} ${count} 个规格`;
+  const approvalLabel=intermediateReview?'审核并提交下一级':labels.approve;
+  const title = `${approving?approvalLabel:labels[action]} ${count} 个规格`;
 
   return <div className="modal-backdrop sku-action-backdrop">
     <form role="dialog" aria-modal="true" aria-label={title} className="sku-source-action"
@@ -52,10 +54,10 @@ export function SkuActionDialog({action,count,busy,error,syncMode='automatic',on
         {(action === 'cancel' || action === 'reject') &&
           <p>确认后废除所选规格，关闭当前待办并保留{action === 'reject' ? '拒绝理由' : '废除原因'}。</p>}
         {approving && <>
-          <p>最后审核通过时，将生成或复用已验证组合编码，并更新成本表的SKU编码、名称及成本。{syncMode === 'automatic' && '审核后自动登记聚水潭同步任务，上传状态单独显示。'}</p>
+          {intermediateReview ? <p>通过后进入下一级财务审核，末级通过后生成编码并更新成本表。</p> : <p>最后审核通过时，将生成或复用已验证组合编码，并更新成本表的SKU编码、名称及成本。{syncMode === 'automatic' && '审核后自动登记聚水潭同步任务，上传状态单独显示。'}</p>}
           <label className="sku-source-action-check">
             <input type="checkbox" checked={confirmed} disabled={busy} onChange={event => setConfirmed(event.target.checked)}/>
-            已核对所选规格、发货组成和成本，确认更新成本表{syncMode === 'automatic' && '并同步聚水潭'}
+            已核对所选规格、发货组成和成本，{intermediateReview?'确认提交下一级':'确认更新成本表'}{syncMode === 'automatic' && '并同步聚水潭'}
           </label>
           {syncMode === 'optional' && <label className="sku-source-action-check">
             <input type="checkbox" checked={syncToJst} disabled={busy} onChange={event => setSyncToJst(event.target.checked)}/>
@@ -67,7 +69,7 @@ export function SkuActionDialog({action,count,busy,error,syncMode='automatic',on
         </label>
       </div>
       <footer><button type="submit" className="primary-button" disabled={!canConfirm}>
-        {approving ? '审核并更新成本表' : '确认'}{busy ? '处理中' : ''}
+        {approving ? approvalLabel : '确认'}{busy ? '处理中' : ''}
       </button></footer>
     </form>
   </div>;
