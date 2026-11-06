@@ -377,6 +377,14 @@ d('SKU 申请汇总（真实数据库）', () => {
     expect((await batch.board(wh, out.batchKey)).counts.returned).toBe(0);
     // 另一个仓库的人手里没有这些规格
     await expect(batch.returnAll(wh2, { ref: out.batchKey, items, reason: '不对' })).rejects.toThrow();
+    const hidden = items[2];
+    await ds.manager.update(FlowStep, { id: hidden.stepId, companyId: wh.companyId }, { recipients: [wh2.id] });
+    await ds.manager.update(WorkItem, { stepId: hidden.stepId, companyId: wh.companyId }, { assigneeId: wh2.id });
+    expect((await batch.board(wh, out.batchKey)).me.canReturnAll).toBe(false);
+    await expect(batch.returnAll(wh, { ref: out.batchKey, items: items.slice(0, 2), reason: '缺少其他办理人的规格' })).rejects.toThrow(/不是你办理/);
+    expect((await batch.board(ops, out.batchKey)).counts.returned).toBe(0);
+    await ds.manager.update(FlowStep, { id: hidden.stepId, companyId: wh.companyId }, { recipients: [wh.id] });
+    await ds.manager.update(WorkItem, { stepId: hidden.stepId, companyId: wh.companyId }, { assigneeId: wh.id });
     const ok = await batch.returnAll(wh, { ref: out.batchKey, items, reason: '整单资料有误' });
     expect(ok.count).toBe(3);
     const board = await batch.board(ops, out.batchKey);
