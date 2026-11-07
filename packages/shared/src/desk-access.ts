@@ -10,7 +10,7 @@ export function deskAccessPermissions(type: string, level: string): string[] {
   const pages = new Set([
     'workbench.desk', 'workbench.personal', 'workbench.todos', 'workbench.tasks',
     'workbench.started', 'workbench.cc', 'flow.apply',
-    ...deskLinks(def, level, () => true).map((p) => `${p.sectionId}.${p.id}`),
+    ...deskLinks(def, level, () => true, true).map((p) => `${p.sectionId}.${p.id}`),
   ]);
   if (['finance', 'cashier', 'purchasing', 'warehouse', 'boss'].includes(type)) {
     pages.add('finance.drafts'); pages.add('finance.history');

@@ -16,7 +16,9 @@ vi.mock('../flow/flowApi', async (orig) => {
   return { ...mod, flowApi: { todos: vi.fn(), runs: vi.fn(), completeTask: vi.fn() } };
 });
 let allow: string[] = ['*'];
-vi.mock('../../auth/AuthContext', () => ({ useAuth: () => ({ can: (p: string) => createChecker({ isCompanyAdmin: false, allow, deny: [] })(p), user: { name: '小王', positionName: '会计' } }) }));
+let isCompanyAdmin = false;
+vi.mock('../flow/SkuApplicationCenter',()=>({ SkuApplicationCenter: () => <div role="dialog" aria-label="SKU批量申请" /> }));
+vi.mock('../../auth/AuthContext', () => ({ useAuth: () => ({ can: (p: string) => createChecker({ isCompanyAdmin, allow, deny: [] })(p), user: { name: '小王', positionName: '会计', permissions: { isCompanyAdmin } } }) }));
 const w = vi.mocked(workspaceApi);
 const f = vi.mocked(flowApi);
 
@@ -27,7 +29,7 @@ const taskList = (rows: unknown[] = [], over: Record<string, unknown> = {}) => (
 const task = (o: Record<string, unknown> = {}) => ({ id: 1, title: '盘点库存', description: '按仓库盘', status: 'open', stage: 'new', dueAt: null, overdue: false, assigneeId: 2, assigneeName: '小王', creatorId: 3, creatorName: '主管', doneNote: null, reviewNote: null, startedAt: null, submittedAt: null, finishedAt: null, can: { start: true, complete: true, submit: true, review: false }, ...o });
 const emptyFlow = () => { f.todos.mockResolvedValue({ total: 0, counts: { pending: 3, overdue: 1, returned: 0, cc: 0 }, rows: [] }); f.runs.mockResolvedValue({ total: 0, page: 1, pageSize: 8, rows: [] }); };
 
-beforeEach(() => { window.localStorage.clear(); allow = ['*']; emptyFlow(); w.tasks.mockResolvedValue(taskList() as never); vi.spyOn(liveApi,'personalIncome').mockResolvedValue({month:'2026-11',anchor:{visible:false,wageCents:0,wageMinutes:0,commissionCents:0},control:{visible:false,wageCents:0,wageMinutes:0,commissionCents:0},operator:{visible:false,commissionCents:0}}); });
+beforeEach(() => { window.localStorage.clear(); allow = ['*']; isCompanyAdmin = false; emptyFlow(); w.tasks.mockResolvedValue(taskList() as never); vi.spyOn(liveApi,'personalIncome').mockResolvedValue({month:'2026-11',anchor:{visible:false,wageCents:0,wageMinutes:0,commissionCents:0},control:{visible:false,wageCents:0,wageMinutes:0,commissionCents:0},operator:{visible:false,commissionCents:0}}); });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe('功能首页', () => {
@@ -78,6 +80,7 @@ describe('老板总控台', () => {
     trend: [{ date: '2026-10-27', salesCents: 100000, profitCents: 35000 }], ...over,
   });
   it('先显示需要处理的事；缺的模块标“暂无该模块”；超时数字可点去流程总览', async () => {
+    isCompanyAdmin = true;
     w.boss.mockResolvedValue(boss() as never);
     wrap(<BossPage />);
     expect(await screen.findByText('已超时待办')).toBeTruthy();
@@ -233,4 +236,24 @@ describe('个人工作台与个人任务', () => {
     fireEvent.change(screen.getByLabelText('搜索流程与待办'), { target: { value: '差旅' } });
     await waitFor(() => expect(f.todos).toHaveBeenCalledWith(expect.objectContaining({ keyword: '差旅' })));
   });
+});
+
+it.each([
+  ['operations', true, true, true],
+  ['live_control', true, true, true],
+  ['live_control', false, true, false],
+  ['operations', true, false, false],
+  ['warehouse', true, true, false],
+] as const)('岗位 SKU 入口按岗位、本人在岗和申请权限开放 %s %s %s', async (workspaceType, assigned, permitted, visible) => {
+  if (!permitted) allow = ['workbench.desk.view'];
+  const pos = { id: 7, name: '测试岗位', workspaceType, level: 'staff', departmentId: 1, departmentPath: '测试部', assigned, isPrimary: assigned };
+  w.catalog.mockResolvedValue({ canBrowse: true, defaultPositionId: assigned ? 7 : null, positions: [pos] } as never);
+  w.desk.mockResolvedValue({ position: pos, title: '测试工作台', focus: '', pending: [], cards: [] } as never);
+  wrap(<DeskPage />, '/workbench/desk?position=7');
+  await screen.findByRole('heading', { name: '测试工作台' });
+  if (visible) {
+    fireEvent.click(screen.getByRole('button', { name: /SKU 批量申请/ }));
+    expect(screen.getByRole('dialog', { name: 'SKU批量申请' })).toBeTruthy();
+  } else expect(screen.queryByRole('button', { name: /SKU 批量申请/ })).toBeNull();
+  expect(screen.queryByRole('link', { name: '申请中心' })).toBeNull();
 });

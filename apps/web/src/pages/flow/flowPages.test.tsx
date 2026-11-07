@@ -90,10 +90,10 @@ describe('我发起的 / 流程总览', () => {
     fireEvent.click(tile);
     await waitFor(() => expect(f.runs).toHaveBeenCalledWith(expect.objectContaining({ view: 'all', overdue: true })));
   });
-  it('没有数据时我发起的引导去申请中心；有筛选时能一键清除', async () => {
+  it('没有数据时我发起的引导去岗位工作台；有筛选时能一键清除', async () => {
     f.runs.mockResolvedValue({ total: 0, page: 1, pageSize: 20, rows: [] });
     wrap(<RunsPage view="started" />);
-    expect(await screen.findByText('去申请中心发起')).toBeTruthy();
+    expect(await screen.findByText('去岗位工作台发起')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('搜索标题'), { target: { value: '报销' } });
     fireEvent.click(await screen.findByText('清除筛选，查看全部'));
     expect((screen.getByLabelText('搜索标题') as HTMLInputElement).value).toBe('');

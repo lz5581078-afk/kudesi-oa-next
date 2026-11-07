@@ -43,7 +43,8 @@ export function DeskPage() {
   const view: DeskView | null = current && desk ? {
     title: desk.title,
     subtitle: [current.departmentPath, def.focus].filter(Boolean).join(' · '),
-    links: deskLinks(def, isAdmin ? 'boss' : current.level, can),
+    links: deskLinks(def, isAdmin ? 'boss' : current.level, can, isAdmin),
+    skuApplication: (current.assigned || isAdmin) && ['operations', 'live_control'].includes(current.workspaceType) && can('flow.apply.view'),
     flows: deskFlows(def, can),
     linksHint: def.focus,
     cards: desk.cards,

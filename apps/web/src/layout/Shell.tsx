@@ -35,7 +35,7 @@ export function Shell() {
     }
     return () => { active = false; };
   }, [user, canViewDesks]);
-  const sections = useMemo(() => withDeskNavigation(visibleSections((permission) => permission === 'workbench.desk.view' || can(permission)), catalog?.owner === user ? catalog.value.positions : null), [can, catalog, user]);
+  const sections = useMemo(() => withDeskNavigation(visibleSections((permission) => permission === 'workbench.desk.view' || can(permission), { isCompanyAdmin: user?.permissions?.isCompanyAdmin }), catalog?.owner === user ? catalog.value.positions : null), [can, catalog, user]);
   const current = sections.flatMap((section) => section.pages.map((page) => ({ section, page })))
     .find(({ page }) => isNavPathCurrent(page.path, location.pathname, location.search)) ?? findPageByPath(location.pathname);
   const activeSection = sections.find((s) => s.id === current?.section.id);

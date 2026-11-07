@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MOBILE_PRIMARY_SECTIONS, NAV_SECTIONS, withDeskNavigation, isNavPathCurrent, directPage, groupPages, searchNav, splitMobileSections, visibleSections } from './navigation';
 
-const all = visibleSections(() => true);
+const all = visibleSections(() => true, { isCompanyAdmin: true });
 
 describe('导航分组与搜索', () => {
   it('每个一级菜单都有图标，手机底栏优先项都是真实的一级菜单', () => {
@@ -96,7 +96,7 @@ describe('岗位工作台直达导航', () => {
     { id: 13, name: '出纳', departmentId: 1, departmentPath: '总部 / 财务部', workspaceType: 'cashier', level: 'staff', assigned: false, isPrimary: false },
   ];
   it('按实际部门聚合岗位并保留原岗位权限；同路由不同岗位只高亮当前岗位', () => {
-    const sections = withDeskNavigation(visibleSections(() => true), positions);
+    const sections = withDeskNavigation(all, positions);
     const workbench = sections.find((s) => s.id === 'workbench')!;
     expect(workbench.pages.some((p) => p.id === 'desk')).toBe(false);
     const groups = groupPages(workbench);
@@ -129,4 +129,13 @@ it('财务菜单按24号全部原入口顺序，扩展查询保留路由而不�
  const finance=visibleSections(()=>true).find(section=>section.id==='finance')!;
  expect(finance.pages.filter(page=>page.id!=='doc-withdrawal').map(page=>page.label)).toEqual(['财务经营','商品档案','供应商档案','客户档案','费用档案','经营历程','草稿中心','普通销售单','网店销售单','销售退货单','预收款单','收款单','付款单','转款单','预付款单','采购入库单','采购退货单','其他收入单','费用单','成本表','定价调试表','人力成本表','快递价格表','库存查询','现金银行查询','商品基础编码','商品组合编码','商品数据导入','资料维护']);
  for(const id of ['unsettled-receipts','settlement-detail'])expect(NAV_SECTIONS.find(section=>section.id==='finance')!.pages.find(page=>page.id===id)).toMatchObject({path:`/finance/${id}`,ready:true,menuHidden:true});
+});
+
+it('流程管理只给公司管理员，普通员工仍可在工作台找到已授权的专属业务', () => {
+  const staff = visibleSections(() => true);
+  expect(staff.some(section => section.id==='flow')).toBe(false);
+  const paths = staff.find(section => section.id==='workbench')?.pages.map(page=>page.path);
+  expect(paths).toContain('/flow/purchase');
+  expect(paths).not.toContain('/flow/apply');
+  expect(all.find(section=>section.id==='flow')?.pages.map(page=>page.path)).toContain('/flow/apply');
 });
