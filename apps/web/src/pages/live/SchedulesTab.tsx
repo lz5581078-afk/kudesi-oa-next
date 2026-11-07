@@ -1,3 +1,4 @@
+import { liveFromText } from '@kudesi/shared';
 import { PersonPhotoName } from './PersonPhotoName';
 import { ScheduleDialog } from './ScheduleDialog';
 import { productText } from './liveProducts';
@@ -9,6 +10,20 @@ import { Modal, SchedulePill } from './liveUi';
 const addDays = (day: string, n: number) => { const d = new Date(`${day}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const WEEK = ['日', '一', '二', '三', '四', '五', '六'];
 const dayLabel = (day: string) => `${day.slice(5)} 周${WEEK[new Date(`${day}T00:00:00Z`).getUTCDay()]}`;
+
+function scheduleDuration(startText: string, endText: string): string {
+  const start = liveFromText(startText);
+  const end = liveFromText(endText);
+  if (!start || !end) return '';
+  const minutes = Math.round((end.getTime() - start.getTime()) / 60_000);
+  if (minutes <= 0) return '';
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  const parts = [];
+  if (hours) parts.push(`${hours} 小时`);
+  if (remainingMinutes) parts.push(`${remainingMinutes} 分钟`);
+  return `（${parts.join(' ')}）`;
+}
 
 /** 到点状态：已到时间未上播 / 已过时未上播（只对未开始的排场） */
 function stateOf(s: ScheduleRow, now: string): { label: string; tone: string } {
@@ -70,7 +85,7 @@ export function SchedulesTab() {
             const st = day === today || s.date <= today ? stateOf(s, now) : { label: s.statusLabel, tone: '' };
             return (
               <li key={s.id}>
-                <div className="main"><strong>{s.startTime}–{s.endTime}{s.end.slice(0, 10) > s.date ? '（次日）' : ''} · 主播 <PersonPhotoName personId={s.anchor.id} name={s.anchor.name}/></strong><small>{s.control ? `中控 ${s.control.name}` : '无中控'}{s.operator ? ` · 运营 ${s.operator.name}` : ''}</small><small className="live-list-channel">{s.channels?.length ? s.channels.map(c => `${c.accountName}（${c.stores.map(store => store.name).join('、')}）`).join('；') : `${s.douyinAccount.name}${s.store ? ` · ${s.store.name}` : ''}`}</small><small>产品：{productText(s.products)}{s.note ? ` · 备注：${s.note}` : ''}{s.cancelReason ? ` · 取消原因：${s.cancelReason}` : ''}</small></div>
+                <div className="main"><strong>{s.startTime}–{s.endTime}{s.end.slice(0, 10) > s.date ? '（次日）' : ''}{scheduleDuration(s.start, s.end)} · 主播 <PersonPhotoName personId={s.anchor.id} name={s.anchor.name}/></strong><small>{s.control ? `中控 ${s.control.name}` : '无中控'}{s.operator ? ` · 运营 ${s.operator.name}` : ''}</small><small className="live-list-channel">{s.channels?.length ? s.channels.map(c => `${c.accountName}（${c.stores.map(store => store.name).join('、')}）`).join('；') : `${s.douyinAccount.name}${s.store ? ` · ${s.store.name}` : ''}`}</small><small>产品：{productText(s.products)}{s.note ? ` · 备注：${s.note}` : ''}{s.cancelReason ? ` · 取消原因：${s.cancelReason}` : ''}</small></div>
                 {st.tone ? <span className={`pill ${st.tone}`}>{st.label}</span> : <SchedulePill status={s.status} label={st.label} />}
                 {d?.canManage && s.status === 'scheduled' && <div className="live-actions"><button type="button" className="secondary-button small" onClick={() => setEditing(s)}>修改</button><button type="button" className="secondary-button small danger" onClick={() => setCancelling(s)}>取消</button></div>}
               </li>

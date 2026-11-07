@@ -25,7 +25,7 @@ it('人员变化时旧响应不能串入新人员资料',async()=>{
 it('排班候选和选中后的摘要使用服务器本月数据，保留兼职试播标记，不按排班日期重算',async()=>{
  const batch=vi.spyOn(anchorMonthApi,'batch').mockResolvedValue(data()),change=vi.fn();
  const v=render(<AnchorMonthSelect people={[{id:7,name:'主播甲',detail:'',partTime:true}]} value="" onChange={change}/>);
- const option=await screen.findByRole('option',{name:/主播甲（兼职）.*业绩 ¥18,600.00.*提成 ¥930.00/});expect(option).toBeTruthy();expect(batch).toHaveBeenCalledWith([7]);fireEvent.change(screen.getByLabelText('主播'),{target:{value:'7'}});expect(change).toHaveBeenCalled();
+ const option=await screen.findByRole('option',{name:/主播甲（兼职）.*业绩 ¥18,600.00.*工资 ¥120.00.*提成 ¥930.00/});expect(option).toBeTruthy();expect(batch).toHaveBeenCalledWith([7]);fireEvent.change(screen.getByLabelText('主播'),{target:{value:'7'}});expect(change).toHaveBeenCalled();
  v.rerender(<AnchorMonthSelect people={[{id:7,name:'主播甲',detail:'',partTime:true}]} value="7" onChange={change}/>);await screen.findByText('2026-11 本月汇总 · 含未审核');expect(screen.getByText('本月直播时长')).toBeTruthy();
 });
 
