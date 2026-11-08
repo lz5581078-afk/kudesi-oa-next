@@ -50,7 +50,13 @@ suite('普通商品资料维护：签名预检与唯一待发送链', () => {
     const job = await ds.manager.findOneByOrFail(OutboxJob, { companyId: boss.companyId, resourceId: queued.id });
     expect((await ds.manager.find(ResourceChangeLog, { where: { companyId: boss.companyId, resourceType: 'finance-jst-uploads', resourceId: queued.id } })).some(row => row.note?.includes('已核对并确认覆盖重复商品编码'))).toBe(true);
     expect(job.payloadJson).toMatchObject({ targetKey: `${boss.companyId}:synthetic-target-A`, costPrice: 1.2345, weight: 0 });
-    expect((await outbox.processCompany(boss.companyId)).blocked).toBe(true); expect(send).not.toHaveBeenCalled();
+    await outbox.setSwitch(boss, false, '测试暂停');
+    try {
+      expect((await outbox.processCompany(boss.companyId)).blocked).toBe(true);
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      await outbox.setSwitch(boss, true, '测试恢复');
+    }
   });
   it('签名不可伪造、过期、改三身份、换人/公司/权限或用于新命中', async () => {
     const f = form('signed'), check = await svc.checkDuplicate(boss, f), signature = check.signature!, before = await counts();
