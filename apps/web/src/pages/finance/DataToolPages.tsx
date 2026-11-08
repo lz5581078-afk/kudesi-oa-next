@@ -224,9 +224,9 @@ export function MasterResetPage({ embedded = false,presentation,blocked=false,on
 const JOB_KIND: Record<string, string> = { base_code_upsert: '上传基础编码', base_code_replace: '改码上传', base_code_disable: '停用基础编码', bundle_upsert: '上传组合', bundle_replace: '组合改码上传', bundle_disable: '停用组合', normal_product_upload: '商品资料上传', bundle_price_update: '同步基本售价', category_sync: '同步分类' };
 const JOB_STATUS: Record<string, [string, string]> = { pending: ['待发送', 'warn'], sending: ['发送中', 'warn'], done: ['已同步', 'ok'], failed: ['失败', 'bad'], cancelled: ['已取消', 'muted'] };
 
-/** 聚水潭同步队列：所有对外写入先排队；默认允许发送，暂停时只积压不发送，随时可以一键停止。 */
+/** 聚水潭同步队列：所有对外写入先排队；后台处理已提交的任务。 */
 export function JstSyncPage() {
-  const [sw, setSw] = useState<{ enabled: boolean; senderConfigured: boolean } | null>(null);
+  const [sw, setSw] = useState<{ senderConfigured: boolean } | null>(null);
   const [data, setData] = useState<{ total: number; counts: Record<string, number>; rows: OutboxJobRow[] } | null>(null);
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
@@ -236,23 +236,11 @@ export function JstSyncPage() {
     try { setSw(await financeApi.jstSwitch()); setData(await financeApi.jstJobs({ status: status || undefined, page })); } catch (e) { setError(msg(e)); }
   };
   useEffect(() => { void load(); }, [status, page]); // eslint-disable-line react-hooks/exhaustive-deps
-  async function toggle(on: boolean) {
-    if (on && !window.confirm('打开后，队列里的内容会被发送到聚水潭（需要已接入接口）。确定打开吗？')) return;
-    try { setSw(await financeApi.setJstSwitch(on, on ? '管理员打开' : '管理员一键停止')); } catch (e) { setError(msg(e)); }
-  }
   async function act(fn: () => Promise<unknown>) { try { await fn(); await load(); } catch (e) { setError(msg(e)); } }
   return (
     <div>
       <div className="page-head"><h1>聚水潭同步队列</h1></div>
-      {sw && (
-        <div className={`notice ${sw.enabled ? 'ok' : ''}`}>
-          <strong>对外同步总开关：{sw.enabled ? '已打开' : '已暂停'}</strong>
-          {!sw.senderConfigured && <div className="bad-text">还没有接入聚水潭接口（需要管理员提供并授权接口凭证），即使开关打开也不会发送任何内容。</div>}
-          <div className="row-actions">
-            {sw.enabled ? <button type="button" className="primary-button" onClick={() => void toggle(false)}>一键停止所有外部写入</button> : <button type="button" className="secondary-button" onClick={() => void toggle(true)}>恢复同步</button>}
-          </div>
-        </div>
-      )}
+      {sw && !sw.senderConfigured && <div className="notice">接入聚水潭接口后，后台会处理待发送任务。</div>}
       <FeishuSwitchCard />
       {notice && <div role="status" className="notice ok">{notice}</div>}
       {error && <div role="alert" className="notice error">{error}</div>}

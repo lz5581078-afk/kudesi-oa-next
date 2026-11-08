@@ -44,7 +44,7 @@ d('组合装出站（真实数据库 + 假发送器）', () => {
     const made = await tools.generate(boss, [{ role: 'main', baseCodeId: bc.id, qty: 2 }], [{ platformId: plat.id, scenarioId: scen.id, bundleCategoryId: bcat.id }]);
     ids.bundle = made.created[0].id;
     await svc.changeStatus(boss, 'finance-bundles', ids.bundle, 'verified');
-    await outbox.setSwitch(boss, true, '测试');
+
     outbox.setSender(fake);
   });
   afterAll(async () => { await ds?.destroy(); });

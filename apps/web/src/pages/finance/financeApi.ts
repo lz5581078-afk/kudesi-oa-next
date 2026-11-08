@@ -151,7 +151,6 @@ export const financeApi = {
   recognizeExpress: (file: File) => { const form = new FormData(); form.append('file', file); return api<{ rows: ExpressDraft[]; warnings: string[]; rawText: string }>('/ocr/express-prices', { form }); },
   confirmExpress: (rows: ExpressDraft[]) => api<{ created: number; failed: number; results: Array<{ index: number; ok: boolean; error?: string }> }>('/finance/express-recognize/confirm', { method: 'POST', body: { rows } }),
   jstSwitch: () => api<{ enabled: boolean; note: string | null; senderConfigured: boolean }>('/finance/jst-sync/switch'),
-  setJstSwitch: (enabled: boolean, note?: string) => api<{ enabled: boolean; note: string | null; senderConfigured: boolean }>('/finance/jst-sync/switch', { method: 'PUT', body: { enabled, note } }),
   jstJobs: (p: { status?: string; page?: number }) => api<{ total: number; counts: Record<string, number>; rows: OutboxJobRow[] }>(`/finance/jst-sync/jobs${qs({ ...p, pageSize: 20 })}`),
   jstRetry: (id: number) => api<{ ok: true }>(`/finance/jst-sync/jobs/${id}/retry`, { method: 'POST', body: {} }),
   jstCancel: (id: number) => api<{ ok: true }>(`/finance/jst-sync/jobs/${id}/cancel`, { method: 'POST', body: {} }),
