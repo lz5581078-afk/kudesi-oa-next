@@ -3,7 +3,7 @@ import { ScheduleDialog } from './ScheduleDialog';
 import { productText } from './liveProducts';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { liveApi, type ScheduleList, type ScheduleRow } from './liveApi';
-import { errText, nowText, scheduleDuration, todayText } from './liveFormat';
+import { errText, nowText, durationText, todayText, durationSuffix } from './liveFormat';
 import { Modal, SchedulePill } from './liveUi';
 
 const addDays = (day: string, n: number) => { const d = new Date(`${day}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
@@ -28,7 +28,7 @@ function CancelDialog({ row, onClose, onDone }: { row: ScheduleRow; onClose: () 
   return (
     <Modal title="取消排场" size="small" onClose={onClose} foot={<><button type="button" className="secondary-button" onClick={onClose}>返回</button><button type="button" className="primary-button danger-fill" onClick={() => void go()}>确认取消</button></>}>
       {error && <div role="alert" className="notice error">{error}</div>}
-      <p>{row.date} {row.startTime}–{row.endTime} · {row.roomName} · 主播 <PersonPhotoName personId={row.anchor.id} name={row.anchor.name}/>。取消后会通知相关人员。</p>
+      <p>{row.date} {row.startTime}–{row.endTime}{durationSuffix(row.start, row.end)} · {row.roomName} · 主播 <PersonPhotoName personId={row.anchor.id} name={row.anchor.name}/>。取消后会通知相关人员。</p>
       <label className="live-field">取消原因（必填）<textarea aria-label="取消原因" rows={3} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} /></label>
     </Modal>
   );
@@ -69,7 +69,7 @@ export function SchedulesTab() {
           {!g.rows.length&&<p className="muted pad">当天暂无排场</p>}
           <ul className="live-list">{g.rows.map((s) => {
             const st = day === today || s.date <= today ? stateOf(s, now) : { label: s.statusLabel, tone: '' };
-            const duration = scheduleDuration(s.start, s.end);
+            const duration = durationText(s.start, s.end);
             return (
               <li key={s.id}>
                 <div className="main"><strong>{s.startTime}–{s.endTime}{s.end.slice(0, 10) > s.date ? '（次日）' : ''}{duration && `（${duration}）`} · 主播 <PersonPhotoName personId={s.anchor.id} name={s.anchor.name}/></strong><small>{s.control ? `中控 ${s.control.name}` : '无中控'}{s.operator ? ` · 运营 ${s.operator.name}` : ''} · {s.channels?.length ? s.channels.map(c => `${c.accountName}（${c.stores.map(store => store.name).join('、')}）`).join('；') : `${s.douyinAccount.name}${s.store ? ` · ${s.store.name}` : ''}`}{` · 产品 ${productText(s.products)}`}{s.note ? ` · ${s.note}` : ''}{s.cancelReason ? ` · 取消原因：${s.cancelReason}` : ''}</small></div>

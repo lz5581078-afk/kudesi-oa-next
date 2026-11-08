@@ -1,3 +1,4 @@
+import { SessionDuration } from './SessionDuration';
 import { useCallback, useEffect, useState } from 'react';
 import { Pager } from '../finance/common';
 import { liveApi, type History, type Period } from './liveApi';
@@ -40,7 +41,7 @@ export function HistoryPanel({ onOpen }: { onOpen: (id: number) => void }) {
         <ul className="live-list">
           {d?.rows.map((r) => (
             <li key={r.id}>
-              <div className="main"><strong>{r.date} {hm(r.startAt)}–{hm(r.endAt, r.date)} · {r.roomName}</strong><small>{r.myRoles.join('、')} · {r.douyinAccount.name}{r.finalSalesCents !== null ? ` · 销售额 ${money(r.finalSalesCents)}` : ''}</small></div>
+              <div className="main"><strong>{r.date} {hm(r.startAt)}–{r.endAt ? hm(r.endAt, r.date) : r.status === 'live' ? '直播中' : '下播时间未记录'}<SessionDuration start={r.startAt} end={r.endAt} live={r.status === 'live'}/> · {r.roomName}</strong><small>{r.myRoles.join('、')} · {r.douyinAccount.name}{r.finalSalesCents !== null ? ` · 销售额 ${money(r.finalSalesCents)}` : ''}</small></div>
               <span>{r.commissionCents !== null ? `提成 ${money(r.commissionCents)}` : ''}{r.wageCents !== null ? ` 工资 ${money(r.wageCents)}` : ''}</span>
               <SessionPill status={r.status} label={r.statusLabel} />
               <button type="button" className="secondary-button small" onClick={() => onOpen(r.id)}>详情</button>

@@ -1,3 +1,4 @@
+import { SessionDuration } from './SessionDuration';
 import { PersonPhotoName } from './PersonPhotoName';
 import { CheckoutFeedbackRecords } from './CheckoutFeedback';
 import { TrialProxyPerformance } from './TrialProxyPerformance';
@@ -127,7 +128,7 @@ export function ReviewDialog({ session, onClose, onDone }: { session: SessionDet
       {run.me.canReject && <button type="button" className="secondary-button danger" onClick={() => setStop('reject')}>拒绝</button>}
       <button type="button" className="primary-button" disabled={busy || needsRefresh || !run.me.canPass} onClick={() => void act('pass')}>{busy ? '提交中…' : '审核通过'}</button>
     </>}</div></div>}>
-      <p className="muted live-review-summary">{session.roomName} · {session.date} {hm(session.startAt)}–{hm(session.endAt)} · 主播 <PersonPhotoName personId={session.anchor.id} name={session.anchor.name}/>{session.control ? `，中控 ${session.control.name}` : ''}</p>
+      <p className="muted live-review-summary">{session.roomName} · {session.date} {hm(session.startAt)}–{hm(session.endAt, session.date)}<SessionDuration start={session.startAt} end={session.endAt} live={session.status === 'live'}/> · 主播 <PersonPhotoName personId={session.anchor.id} name={session.anchor.name}/>{session.control ? `，中控 ${session.control.name}` : ''}</p>
       <TrialProxyPerformance session={session}/>
       {!!abnormal.length&&<div className="notice error" role="alert">{abnormal.map(a=>a.name).join('、')}：未报下播，下播时间异常。系统已在锁定时自动下播，请核实并填写正确下播时间后再继续。</div>}
       <CheckoutFeedbackRecords sessionId={session.id} records={session.checkoutFeedback} attendance={session.attendance}/>

@@ -107,3 +107,23 @@ it('当天没有在播场次时，手动详情读完已存数据后不再自动�
   await act(async () => { await vi.advanceTimersByTimeAsync(180_000); });
   expect(liveApi.turnover).toHaveBeenCalledTimes(1);
 });
+
+it('实际直播显示已结束及实时已播时长，缺下播记录的历史场次不继续计时', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-11-03T10:59:30+08:00'));
+  const running = day().sessions[0];
+  vi.mocked(liveApi.roomDay).mockResolvedValue({
+    ...day(),
+    sessions: [
+      running,
+      { ...running, id: 8, startAt: '2026-11-02 23:30:00', endAt: '2026-11-03 01:00:00', status: 'approved' },
+      { ...running, id: 9, startAt: '2026-11-03 08:00:00', status: 'submitted' },
+    ],
+  });
+  await act(async () => { render(<RoomDayDialog {...props} />); });
+  expect(screen.getByText(/直播中 · 已播 59 分钟/)).toBeTruthy();
+  expect(screen.getByText(/23:30–01:00 · 1 小时 30 分钟/)).toBeTruthy();
+  expect(screen.getByText(/08:00–下播时间未记录/)).toBeTruthy();
+  await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+  expect(screen.getByText(/直播中 · 已播 1 小时/)).toBeTruthy();
+});
