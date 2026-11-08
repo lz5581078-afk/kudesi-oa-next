@@ -7,8 +7,8 @@ const props = { roomId: 10, date: '2026-11-03', onClose: vi.fn(), onOpenSession:
 const person = { id: 3, name: '主播甲' };
 const day = (id = 7) => ({ room: { id: 10, name: '直播间-南7' }, date: props.date,
   schedules: [
-    { id: 1, startTime: '10:00', endTime: '12:00', anchor: person, douyinAccount: { id: 1, name: '直播号' }, sessionId: id, status: 'finished', statusLabel: '已播' },
-    { id: 2, startTime: '16:00', endTime: '19:00', anchor: person, douyinAccount: { id: 1, name: '直播号' }, sessionId: null, status: 'scheduled', statusLabel: '未开始' },
+    { id: 1, start: `${props.date} 10:00:00`, end: `${props.date} 12:00:00`, startTime: '10:00', endTime: '12:00', anchor: person, douyinAccount: { id: 1, name: '直播号' }, sessionId: id, status: 'finished', statusLabel: '已播' },
+    { id: 2, start: `${props.date} 23:00:00`, end: '2026-11-04 00:30:00', startTime: '23:00', endTime: '00:30', anchor: person, douyinAccount: { id: 1, name: '直播号' }, sessionId: null, status: 'scheduled', statusLabel: '未开始' },
   ],
   sessions: [{ id, scheduleId: 1, status: 'live', startAt: `${props.date} 10:00:00`, endAt: null, anchor: person, control: null, douyinAccount: { id: 1, name: '直播号' }, anchorSalesCents: 1000, controlSalesCents: null, finalSalesCents: null }],
 }) as RoomDay;
@@ -22,6 +22,8 @@ it('排场与实际直播共用本场营业额，保留填报金额，未开播�
   await waitFor(() => expect(screen.getAllByText('¥123.45')).toHaveLength(2));
   expect(liveApi.turnover).toHaveBeenCalledTimes(1);
   expect(liveApi.turnover).toHaveBeenCalledWith(7);
+  expect(screen.getByText(/10:00–12:00 · 2 小时 · 主播/)).toBeTruthy();
+  expect(screen.getByText(/23:00–00:30 · 1 小时 30 分钟 · 主播/)).toBeTruthy();
   expect(screen.getByText('主播所报 ¥10.00')).toBeTruthy();
   expect(screen.getByText('未开播')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: '详情' }));

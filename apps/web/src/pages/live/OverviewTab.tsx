@@ -7,7 +7,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { RoomSettingsDialog } from './RoomSettingsDialog';
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { liveApi, type Overview, type RoomDay, type RoomTile, type TimelineItem, type SessionTurnover } from './liveApi';
-import { errText, hm, minutesText, money, todayText } from './liveFormat';
+import { errText, hm, minutesText, money, scheduleDuration, todayText } from './liveFormat';
 import { Modal, SchedulePill, SessionPill } from './liveUi';
 
 const FILTERS = [['all', '全部'], ['live', '正在直播'], ['missed', '过时未上播']] as const;
@@ -81,9 +81,12 @@ export function RoomDayDialog({ roomId, date, onClose, onOpenSession }: { roomId
         <>
           <strong>排场</strong>
           {d.schedules.length === 0 && <p className="muted">这天没有排场。</p>}
-          <ul className="live-list">{d.schedules.map((s) => (
-            <li key={s.id}><div className="main"><strong>{s.startTime}–{s.endTime} · 主播 <PersonPhotoName key={s.anchor.id} personId={s.anchor.id} name={s.anchor.name}/></strong><small>{s.control ? `中控 ${s.control.name} · ` : ''}{s.douyinAccount.name}{s.operator ? ` · 运营 ${s.operator.name}` : ''}{` · 产品 ${productText(s.products)}`}{s.note ? ` · ${s.note}` : ''}</small></div><div className="live-day-row-actions">{turnover(s.sessionId)}<SchedulePill status={s.status} label={s.statusLabel} /></div></li>
-          ))}</ul>
+          <ul className="live-list">{d.schedules.map((s) => {
+            const duration = scheduleDuration(s.start, s.end);
+            return (
+              <li key={s.id}><div className="main"><strong>{s.startTime}–{s.endTime}{duration && ` · ${duration}`} · 主播 <PersonPhotoName key={s.anchor.id} personId={s.anchor.id} name={s.anchor.name}/></strong><small>{s.control ? `中控 ${s.control.name} · ` : ''}{s.douyinAccount.name}{s.operator ? ` · 运营 ${s.operator.name}` : ''}{` · 产品 ${productText(s.products)}`}{s.note ? ` · ${s.note}` : ''}</small></div><div className="live-day-row-actions">{turnover(s.sessionId)}<SchedulePill status={s.status} label={s.statusLabel} /></div></li>
+            );
+          })}</ul>
           <strong>实际直播</strong>
           {d.sessions.length === 0 && <p className="muted">这天还没有直播记录。</p>}
           <ul className="live-list">{d.sessions.map((s) => (
