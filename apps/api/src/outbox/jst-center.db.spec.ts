@@ -29,10 +29,10 @@ d('聚水潭同步能力中心（真实数据库）', () => {
   });
   afterAll(async () => { await ds?.destroy(); });
 
-  it('新公司：总开关关、没有任务；有任务后按状态和类型统计，失败带原因，不带任务内容，别家公司看不到', async () => {
+  it('新公司：总开关默认允许、没有任务；有任务后按状态和类型统计，失败带原因，不带任务内容，别家公司看不到', async () => {
     const a = await mk('甲'), b = await mk('乙');
     const empty = await ctl.overview(a);
-    expect(empty.switch.enabled).toBe(false);
+    expect(empty.switch.enabled).toBe(true);
     expect(empty.priceSwitch.enabled).toBe(false);
     expect(empty.senderConfigured).toBe(false);
     expect(empty.counts).toEqual({});
