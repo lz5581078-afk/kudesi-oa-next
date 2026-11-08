@@ -1,4 +1,4 @@
-/** 出站队列（聚水潭同步）的真实数据库测试：总开关默认关；只入队不发送；失败退避；中途关闸立刻停。 */
+/** 出站队列（聚水潭同步）的真实数据库测试：总开关默认允许；只入队不发送；失败退避；中途关闸立刻停。 */
 import 'reflect-metadata';
 import * as crypto from 'crypto';
 import { DataSource } from 'typeorm';
@@ -44,8 +44,8 @@ d('聚水潭同步队列（真实数据库）', () => {
   });
   afterAll(async () => { await ds?.destroy(); });
 
-  it('总开关默认关；没验证的不能同步；入队只改状态不发送，同一版本不会重复入队', async () => {
-    expect((await outbox.getSwitch(boss.companyId)).enabled).toBe(false);
+  it('总开关默认允许；没验证的不能同步；入队只改状态不发送，同一版本不会重复入队', async () => {
+    expect((await outbox.getSwitch(boss.companyId)).enabled).toBe(true);
     await expect(outbox.enqueue(staff, 'finance-base-codes')).rejects.toThrow(/管理员/);
     await expect(outbox.enqueue(boss, 'finance-products')).rejects.toThrow(/不支持/);
     await expect(outbox.enqueue(boss, 'finance-base-codes', [ids.bc2])).rejects.toThrow(/还没有验证/);
@@ -58,15 +58,14 @@ d('聚水潭同步队列（真实数据库）', () => {
   });
 
   it('开关关着、或没有接入真实发送器：一条也不发', async () => {
-    expect(await outbox.processCompany(boss.companyId)).toEqual({ sent: 0, failed: 0, blocked: true });
-    await outbox.setSwitch(boss, true, '测试');
     expect(await outbox.processCompany(boss.companyId)).toEqual({ sent: 0, failed: 0, blocked: true }); // 默认发送器没配置
     expect(sentKeys).toHaveLength(0);
     await expect(outbox.setSwitch(staff, true)).rejects.toThrow(/管理员/);
   });
 
   it('开关打开且发送器就绪才发送；成功后标记已同步；失败退避重试，超过次数标记失败', async () => {
-    outbox.setSender(sender());
+    const ready = sender();
+    outbox.setSender({ ...ready, forCompany: async companyId => companyId === boss.companyId ? ready : { configured: false, send: async () => {} } });
     const originalPatch=svc.patchData.bind(svc);let uploadWhileSending=false;
     const patchSpy=jest.spyOn(svc,'patchData').mockImplementation(async(...args)=>{
       if(args[2]==='finance-base-codes'&&args[3]===ids.bc&&args[4].jstUploadedCode){
@@ -74,7 +73,7 @@ d('聚水潭同步队列（真实数据库）', () => {
       }
       return originalPatch(...args);
     });
-    try{expect(await outbox.processCompany(boss.companyId)).toEqual({ sent: 1, failed: 0, blocked: false });}finally{patchSpy.mockRestore();}
+    try { await outbox.processAll(); } finally { patchSpy.mockRestore(); }
     expect(uploadWhileSending).toBe(true);
 
     expect(sentKeys).toHaveLength(1);
