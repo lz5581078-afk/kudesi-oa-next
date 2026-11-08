@@ -6,7 +6,8 @@ import { useSearchParams } from 'react-router-dom';
 import { LIVE_PLATFORMS } from '@kudesi/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { liveApi, type ScheduleRow, type SessionRow, type Workbench } from './liveApi';
-import { errText, hm, money, minutesText } from './liveFormat';
+import { SessionDuration } from './SessionDuration';
+import { errText, hm, money, minutesText, durationSuffix } from './liveFormat';
 import { HistoryPanel } from './HistoryPanel';
 import { SchedulePill, SessionPill, SourceStatusNotice } from './liveUi';
 import { SessionDetailDialog } from './SessionDetailDialog';
@@ -71,7 +72,7 @@ export function LiveDeskPage() {
             {d.schedules.length === 0 && <p className="muted pad">这几天没有安排你的排场。</p>}
             <ul className="live-list">{d.schedules.map((s) => (
               <li key={s.id}>
-                <div className="main"><strong>{s.date} {s.startTime}–{s.endTime} · {s.roomName}</strong><small>我的身份：{s.mineRole === 'anchor' ? '主播' : s.mineRole === 'control' ? '中控' : '运营'} · 主播 <PersonPhotoName personId={s.anchor.id} name={s.anchor.name}/> · 中控 {s.control?.name ?? '未安排'} · {s.douyinAccount.name}{s.note ? ` · ${s.note}` : ''}</small></div>
+                <div className="main"><strong>{s.date} {s.startTime}–{s.endTime}{durationSuffix(s.start, s.end)} · {s.roomName}</strong><small>我的身份：{s.mineRole === 'anchor' ? '主播' : s.mineRole === 'control' ? '中控' : '运营'} · 主播 <PersonPhotoName personId={s.anchor.id} name={s.anchor.name}/> · 中控 {s.control?.name ?? '未安排'} · {s.douyinAccount.name}{s.note ? ` · ${s.note}` : ''}</small></div>
                 {d.active.find(session => session.id === s.sessionId)?.myCheckin?.endAt ? <span className="pill ok">本人已下播</span> : <SchedulePill status={s.status} label={s.statusLabel} />}
                 {!d.identity.isOperations && s.status === 'scheduled' && s.mineRole !== 'operator' && <button type="button" className="primary-button" disabled={!s.canStart} title={s.canStart ? '' : '排班已过结束时间'} onClick={() => setStarting({ schedule: s })}>上播</button>}
               </li>
@@ -89,14 +90,14 @@ export function LiveDeskPage() {
             <div className="card live-stat"><span>本月主播工资</span><strong>{money(d.monthWageCents)}</strong><small className="muted">{minutesText(d.monthWageMinutes)}</small></div>
             <div className="card live-stat"><span>进行中 / 待处理场次</span><strong>{d.active.length}</strong></div>
           </div>
-          {(() => { const nx = d.schedules.find((x) => x.status === 'scheduled'); return nx ? <div className="card live-stat" data-testid="next-live"><span>下一场直播</span><strong>{nx.date} {nx.startTime}–{nx.endTime}</strong><small className="muted">{nx.roomName} · 我是{nx.mineRole === 'anchor' ? '主播' : nx.mineRole === 'control' ? '中控' : '运营'}</small></div> : null; })()}
+          {(() => { const nx = d.schedules.find((x) => x.status === 'scheduled'); return nx ? <div className="card live-stat" data-testid="next-live"><span>下一场直播</span><strong>{nx.date} {nx.startTime}–{nx.endTime}{durationSuffix(nx.start, nx.end)}</strong><small className="muted">{nx.roomName} · 我是{nx.mineRole === 'anchor' ? '主播' : nx.mineRole === 'control' ? '中控' : '运营'}</small></div> : null; })()}
           <section className="card live-section" aria-label="进行中的场次">
             <h2>进行中和待处理</h2>
             {d.active.length === 0 && <p className="muted pad">目前没有进行中的场次。</p>}
             <ul className="live-list">{d.active.map((s) => {
               const own = s.myCheckin, endAt = own ? own.endAt : s.endAt;
               return <li key={s.id}>
-                <div className="main"><strong>{s.roomName} · {s.date} {hm(own?.startAt ?? s.startAt, s.date)}{endAt ? `–${hm(endAt, s.date)}` : ' 起'}</strong><small>主播 <PersonPhotoName personId={s.anchor.id} name={s.anchor.name}/>{s.control ? `，中控 ${s.control.name}` : ''} · {s.douyinAccount.name}{s.returnReason ? ` · 退回原因：${s.returnReason}` : ''}</small></div>
+                <div className="main"><strong>{s.roomName} · {s.date} {hm(own?.startAt ?? s.startAt, s.date)}{endAt ? `–${hm(endAt, s.date)}` : ' 起'}<SessionDuration start={own?.startAt ?? s.startAt} end={endAt} live={s.status === 'live'}/></strong><small>主播 <PersonPhotoName personId={s.anchor.id} name={s.anchor.name}/>{s.control ? `，中控 ${s.control.name}` : ''} · {s.douyinAccount.name}{s.returnReason ? ` · 退回原因：${s.returnReason}` : ''}</small></div>
                 <PersonalSessionStatus session={s} />
                 <button type="button" className="secondary-button small" onClick={() => setOpenId(s.id)}>{s.checkinMode && !own ? '查看详情' : own?.endAt ? '下播记录 / 详情' : s.status === 'live' ? '报下播 / 详情' : s.status === 'pending_report' || s.status === 'returned' ? '补报 / 提交审核' : '详情'}</button>
               </li>;
@@ -123,7 +124,7 @@ export function LiveDeskPage() {
             {d.recent.length === 0 && <p className="muted pad">还没有直播记录。</p>}
             <ul className="live-list">{d.recent.map((s) => (
               <li key={s.id}>
-                <div className="main"><strong>{s.date} {hm(s.startAt)}–{hm(s.endAt, s.date)} · {s.roomName}</strong><small>{s.finalSalesCents !== null ? `销售额 ${money(s.finalSalesCents)}` : '待审核'}</small></div>
+                <div className="main"><strong>{s.date} {hm(s.startAt)}–{s.endAt ? hm(s.endAt, s.date) : s.status === 'live' ? '直播中' : '下播时间未记录'}<SessionDuration start={s.startAt} end={s.endAt} live={s.status === 'live'}/> · {s.roomName}</strong><small>{s.finalSalesCents !== null ? `销售额 ${money(s.finalSalesCents)}` : '待审核'}</small></div>
                 <SessionPill status={s.status} label={s.statusLabel} />
                 <button type="button" className="secondary-button small" onClick={() => setOpenId(s.id)}>详情</button>
               </li>

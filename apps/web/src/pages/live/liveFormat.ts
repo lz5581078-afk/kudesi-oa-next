@@ -1,4 +1,4 @@
-import { LIVE_ROLE_LABEL } from '@kudesi/shared';
+import { LIVE_ROLE_LABEL, liveFromText } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
 import { money } from '../finance/common';
 
@@ -12,6 +12,27 @@ export const ratePct = (units: number | null | undefined) => (units === null || 
 /** 投产 ×10000 → '2.50' */
 export const roi = (scaled: number | null | undefined) => (scaled === null || scaled === undefined ? '—' : (scaled / 10000).toFixed(2));
 export const minutesText = (m: number) => `${Math.floor(m / 60)} 小时 ${m % 60} 分`;
+export function durationText(startText: string | null | undefined, endText: string | Date | null | undefined, ongoing = false): string {
+  const start = liveFromText(startText);
+  const end = liveFromText(endText);
+  if (!start || !end) return '';
+  const elapsed = (end.getTime() - start.getTime()) / 60_000;
+  if (elapsed < 0 || (!ongoing && elapsed === 0)) return '';
+  const minutes = ongoing ? Math.floor(elapsed) : Math.round(elapsed);
+  if (minutes === 0) return '不足 1 分钟';
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  const parts = [];
+  if (hours) parts.push(`${hours} 小时`);
+  if (remainingMinutes) parts.push(`${remainingMinutes} 分钟`);
+  return parts.join(' ');
+}
+
+export function durationSuffix(start: string | null | undefined, end: string | null | undefined): string {
+  const duration = durationText(start, end);
+  return duration ? ` · ${duration}` : '';
+}
+
 export const roleLabel = (r: string) => LIVE_ROLE_LABEL[r] ?? r;
 export const SESSION_TONE: Record<string, string> = { live: 'bad', pending_report: 'warn', submitted: 'warn', returned: 'bad', approved: 'ok' };
 export const SCHEDULE_TONE: Record<string, string> = { scheduled: '', live: 'bad', finished: 'ok', cancelled: 'muted' };

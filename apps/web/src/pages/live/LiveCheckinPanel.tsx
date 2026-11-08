@@ -2,7 +2,7 @@ import { clearLiveRoom } from '../../auth/liveRoomIntent';
 import { useEffect,useRef,useState } from 'react';
 import { useAuth } from '../../auth/AuthContext';
 import { liveApi, type CheckinContext, type CheckinSession, type SessionDetail } from './liveApi';
-import { errText } from './liveFormat';
+import { errText, durationSuffix } from './liveFormat';
 import { StartDialog, JoinDialog } from './StartDialog';
 import { ReportDialog } from './ReportDialog';
 import { CheckinRoleDialog } from './CheckinRoleDialog';
@@ -58,7 +58,7 @@ export function LiveCheckinPanel({roomId,companyId,token,workspaceType,onChanged
       <div className={scanned?'live-scan-task':undefined}>
         {scanned&&<h2>{running?'当前直播':'选择本场直播'}</h2>}
         {scanned&&!running&&canStart&&!roomId&&<label className="live-field">上播直播间<select aria-label="上播直播间" value={selectedRoom} onChange={e=>{setSelectedRoom(e.target.value);setError('');}}><option value="">请选择直播间</option>{data.rooms.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></label>}
-        {scanned&&selectedRoomName&&(running||roomId||schedule)&&<dl className="live-scan-summary"><div><dt>直播间</dt><dd>{selectedRoomName}</dd></div>{running?<><div><dt>本次身份</dt><dd>{roleName}</dd></div><div><dt>本人上播时间</dt><dd>{running.myCheckin!.startAt.replace('T',' ').slice(0,16)}</dd></div></>:schedule&&<div><dt>计划时段</dt><dd>{schedule.date} {schedule.startTime}–{schedule.endTime}</dd></div>}</dl>}
+        {scanned&&selectedRoomName&&(running||roomId||schedule)&&<dl className="live-scan-summary"><div><dt>直播间</dt><dd>{selectedRoomName}</dd></div>{running?<><div><dt>本次身份</dt><dd>{roleName}</dd></div><div><dt>本人上播时间</dt><dd>{running.myCheckin!.startAt.replace('T',' ').slice(0,16)}</dd></div></>:schedule&&<div><dt>计划时段</dt><dd>{schedule.date} {schedule.startTime}–{schedule.endTime}{durationSuffix(schedule.start, schedule.end)}</dd></div>}</dl>}
         <div className="live-checkin-actions">{(running||canStart||isAdmin)&&<button type="button" className="primary-button live-clock-button" disabled={busy||adminViewOnly} title={adminViewOnly?'当前账号没有本岗位直播身份，不能为本人记录上播':undefined} onClick={()=>void click()}>{busy?'正在读取…':running?'下播':'上播'}</button>}</div>
         {adminViewOnly&&<p className="live-scan-help" role="status">当前账号没有本岗位直播身份，上播按钮暂不可用；可到直播管理安排人员和排班。</p>}
         {scanned&&<p className="live-scan-help">{running?'点击下播后，核对本场时间与业绩，再确认本人下播。':canStart?'选择直播间后，继续核对人员、直播账号和店铺，再确认上播。':'当前账号暂无可操作场次，请联系人事核对主播或中控岗位。'}</p>}

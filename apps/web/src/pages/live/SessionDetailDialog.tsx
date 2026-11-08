@@ -1,3 +1,4 @@
+import { SessionDuration } from './SessionDuration';
 import { PersonPhotoName } from './PersonPhotoName';
 import { CheckoutFeedbackRecords } from './CheckoutFeedback';
 import { TrialProxyPerformance } from './TrialProxyPerformance';
@@ -59,7 +60,7 @@ export function SessionDetailDialog({ id, onClose, onChanged }: { id: number; on
           {s.reportSource==='manual'&&<p className="notice warn">人事手工填报 · 经办人编号 #{s.manualActorId} · 原因：{s.manualReason}</p>}
           {s.checkinMode&&<div className="notice warn">{s.reportDeadline?`${s.reportsLocked?'本场已锁定':'报下播截止'}：${s.reportDeadline}，锁定后其他岗位不能再报。`:'首位报下播后开始30分钟补报倒计时。'}{s.autoSubmitError&&` 自动提交待处理：${s.autoSubmitError}`}{s.ordersCaptureStatus==='pending'&&` 订单待核对：${s.ordersCaptureError??'正在归集'}`}<br/>审核以运营填报为主要依据；没有运营报告时可按主播报告审核。</div>}
           <dl className="live-fields live-detail-facts">
-            <div><dt className="muted">时间</dt><dd>{hm(s.startAt)} – {s.endAt ? hm(s.endAt, s.date) : '直播中'}</dd></div>
+            <div><dt className="muted">时间</dt><dd>{hm(s.startAt)} – {s.endAt ? hm(s.endAt, s.date) : s.status === 'live' ? '直播中' : '下播时间未记录'}<SessionDuration start={s.startAt} end={s.endAt} live={s.status === 'live'}/></dd></div>
             <div><dt className="muted">主播 / 中控 / 运营</dt><dd><PersonPhotoName personId={s.anchor.id} name={s.anchor.name}/>{s.control ? ` / ${s.control.name}` : ''}{s.operator ? ` / ${s.operator.name}` : ''}</dd></div>
             <div className="wide"><dt className="muted">直播号 / 店铺</dt><dd className="live-detail-channels">{s.channels?.length?s.channels.map(c=><span key={c.accountId}><b>{LIVE_PLATFORMS[c.platform]}</b><span>{c.accountName}<small>{c.stores.map(store=>store.name).join('、')}</small></span></span>):s.douyinAccount.name}</dd></div>
             {s.finalSalesCents !== null && <div><dt className="muted">最终销售额</dt><dd>{money(s.finalSalesCents)}（{LIVE_FINAL_SOURCES[s.finalSalesSource ?? ''] ?? ''}{s.finalSalesReason ? `：${s.finalSalesReason}` : ''}）</dd></div>}
