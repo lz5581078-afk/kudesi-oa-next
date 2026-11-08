@@ -62,7 +62,7 @@ const str = (v: unknown) => (typeof v === 'string' ? v : '');
 /**
  * 出站队列（外部写入的唯一出口）：
  *  - 业务只“加入队列”，不直接调外部接口；
- *  - 总开关默认关，随时可以一键停止；关着的时候队列只积压，不发送；
+ *  - 聚水潭同步默认允许，随时可以一键停止；关着的时候队列只积压，不发送；
  *  - 单一 worker 串行发送，失败按 2 的幂次分钟退避，最多重试 5 次；同一个版本只入队一次（幂等键）。
  */
 @Injectable()
@@ -107,7 +107,7 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
     const row = await this.dataSource.manager.findOne(OutboxSwitch, { where: { companyId, channel } });
     let senderConfigured = false;
     try { senderConfigured = (await this.senderFor(companyId)).configured; } catch { /* 缺少公司授权 */ }
-    return { enabled: row?.enabled ?? false, note: row?.note ?? null, updatedAt: row?.updatedAt ?? null, senderConfigured };
+    return { enabled: row?.enabled ?? (channel === JST_CHANNEL), note: row?.note ?? null, updatedAt: row?.updatedAt ?? null, senderConfigured };
   }
 
   /** 总开关（channel=jushuitan）和基本售价同步开关（channel=jst_price）都只有公司管理员能改；总开关关着，什么都不发 */
@@ -591,7 +591,12 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
     if (this.running) return;
     this.running = true;
     try {
-      const companies = await this.dataSource.query("SELECT company_id AS id FROM outbox_switches WHERE channel = ? AND enabled = 1", [JST_CHANNEL]);
+      const companies = await this.dataSource.query(
+        `SELECT c.id FROM companies c
+         LEFT JOIN outbox_switches sw ON sw.company_id = c.id AND sw.channel = ?
+         WHERE sw.enabled = 1 OR (sw.company_id IS NULL AND c.status = 'active')`,
+        [JST_CHANNEL],
+      );
       for (const c of companies as { id: number }[]) await this.processCompany(c.id);
     } catch (e) { this.log.error(`出站队列处理失败：${(e as Error).message}`); }
     finally { this.running = false; }

@@ -224,7 +224,7 @@ export function MasterResetPage({ embedded = false,presentation,blocked=false,on
 const JOB_KIND: Record<string, string> = { base_code_upsert: '上传基础编码', base_code_replace: '改码上传', base_code_disable: '停用基础编码', bundle_upsert: '上传组合', bundle_replace: '组合改码上传', bundle_disable: '停用组合', normal_product_upload: '商品资料上传', bundle_price_update: '同步基本售价', category_sync: '同步分类' };
 const JOB_STATUS: Record<string, [string, string]> = { pending: ['待发送', 'warn'], sending: ['发送中', 'warn'], done: ['已同步', 'ok'], failed: ['失败', 'bad'], cancelled: ['已取消', 'muted'] };
 
-/** 聚水潭同步队列：所有对外写入先排队；总开关默认关，关着时只积压不发送，随时可以一键停止。 */
+/** 聚水潭同步队列：所有对外写入先排队；默认允许发送，暂停时只积压不发送，随时可以一键停止。 */
 export function JstSyncPage() {
   const [sw, setSw] = useState<{ enabled: boolean; senderConfigured: boolean } | null>(null);
   const [data, setData] = useState<{ total: number; counts: Record<string, number>; rows: OutboxJobRow[] } | null>(null);
@@ -246,10 +246,10 @@ export function JstSyncPage() {
       <div className="page-head"><h1>聚水潭同步队列</h1></div>
       {sw && (
         <div className={`notice ${sw.enabled ? 'ok' : ''}`}>
-          <strong>对外同步总开关：{sw.enabled ? '已打开' : '已关闭（默认）'}</strong>
+          <strong>对外同步总开关：{sw.enabled ? '已打开' : '已暂停'}</strong>
           {!sw.senderConfigured && <div className="bad-text">还没有接入聚水潭接口（需要管理员提供并授权接口凭证），即使开关打开也不会发送任何内容。</div>}
           <div className="row-actions">
-            {sw.enabled ? <button type="button" className="primary-button" onClick={() => void toggle(false)}>一键停止所有外部写入</button> : <button type="button" className="secondary-button" onClick={() => void toggle(true)}>打开同步</button>}
+            {sw.enabled ? <button type="button" className="primary-button" onClick={() => void toggle(false)}>一键停止所有外部写入</button> : <button type="button" className="secondary-button" onClick={() => void toggle(true)}>恢复同步</button>}
           </div>
         </div>
       )}
