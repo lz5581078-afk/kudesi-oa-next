@@ -3,7 +3,7 @@ import { ChannelPicker, initialChannels } from './ChannelPicker';
 import { useEffect, useRef, useState } from 'react';
 import { TrialPersonDialog } from './TrialPersonDialog';
 import { liveApi, type Options, type ScheduleBody, type ScheduleRow } from './liveApi';
-import { errText } from './liveFormat';
+import { errText, durationSuffix } from './liveFormat';
 import { Modal } from './liveUi';
 import type { LiveProductSnapshot } from '@kudesi/shared';
 import { ManualProductEditor } from './ManualProductEditor';
@@ -55,7 +55,7 @@ export function ScheduleDialog({ initial, days, defaultRoom, defaultDay,onClose,
       unavailable ||= previousChannels.length!==usableChannels.length || usableChannels.some(c=>c.storeIds.length!==previousChannels.find(p=>p.accountId===c.accountId)?.storeIds.length);
       setChannels(usableChannels);
       setPicked(row.products?.length ? row.products : [emptyManualProduct()]);
-      setImportNote(`已导入 ${row.date} ${row.startTime}–${row.endTime} 的人员、账号、店铺、产品和备注。本次日期、时间保持不变。${unavailable ? '部分人员或账号已停用，已清空，请重新选择。' : '请核对后保存。'}`);
+      setImportNote(`已导入 ${row.date} ${row.startTime}–${row.endTime}${durationSuffix(row.start, row.end)} 的人员、账号、店铺、产品和备注。本次日期、时间保持不变。${unavailable ? '部分人员或账号已停用，已清空，请重新选择。' : '请核对后保存。'}`);
     } catch (e) { if (token === request.current) setError(errText(e, '导入失败')); }
     finally { if (token === request.current) setImporting(false); }
   }

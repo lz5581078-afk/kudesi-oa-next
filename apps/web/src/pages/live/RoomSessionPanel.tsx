@@ -2,7 +2,7 @@ import { PersonPhotoName } from './PersonPhotoName';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { LIVE_PLATFORMS } from '@kudesi/shared';
 import { liveApi, type RoomCurrentSession, type SessionTurnover } from './liveApi';
-import { errText, hm, money } from './liveFormat';
+import { durationSuffix, errText, hm, money } from './liveFormat';
 import { Modal } from './liveUi';
 import { productText } from './liveProducts';
 
@@ -46,6 +46,8 @@ export function RoomSessionPanel({ session, day, now }: { session: RoomCurrentSe
     return () => { active = false; request.current++; if (timer) clearTimeout(timer); document.removeEventListener('visibilitychange', refresh); };
   }, [load, id, end]);
   const done = !!session?.endAt;
+  const orderStart = data?.startAt || session?.startAt;
+  const orderEnd = data?.endAt || session?.endAt || now;
   const elapsed = session ? Math.max(0, Math.floor((Date.parse((session.endAt || now).replace(' ', 'T') + '+08:00') - Date.parse(session.startAt.replace(' ', 'T') + '+08:00')) / 60000)) : 0;
   const duration = session?.plannedEnd ? Math.max(1,(Date.parse(session.plannedEnd.replace(' ', 'T') + '+08:00') - Date.parse(session.startAt.replace(' ', 'T') + '+08:00'))/60000) : null;
   const progress = duration ? Math.min(100, Math.round(elapsed/duration*100)) : null;
@@ -67,7 +69,7 @@ export function RoomSessionPanel({ session, day, now }: { session: RoomCurrentSe
       <small className="live-current-products" title={productText(session.products)}>本场产品 {productText(session.products)}</small>
     </>}
     {open && session && <Modal title={`${data?.roomName || ''} · 本场营业额`} onClose={() => setOpen(false)}>
-      <p className="muted">统计成单时间：{data?.startAt || session.startAt} 至 {data?.endAt || session.endAt || now}{!done ? '（直播中）' : ''}。只计算本场时间内成单且仍有效的订单；历史订单在此期间退款不计入。</p>
+      <p className="muted">统计成单时间：{orderStart} 至 {orderEnd}{durationSuffix(orderStart, orderEnd)}{!done ? '（直播中）' : ''}。只计算本场时间内成单且仍有效的订单；历史订单在此期间退款不计入。</p>
       {(error || (data && !data.available)) && <p className="notice error" role="alert">{error || data?.reason}，不会按零元计算。</p>}
       {!data && !error && <p role="status">正在读取聚水潭订单…</p>}
       {data && <><div className="live-scroll"><table className="data-table live-turnover-table"><thead><tr><th>店铺 / 平台</th><th>有效单数</th><th>有效营业额</th><th>本场订单退款</th></tr></thead><tbody>{data.stores.map(s => <tr key={s.storeId}><td>{s.storeName}<small>{LIVE_PLATFORMS[s.platform] || s.platform}</small>{!s.available && <small className="error-text">{s.reason}</small>}</td><td data-label="有效单数">{s.available ? `${s.orderCount} 单` : '—'}</td><td data-label="有效营业额">{s.available ? money(s.turnoverCents!) : '—'}</td><td data-label="本场订单退款">{s.available ? money(s.refundCents!) : '—'}</td></tr>)}</tbody><tfoot><tr><th>合计</th><td data-label="有效单数">{data.available ? `${data.orderCount} 单` : '—'}</td><td data-label="有效营业额">{data.available ? money(data.turnoverCents!) : '暂不可用'}</td><td data-label="本场订单退款">{data.available ? money(data.refundCents!) : '—'}</td></tr></tfoot></table></div>

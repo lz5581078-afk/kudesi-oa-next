@@ -6,7 +6,8 @@ import { initialChannels } from './ChannelPicker';
 import { StartChannelChoice } from './StartChannelChoice';
 import { useEffect, useState } from 'react';
 import { liveApi, type Options, type Product, type ScheduleRow, type CheckinSession } from './liveApi';
-import { errText, nowText } from './liveFormat';
+import { SessionDuration } from './SessionDuration';
+import { errText, nowText, durationSuffix, hm } from './liveFormat';
 import { Modal } from './liveUi';
 import './liveStart.css';
 import { ApiError } from '../../api/client';
@@ -79,7 +80,7 @@ function StartForm({ schedule, identity, joining, role:checkinRole, roomId: fixe
       <button type="button" className="primary-button live-clock-button" disabled={busy || !opts} onClick={() => void submit()}>{busy ? '提交中…' : beforePlan&&early?'仍要提前开播':'确认上播'}</button>
     </>}>
       {joining&&<p className="notice">本场已经开播。请核对以下实际场次信息，确认后只记录你本人的上播，不会再开一场。</p>}
-      <div className="live-start-intro"><span>{joining ? '加入已开播场次' : schedule ? '按排班上播' : '临时加场'}</span><h3 aria-label={schedule?'直播间':undefined}>{schedule?.roomName ?? '确认本次直播'}</h3><p>{schedule ? `${schedule.date} · ${schedule.startTime}–${schedule.endTime}` : '依次选择人员、账号店铺和在卖产品。'}</p><small>以点击确认的实际时间记录上播。</small></div>
+      <div className="live-start-intro"><span>{joining ? '加入已开播场次' : schedule ? '按排班上播' : '临时加场'}</span><h3 aria-label={schedule?'直播间':undefined}>{schedule?.roomName ?? '确认本次直播'}</h3><p>{joining ? <>{joining.date} · {hm(joining.startAt)} 起<SessionDuration start={joining.startAt} end={joining.endAt} live={joining.status === 'live'}/></> : schedule ? `${schedule.date} · ${schedule.startTime}–${schedule.endTime}${durationSuffix(schedule.start, schedule.end)}` : '依次选择人员、账号店铺和在卖产品。'}</p><small>以点击确认的实际时间记录上播。</small></div>
       {!opts ? <p className="muted" role="status">正在读取选项…</p> : (
         <div className="live-start-sections">
           <section className="live-start-section" aria-label="本场人员"><header><span>01</span><div><h3>本场信息</h3><p>核对直播间和参与人员</p></div></header><div className="live-fields">
@@ -152,7 +153,7 @@ export function StartDialog(props:Parameters<typeof StartForm>[0]){
   if(!loaded)return <Modal bodyClassName="live-start-body" title="读取本人排班" onClose={props.onClose}>{error?<p role="alert">{error}</p>:<p role="status">正在读取排班和实际场次…</p>}</Modal>;
   if(existing)return <JoinDialog session={existing} role={props.role??(existing.canJoinAnchor?'anchor':'control')} onClose={props.onClose} onDone={props.onDone}/>;
   const visibleSessions=showOtherSessions?joinable:joinable.filter(s=>s.canJoinAnchor||!!s.control);
-  if(!props.schedule&&!chosen)return <Modal bodyClassName="live-start-body live-start-selection" title="选择本次排班" onClose={props.onClose}><p>{plans.length||visibleSessions.length?'请选择本次要播的场次。':'当前没有已安排给你的待上播场次。'}</p><div className="live-checkin-actions">{visibleSessions.map(s=><div className="live-checkin-choice" key={`session-${s.id}`}><button type="button" className="primary-button live-clock-button" aria-label={`直播中 · 加入本场 ${s.roomName} · 主播 ${s.anchor.name}`} onClick={()=>setExisting(s)}><small>直播中 · 加入本场</small><strong>{s.roomName}</strong></button><span>主播 <PersonPhotoName personId={s.anchor.id} name={s.anchor.name}/></span></div>)}{!showOtherSessions&&visibleSessions.length<joinable.length&&<button type="button" className="secondary-button live-clock-button" onClick={()=>setShowOtherSessions(true)}>选择其他可加入场次</button>}{plans.map(s=><button className="primary-button live-clock-button" key={s.id} onClick={()=>setChosen(s)}><small>待上播 · 我的排班</small><strong>{s.roomName}</strong><span>{s.date} · {s.startTime}–{s.endTime}</span></button>)}{!plans.length&&!joinable.length&&<p>没有可开播的排班，请联系人事安排。</p>}</div></Modal>;
+  if(!props.schedule&&!chosen)return <Modal bodyClassName="live-start-body live-start-selection" title="选择本次排班" onClose={props.onClose}><p>{plans.length||visibleSessions.length?'请选择本次要播的场次。':'当前没有已安排给你的待上播场次。'}</p><div className="live-checkin-actions">{visibleSessions.map(s=><div className="live-checkin-choice" key={`session-${s.id}`}><button type="button" className="primary-button live-clock-button" aria-label={`直播中 · 加入本场 ${s.roomName} · 主播 ${s.anchor.name}`} onClick={()=>setExisting(s)}><small>直播中 · 加入本场</small><strong>{s.roomName}</strong></button><span>主播 <PersonPhotoName personId={s.anchor.id} name={s.anchor.name}/></span></div>)}{!showOtherSessions&&visibleSessions.length<joinable.length&&<button type="button" className="secondary-button live-clock-button" onClick={()=>setShowOtherSessions(true)}>选择其他可加入场次</button>}{plans.map(s=><button className="primary-button live-clock-button" key={s.id} onClick={()=>setChosen(s)}><small>待上播 · 我的排班</small><strong>{s.roomName}</strong><span>{s.date} · {s.startTime}–{s.endTime}{durationSuffix(s.start, s.end)}</span></button>)}{!plans.length&&!joinable.length&&<p>没有可开播的排班，请联系人事安排。</p>}</div></Modal>;
   return <StartForm {...props} schedule={chosen} onExisting={setExisting}/>;
 }
 

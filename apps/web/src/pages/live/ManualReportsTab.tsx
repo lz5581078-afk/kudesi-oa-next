@@ -10,7 +10,7 @@ import { productText } from './liveProducts';
 import { useEffect, useRef, useState } from 'react';
 import { liveApi, type Options, type ManualBody, type SubmissionStatus, type SessionDetail } from './liveApi';
 import { SubmissionNotice } from './SubmissionNotice';
-import { errText, nowText, yuanCents, money } from './liveFormat';
+import { errText, nowText, yuanCents, money, durationSuffix } from './liveFormat';
 import { TrialPersonDialog } from './TrialPersonDialog';
 export function ManualReportsTab({ onOpen }: { onOpen: (id: number) => void }) {
   const [existing, setExisting] = useState(true);
@@ -241,7 +241,7 @@ function ManualReportForm({existing, changeMode, onOpen}: {existing:boolean; cha
         <button type="button" className="primary-button" disabled={busy} onClick={()=>void persist({...channelConfirmation.body,confirmUnlinkedStores:true})}>{busy?'保存中…':'按本次补报数据保存并核对'}</button>
       </>}>
         <p className="notice warn">{channelConfirmation.message}</p>
-        <p>实际时间（北京时间）：{channelConfirmation.body.startAt} 至 {channelConfirmation.body.endAt}</p>
+        <p>实际时间（北京时间）：{channelConfirmation.body.startAt} 至 {channelConfirmation.body.endAt}{durationSuffix(channelConfirmation.body.startAt, channelConfirmation.body.endAt)}</p>
         <p>本次营业额：{money(channelConfirmation.body.salesCents)}；投流费用：{money(channelConfirmation.body.adSpendCents)}</p>
         <p>确认后按本次填写的店铺、实际上下播时间和业绩保存，不会修改账号档案的关联关系，仍须提交审核。</p>
       </Modal>}
