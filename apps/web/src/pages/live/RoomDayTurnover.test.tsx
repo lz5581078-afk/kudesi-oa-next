@@ -7,8 +7,8 @@ const props = { roomId: 10, date: '2026-11-03', onClose: vi.fn(), onOpenSession:
 const person = { id: 3, name: '主播甲' };
 const day = (id = 7) => ({ room: { id: 10, name: '直播间-南7' }, date: props.date,
   schedules: [
-    { id: 1, startTime: '10:00', endTime: '12:00', anchor: person, douyinAccount: { id: 1, name: '直播号' }, sessionId: id, status: 'finished', statusLabel: '已播' },
-    { id: 2, startTime: '16:00', endTime: '19:00', anchor: person, douyinAccount: { id: 1, name: '直播号' }, sessionId: null, status: 'scheduled', statusLabel: '未开始' },
+    { id: 1, start: `${props.date} 10:00:00`, end: `${props.date} 12:00:00`, startTime: '10:00', endTime: '12:00', anchor: person, douyinAccount: { id: 1, name: '直播号' }, sessionId: id, status: 'finished', statusLabel: '已播' },
+    { id: 2, start: `${props.date} 23:00:00`, end: '2026-11-04 00:30:00', startTime: '23:00', endTime: '00:30', anchor: person, douyinAccount: { id: 1, name: '直播号' }, sessionId: null, status: 'scheduled', statusLabel: '未开始' },
   ],
   sessions: [{ id, scheduleId: 1, status: 'live', startAt: `${props.date} 10:00:00`, endAt: null, anchor: person, control: null, douyinAccount: { id: 1, name: '直播号' }, anchorSalesCents: 1000, controlSalesCents: null, finalSalesCents: null }],
 }) as RoomDay;
@@ -22,6 +22,8 @@ it('排场与实际直播共用本场营业额，保留填报金额，未开播�
   await waitFor(() => expect(screen.getAllByText('¥123.45')).toHaveLength(2));
   expect(liveApi.turnover).toHaveBeenCalledTimes(1);
   expect(liveApi.turnover).toHaveBeenCalledWith(7);
+  expect(screen.getByText(/10:00–12:00 · 2 小时 · 主播/)).toBeTruthy();
+  expect(screen.getByText(/23:00–00:30 · 1 小时 30 分钟 · 主播/)).toBeTruthy();
   expect(screen.getByText('主播所报 ¥10.00')).toBeTruthy();
   expect(screen.getByText('未开播')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: '详情' }));
@@ -104,4 +106,24 @@ it('当天没有在播场次时，手动详情读完已存数据后不再自动�
   expect(liveApi.turnover).toHaveBeenCalledTimes(1);
   await act(async () => { await vi.advanceTimersByTimeAsync(180_000); });
   expect(liveApi.turnover).toHaveBeenCalledTimes(1);
+});
+
+it('实际直播显示已结束及实时已播时长，缺下播记录的历史场次不继续计时', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-11-03T10:59:30+08:00'));
+  const running = day().sessions[0];
+  vi.mocked(liveApi.roomDay).mockResolvedValue({
+    ...day(),
+    sessions: [
+      running,
+      { ...running, id: 8, startAt: '2026-11-02 23:30:00', endAt: '2026-11-03 01:00:00', status: 'approved' },
+      { ...running, id: 9, startAt: '2026-11-03 08:00:00', status: 'submitted' },
+    ],
+  });
+  await act(async () => { render(<RoomDayDialog {...props} />); });
+  expect(screen.getByText(/直播中 · 已播 59 分钟/)).toBeTruthy();
+  expect(screen.getByText(/23:30–01:00 · 1 小时 30 分钟/)).toBeTruthy();
+  expect(screen.getByText(/08:00–下播时间未记录/)).toBeTruthy();
+  await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+  expect(screen.getByText(/直播中 · 已播 1 小时/)).toBeTruthy();
 });

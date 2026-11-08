@@ -10,7 +10,7 @@ import {
   type DailyPerson,
 } from './dailyWorkApi';
 import { liveApi } from './liveApi';
-import { errText, money, todayText } from './liveFormat';
+import { errText, money, todayText, durationSuffix } from './liveFormat';
 import { Modal } from './liveUi';
 import { qrMatrix, qrSvgPath } from '../../lib/qr';
 import './dailyWork.css';
@@ -401,7 +401,7 @@ export function DailyWorkPanel({
               <div>
                 <dt>计划时间</dt>
                 <dd>
-                  {r.plannedStart}—{r.plannedEnd}
+                  {r.plannedStart}—{r.plannedEnd}{durationSuffix(r.plannedStart, r.plannedEnd)}
                 </dd>
               </div>
               <div>
@@ -529,7 +529,7 @@ export function DailyWorkPanel({
             <strong>{action.row.content}</strong>
           </p>
           <p>
-            排班：{action.row.plannedStart} 至 {action.row.plannedEnd}
+            排班：{action.row.plannedStart} 至 {action.row.plannedEnd}{durationSuffix(action.row.plannedStart, action.row.plannedEnd)}
           </p>
           {action.kind === 'start' ? (
             <p>

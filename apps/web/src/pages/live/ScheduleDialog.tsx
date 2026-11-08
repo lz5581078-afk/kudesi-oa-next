@@ -3,9 +3,9 @@ import { ChannelPicker, initialChannels } from './ChannelPicker';
 import { useEffect, useRef, useState } from 'react';
 import { TrialPersonDialog } from './TrialPersonDialog';
 import { liveApi, type Options, type ScheduleBody, type ScheduleRow } from './liveApi';
-import { errText, yuanCents, yuanText } from './liveFormat';
+import { durationSuffix, errText, yuanCents, yuanText } from './liveFormat';
 import { Modal } from './liveUi';
-import type { LiveProductSnapshot } from '@kudesi/shared';
+import { liveAddDays, type LiveProductSnapshot } from '@kudesi/shared';
 import { ManualProductEditor } from './ManualProductEditor';
 import { emptyManualProduct, productEntries } from './liveProducts';
 
@@ -71,7 +71,7 @@ export function ScheduleDialog({ initial, days, defaultRoom, defaultDay,onClose,
       unavailable ||= previousChannels.length!==usableChannels.length || usableChannels.some(c=>c.storeIds.length!==previousChannels.find(p=>p.accountId===c.accountId)?.storeIds.length);
       setChannels(usableChannels);
       setPicked(row.products?.length ? row.products : [emptyManualProduct()]);
-      setImportNote(`已导入 ${row.date} ${row.startTime}–${row.endTime} 的人员、账号、店铺、产品和备注。本次日期、时间保持不变。${unavailable ? '部分人员或账号已停用，已清空，请重新选择。' : '请核对后保存。'}`);
+      setImportNote(`已导入 ${row.date} ${row.startTime}–${row.endTime}${durationSuffix(row.start, row.end)} 的人员、账号、店铺、产品和备注。本次日期、时间保持不变。${unavailable ? '部分人员或账号已停用，已清空，请重新选择。' : '请核对后保存。'}`);
     } catch (e) { if (token === request.current) setError(errText(e, '导入失败')); }
     finally { if (token === request.current) setImporting(false); }
   }
@@ -101,7 +101,7 @@ export function ScheduleDialog({ initial, days, defaultRoom, defaultDay,onClose,
       )}
     </Modal>{missingAnchor&&<Modal title="请选择本场主播" onClose={()=>setMissingAnchor(false)} foot={<button type="button" className="primary-button" onClick={()=>{setMissingAnchor(false);requestAnimationFrame(()=>document.querySelector<HTMLSelectElement>('select[aria-label="主播"]')?.focus());}}>返回补选主播</button>}><p className="notice">本场尚未选择主播，不能保存排班。请返回选择主播后再保存。</p>{!f.controlId&&<p>中控也尚未选择，请一并核对。</p>}</Modal>}{pending&&<Modal title="确认未安排中控" onClose={()=>setPending(null)} foot={<><button type="button" className="secondary-button" onClick={()=>setPending(null)}>返回补选</button><button type="button" className="primary-button" disabled={busy} onClick={()=>void persist(pending)}>确认无中控并保存</button></>}>
       <p className="notice">本场尚未选择中控，请确认是否继续保存。</p>
-      <p>{pending.date} · {pending.startTime}–{pending.endTime} · {opts?.rooms.find(r=>r.id===pending.roomId)?.name}</p>
+      <p>{pending.date} · {pending.startTime}–{pending.endTime}{durationSuffix(`${pending.date} ${pending.startTime}`, `${pending.endTime <= pending.startTime ? liveAddDays(pending.date, 1) : pending.date} ${pending.endTime}`)} · {opts?.rooms.find(r=>r.id===pending.roomId)?.name}</p>
       <p>主播：{opts?.anchors.find(p=>p.id===pending.anchorId)?.name}　中控：未安排</p>
     </Modal>}{trial&&<TrialPersonDialog onClose={()=>setTrial(false)} onDone={(p,cents)=>{setTrial(false);setRate(yuanText(cents));setF(f=>({...f,anchorId:String(p.id)}));liveApi.options().then(setOpts).catch(e=>setError(errText(e)));}}/>}</>
   );

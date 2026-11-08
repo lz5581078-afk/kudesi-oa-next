@@ -175,8 +175,8 @@ body:has(.live-modal-backdrop) { overflow: hidden; }
 .live-channel-picker input[type=checkbox],.live-order-option input[type=checkbox]{width:16px;height:16px;flex:none;margin:0;padding:0}.live-channel-row>strong{margin-right:10px}.live-order-option{flex-direction:row;align-items:center}.live-table-hint{display:none}@media(max-width:600px){.live-table-hint{display:block;font-size:12px}}
 .live-next { padding: 8px 0; border-top: 1px solid var(--border); display: grid; gap: 5px; overflow-wrap: anywhere; }
 .live-next-heading { display: flex; align-items: baseline; gap: 6px; min-width: 0; font-size: 11px; }
-.live-next-heading .live-next-time { flex: none; white-space: nowrap; }
-.live-next-products { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.live-next-heading .live-next-time { min-width: 0; }
+.live-next-products { flex: 1 1 25%; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .live-next-time { color: var(--accent-ink, #087879); font-variant-numeric: tabular-nums; }
 .live-next-people { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; font-size: 10px; }
 .live-next-people > span { display: flex; align-items: baseline; gap: 0; min-width: 0; white-space: nowrap; }
