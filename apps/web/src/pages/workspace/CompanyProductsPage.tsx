@@ -99,7 +99,7 @@ function CompanyProducts() {
           if (product.alias !== null) target.set('alias', product.alias);
           return <Link key={`${product.id}:${product.alias}`} className="card company-product-card" to={`?${target}`}>
             <div className="company-product-cover">
-              <ProductImage photo={product.photo} position={product.imagePosition} />
+              <ProductImage photo={product.photo} />
               <span className="company-product-stock">库存 {inventory(product)}</span>
             </div>
             <div className="company-product-body">
@@ -134,9 +134,9 @@ function LoadError({ error, onRetry }: { error: string; onRetry: () => void }) {
   return <p className="notice error" role="alert">{error} <button type="button" onClick={onRetry}>重试</button></p>;
 }
 
-function ProductImage({ photo, position = '50% 50%' }: { photo: Photo | null; position?: string }) {
+function ProductImage({ photo }: { photo: Photo | null }) {
   const [failed, setFailed] = useState<string>();
-  return photo && failed !== photo.url ? <img src={photo.url} alt={photo.name} style={{objectPosition: position, transformOrigin: position}} draggable={false} onContextMenu={event => event.preventDefault()} loading="lazy" onError={() => setFailed(photo.url)} />
+  return photo && failed !== photo.url ? <img src={photo.url} alt={photo.name} draggable={false} onContextMenu={event => event.preventDefault()} loading="lazy" onError={() => setFailed(photo.url)} />
     : <span className="company-product-placeholder"><ImageOff size={30} /> 暂无图片</span>;
 }
 
@@ -158,9 +158,9 @@ function ProductDetail({ product, canEdit, canApply, onApply }: { product: Detai
   ];
   return <article className="card company-product-detail">
     <div>
-      <div className="company-product-cover">{product.photos[index] ? <ProductImage photo={product.photos[index]} position={product.imagePosition} /> : <ProductImage photo={null} />}</div>
+      <div className="company-product-cover">{product.photos[index] ? <ProductImage photo={product.photos[index]} /> : <ProductImage photo={null} />}</div>
       {product.photos.length > 1 && <div className="company-product-thumbnails" aria-label="产品图片">
-        {product.photos.map((photo, position) => <button key={position} type="button" aria-label={`查看第 ${position + 1} 张图片`} aria-pressed={index === position} onClick={() => setIndex(position)}><ProductImage photo={photo} position={product.imagePosition} /></button>)}
+        {product.photos.map((photo, position) => <button key={position} type="button" aria-label={`查看第 ${position + 1} 张图片`} aria-pressed={index === position} onClick={() => setIndex(position)}><ProductImage photo={photo} /></button>)}
       </div>}
     </div>
     <div className="company-product-details">
