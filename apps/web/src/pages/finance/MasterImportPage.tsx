@@ -24,7 +24,7 @@ function MasterImportWorkspace(){
   const visible=profiles?.filter(profile=>profile.steps.some(step=>can(`resource.${permissionOwner(step.resource)}.import`)))??[];
   const profile=visible.find(item=>item.id===selected)??visible[0];
   return <div className="master-data-import-page">
-    <header className="mdi-page-title"><h1>商品基础数据导入</h1><p>Excel先预检、再写入；仅处理当前公司的本地商品基础资料，不写入聚水潭。</p></header>
+    <header className="mdi-page-title"><h1>商品基础数据导入</h1></header>
     {actionError&&<div role="alert" className="mdi-message error">{actionError}</div>}
     {notice&&<div role="status" className="mdi-message success">{notice}</div>}
     {error?<div role="alert" className="mdi-message error">{error}<button type="button" onClick={()=>setRetry(value=>value+1)}>重试</button></div>:profile?<ProfileImportPanel key={`${profile.id}:${tick}`} profile={profile} blocked={resetBusy} onBusyChange={setImportBusy} onFeedback={feedback} headerControl={<label><span>导入类型</span><select aria-label="导入类型" value={profile.id} onChange={event=>{setSelected(event.target.value);feedback(null);}}>{visible.map(item=><option key={item.id} value={item.id}>{item.label}</option>)}</select></label>} onDone={message=>{setActionError('');setNotice(message);setTick(value=>value+1);}}/>:<p className="muted">{profiles===null?'正在读取导入类型…':'当前账号没有资料导入权限。'}</p>}

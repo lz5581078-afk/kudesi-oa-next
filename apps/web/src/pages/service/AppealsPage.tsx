@@ -28,7 +28,7 @@ export function AppealsPage() {
   return (
     <div className="svc-page">
       <div className="page-head">
-        <div><h1>订单申诉</h1><p className="muted">先按经营中的店铺进入申诉工作台；也可以直接查看全部店铺的申诉记录。申诉要有有效凭证，失败次数不限。</p></div>
+        <div><h1>订单申诉</h1></div>
         <button type="button" className="secondary-button" onClick={() => setParams({ store: 'all' })}>全部店铺的申诉记录</button>
       </div>
       {error && <div role="alert" className="notice error">{error}</div>}

@@ -54,7 +54,6 @@ export function NodeCenterPage() {
         <h1>节点中心</h1>
         {canManage && <button type="button" className="primary-button" onClick={() => { setSel(null); setMsg(''); setDraft(blank(categories.find((c) => c !== '业务专用') ?? '通用节点')); }}>新建节点模板</button>}
       </div>
-      <p className="muted">节点模板是设计流程时可以直接套用的“一步”：自带办理人来源、时限和办理页面（要填的字段）。套用到流程后互相独立，改模板不会改动已有流程。</p>
       {err && <div role="alert" className="notice error">{err}</div>}
       {msg && <div role="status" className="notice ok">{msg}</div>}
       <div className="fd-design-layout">

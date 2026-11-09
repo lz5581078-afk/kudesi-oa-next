@@ -180,9 +180,6 @@ export function ScriptVersionPanel({
               }}
               onMark={openPicker}
             />
-            <p className="muted">
-              拖选一段正文，右键关联素材。中控会在段首看到展示提示，在段尾看到撤下提示。
-            </p>
             <div className="sc-bar">
               <label>
                 关联素材

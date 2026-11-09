@@ -56,7 +56,7 @@ export function LiveDeskPage() {
   return (
     <div className="live-page">
       <div className="page-head">
-        <div><h1>我的直播</h1><p className="muted">报上播、报下播、提交审核，查看本周排场和本月提成。</p></div>
+        <div><h1>我的直播</h1></div>
         <div className="live-actions">
           <button type="button" className="secondary-button" onClick={load}>刷新</button>
           {(canStart||isAdmin) && <button type="button" className="primary-button live-clock-button" disabled={!canStart} title={!canStart?(d?.identity.isOperations?'请在本场上下播中选择中控或运营身份操作':'当前账号没有可用于本人上播的主播或中控身份'):undefined} onClick={() => setStarting({ schedule: null })}>开始直播</button>}

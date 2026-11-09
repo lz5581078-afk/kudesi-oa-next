@@ -72,7 +72,6 @@ export function ScriptArticleEditor({ v, change, onSelect, onMark }: {
       </nav>
       <div className="sc-outline-content" ref={content}>
         <div className="sc-article-head"><h3>按章节写话术</h3><small>{v.body.length} / 30000 字</small></div>
-        <p className="sc-writing-help">在每个章节标题下填写正文，按目录顺序组成全文。已有整篇稿件可在光标处拆分，或选中文字调整归属。</p>
         <p className="sc-editing-status" role="status">正在编辑：{v.outline[index].name}</p>
         {v.outline.map((s, i) => {
           const text = v.body.slice(starts[i], starts[i] + s.length);

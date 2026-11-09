@@ -31,7 +31,7 @@ export function HomePage() {
   const Tile = ({ page, hint }: { page: NavPage; hint: string }) => <Link to={page.path} className="ws-tile" onClick={() => remember(page)}><strong>{page.label}</strong><small>{hint}</small></Link>;
   return (
     <div className="ws-page">
-      <div className="page-head"><div><h1>功能首页</h1><p className="muted">按你的权限列出所有可用功能；搜一下名称，或点最近用过的直接进入。</p></div></div>
+      <div className="page-head"><div><h1>功能首页</h1></div></div>
       <div className="ws-search">
         <input type="search" aria-label="搜索功能" placeholder={`搜索 ${total} 个功能，如：成本表、草稿`} value={query} onChange={(e) => setQuery(e.target.value)} />
         {query && <button type="button" className="secondary-button" aria-label="清除搜索" onClick={() => setQuery('')}>清除</button>}
