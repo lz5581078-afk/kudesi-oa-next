@@ -65,16 +65,27 @@ db('公司产品图册', () => {
       accountId: archive.id, subId: warehouse.id, qty: 30, unit: '千克', amountCents: 0 });
 
     expect(await service.list(viewer, { category: group.id, keyword: '苹果' })).toMatchObject({
-      total: 1, items: [{ id: archive.id, name: '苹果马甲、苹果马甲二', category: '生鲜 / 水果', stock: 8, owners: [owner.name], photo: { name: photo.name } }],
+      total: 2, items: [
+        { id: archive.id, name: '苹果马甲', alias: '苹果马甲', stock: 8 },
+        { id: archive.id, name: '苹果马甲二', alias: '苹果马甲二', category: '生鲜 / 水果', stock: 8, owners: [owner.name], photo: { name: photo.name } },
+      ],
     });
     expect(signer).toHaveBeenCalledWith(ours.id, photo.id, 'finance-products');
     expect((await service.list(viewer, { category: 0 })).items).toEqual([]);
     const catalog = await service.list(viewer, { category: group.id });
-    expect(catalog.total).toBe(3);
+    expect(catalog.total).toBe(4);
     expect(catalog.items.map(row => row.id)).toEqual(expect.arrayContaining([archive.id, uncoded.id, uncodedAlias.id]));
-    expect(catalog.counts[leaf.id]).toBe(3);
+    expect(catalog.counts[leaf.id]).toBe(4);
     expect(catalog.categories.map(row => row.id)).toEqual([group.id, leaf.id]);
     for (const hidden of [unmapped, noAlias, sku]) await expect(service.detail(viewer, hidden.id)).rejects.toThrow('产品不存在');
+    const aliasCards = catalog.items.filter(item => item.id === archive.id);
+    expect(new Set(aliasCards.map(item => item.imagePosition)).size).toBe(2);
+    const filtered = await service.list(viewer, { keyword: '苹果马甲二' });
+    expect(filtered.total).toBe(1);
+    const chosen = await service.detail(viewer, archive.id, '苹果马甲二');
+    expect(chosen.name).toBe('苹果马甲二');
+    expect(chosen.imagePosition).toBe(filtered.items[0].imagePosition);
+    await expect(service.detail(viewer, archive.id, '不存在的马甲')).rejects.toThrow('产品不存在');
     const detail = await service.detail(viewer, archive.id);
     expect(detail).toMatchObject({ weightG: 1000, photos: [{ name: photo.name }] });
     expect(detail).not.toHaveProperty('priceCents');
@@ -90,5 +101,13 @@ db('公司产品图册', () => {
     await service.setAttributes(admin, archive.id, { priceRestricted: true, tags: [' 新品 ', '新品'] });
     expect(await service.detail(viewer, archive.id)).toMatchObject({ priceRestricted: true, tags: ['新品'] });
     await expect(service.setAttributes(admin, otherSku.id, { priceRestricted: true, tags: [] })).rejects.toThrow('产品不存在');
+    const manyNames = Array.from({length: 26}, (_, index) => `分页马甲${index}`);
+    await ds.manager.update(ResourceRecord, archive.id, {data: {...(await ds.manager.findOneByOrFail(ResourceRecord, {id: archive.id})).data, rawFinishedNames: manyNames.join('\n')}});
+    const first = await service.list(viewer, {keyword: '分页马甲'});
+    const second = await service.list(viewer, {keyword: '分页马甲', page: 2});
+    expect(first.total).toBe(26);
+    expect(first.items).toHaveLength(24);
+    expect(second.items).toHaveLength(2);
+    expect(new Set([...first.items, ...second.items].map(item => item.alias)).size).toBe(26);
   });
 });

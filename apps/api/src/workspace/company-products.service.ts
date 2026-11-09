@@ -16,7 +16,8 @@ const unitField = getResourceDef(PRODUCT)!.fields.find(f => f.key === 'specUnit'
 const str = (v: unknown) => typeof v === 'string' ? v : '';
 const aliases = (r: ResourceRecord) => [...new Set(str(r.data.rawFinishedNames).split(/\r?\n/).map(s => s.trim()).filter(Boolean))];
 const visible = (r: ResourceRecord) => r.data.archiveType !== 'raw' || aliases(r).length > 0;
-const nameOf = (r: ResourceRecord) => r.data.archiveType === 'raw' ? aliases(r).join('、') : str(r.data.name) || r.title;
+type CatalogEntry = { row: ResourceRecord; categoryId: number; name: string; alias: string | null; imagePosition: string };
+const imagePosition = (seed: number) => `${(seed * 37) % 101}% ${(seed * 61) % 101}%`;
 function pathOf(row: ResourceRecord, byId: Map<number, ResourceRecord>) {
   const names: string[] = [], seen = new Set<number>();
   for (let current: ResourceRecord | undefined = row; current && !seen.has(current.id); current = byId.get(Number(current.data.parentId))) {
@@ -68,7 +69,10 @@ export class CompanyProductsService {
       const linked = categoryLinks.get(Number(row.data.categoryId)) ?? links.get(row.id);
       const categoryId = matches.length === 1 ? matches[0].id : linked?.size === 1 ? [...linked][0] : 0;
       return { row, categoryId };
-    }).filter(entry => entry.categoryId !== 0);
+    }).filter(entry => entry.categoryId !== 0).flatMap(({row, categoryId}): CatalogEntry[] =>
+      row.data.archiveType === 'raw'
+        ? aliases(row).map((alias, index) => ({row, categoryId, name: alias, alias, imagePosition: imagePosition(row.id + index)}))
+        : [{row, categoryId, name: str(row.data.name) || row.title, alias: null, imagePosition: imagePosition(row.id)}]);
     return { categories, entries };
   }
 
@@ -84,16 +88,16 @@ export class CompanyProductsService {
       return false;
     };
     const keyword = (query.keyword ?? '').trim().toLocaleLowerCase();
-    const selected = entries.filter(({row,categoryId}) => (query.category === undefined || (query.category === 0 ? categoryId === 0 : descendant(categoryId)))
-      && (!keyword || [nameOf(row),row.data.name,row.title,row.data.code,row.data.specQty,row.data.specUnit].join(' ').toLocaleLowerCase().includes(keyword)));
+    const selected = entries.filter(({row,categoryId,name}) => (query.category === undefined || (query.category === 0 ? categoryId === 0 : descendant(categoryId)))
+      && (!keyword || [name,row.data.code,row.data.specQty,row.data.specUnit].join(' ').toLocaleLowerCase().includes(keyword)));
     const page=query.page ?? 1,pageSize=24;
     const rows=selected.slice((page-1)*pageSize,page*pageSize);
     return { items:(await this.summaries(user.companyId,rows,categories)).map(({photos,...item})=>({...item,photo:photos[0]??null})),
       total:selected.length,page,pageSize,categories,counts };
   }
 
-  async detail(user:AuthUser,id:number) {
-    const {categories,entries}=await this.catalog(user.companyId),entry=entries.find(e=>e.row.id===id);
+  async detail(user:AuthUser,id:number,alias?:string) {
+    const {categories,entries}=await this.catalog(user.companyId),entry=entries.find(e=>e.row.id===id && (alias === undefined || e.alias === alias));
     if(!entry)throw new NotFoundException('产品不存在');
     const [item]=await this.summaries(user.companyId,[entry],categories,true);
     return {...item,weightG:typeof entry.row.data.weightG==='number'?entry.row.data.weightG:null};
@@ -112,9 +116,9 @@ export class CompanyProductsService {
     return {priceRestricted:values.priceRestricted,tags};
   }
 
-  private async summaries(companyId:number,entries:Array<{row:ResourceRecord;categoryId:number}>,categories:Array<{id:number;path:string}>,allPhotos=false) {
+  private async summaries(companyId:number,entries:CatalogEntry[],categories:Array<{id:number;path:string}>,allPhotos=false) {
     if(!entries.length)return [];
-    const em=this.ds.manager,productIds=entries.map(e=>e.row.id);
+    const em=this.ds.manager,productIds=[...new Set(entries.map(e=>e.row.id))];
     const [units,stock,photos,bases,grants,members]=await Promise.all([
       loadUnitLists(em,companyId),
       em.query<Array<{productId:number;stockUnit:string;qty:string}>>(`SELECT e.account_id AS productId, ${INVENTORY_UNIT_SQL} AS stockUnit, SUM(e.qty) AS qty FROM finance_entries e WHERE e.company_id=? AND e.kind='inventory' AND e.account_id IN (?) AND e.qty IS NOT NULL GROUP BY e.account_id,stockUnit`,[companyId,productIds]),
@@ -122,7 +126,7 @@ export class CompanyProductsService {
       em.findBy(ResourceRecord,{companyId,type:'finance-base-codes',archivedAt:IsNull()}),activeGrants(em,companyId),familyMembers(em,companyId),
     ]);
     const byBase=new Map(bases.map(b=>[b.id,b]));
-    return Promise.all(entries.map(async({row,categoryId})=>{
+    return Promise.all(entries.map(async({row,categoryId,name,alias,imagePosition})=>{
       const stockByUnit=stock.filter(s=>Number(s.productId)===row.id);
       const baseIds=bases.filter(b=>Number(b.data.productId??byBase.get(Number(b.data.canonicalId))?.data.productId)===row.id).map(b=>b.id);
       const families=new Set(baseIds.map(id=>members.get(id)?.familyKey));
@@ -131,7 +135,7 @@ export class CompanyProductsService {
       const signed:Array<{url:string;name:string}>=[];
       for(const file of ordered){try{const {url,name}=await this.files.urlOf(companyId,file.id,PRODUCT);signed.push({url,name});if(!allPhotos)break;}catch{/* Missing files do not hide the archive. */}}
       const unit=unitLabelFor(units,unitField,row.data,row.data.specUnit)||str(row.data.purchaseSpec);
-      return {id:row.id,name:nameOf(row),code:str(row.data.code),category:categories.find(c=>c.id===categoryId)?.path??'未分类',
+      return {id:row.id,name,alias,imagePosition,code:str(row.data.code),category:categories.find(c=>c.id===categoryId)?.path??'未分类',
         specification:[row.data.specQty,unit].filter(v=>v!==undefined&&v!=='').join(' '),photos:signed,
         stock:stockByUnit.length===1?Number(stockByUnit[0].qty):null,stockUnit:stockByUnit.length===1?stockByUnit[0].stockUnit:unit,
         stockBalances:stockByUnit.map(s=>({unit:s.stockUnit,qty:Number(s.qty)})),

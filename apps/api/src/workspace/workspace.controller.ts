@@ -16,6 +16,9 @@ class ProductQuery {
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) category?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(1000000) page?: number;
 }
+class ProductDetailQuery {
+  @IsOptional() @IsString() @MaxLength(160) alias?: string;
+}
 class ProductAttributes {
   @IsBoolean() priceRestricted!: boolean;
   @IsArray() @ArrayMaxSize(8) @IsString({ each: true }) @MaxLength(24, { each: true }) tags!: string[];
@@ -52,7 +55,7 @@ export class WorkspaceController {
 
   @RequirePermission(COMPANY_PRODUCTS.permission)
   @Get('company-products/:id')
-  productDetail(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.products.detail(user, id); }
+  productDetail(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Query() query: ProductDetailQuery) { return this.products.detail(user, id, query.alias); }
 
   @RequirePermission(COMPANY_PRODUCTS.permission)
   @Patch('company-products/:id/attributes')
