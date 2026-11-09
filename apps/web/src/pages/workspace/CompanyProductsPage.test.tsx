@@ -19,13 +19,13 @@ it('同一档案的马甲独立卡片，详情及申请保留马甲且不提供�
   expect(cards).toHaveLength(2);
   expect(cards[0].getAttribute('href')).not.toBe(cards[1].getAttribute('href'));
   const pictures=screen.getAllByRole('img') as HTMLImageElement[];
-  expect(pictures[0].style.transformOrigin).not.toBe(pictures[1].style.transformOrigin);
+  expect(pictures.every(image => !image.style.transform && !image.style.transformOrigin)).toBe(true);
   fireEvent.click(cards[1]);
   await screen.findByRole('heading',{name:'马甲乙'});
   expect(api).toHaveBeenCalledWith(`/workspace/company-products/1?${new URLSearchParams({alias:'马甲乙'})}`);
   expect(screen.queryByRole('link',{name:'打开原图'})).toBeNull();
   expect(screen.getByRole('img').closest('a')).toBeNull();
-  expect(screen.getByRole('img').style.transformOrigin).toBe('80% 80%');
+  expect(screen.getByRole('img').style.transformOrigin).toBe('');
   fireEvent.click(screen.getByRole('button',{name:/申请 SKU/}));
   expect((await screen.findByRole('dialog')).textContent).toBe('马甲乙');
 });
