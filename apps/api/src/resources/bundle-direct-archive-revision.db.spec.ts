@@ -150,13 +150,13 @@ db('直接档案 BOM 沿统一修订与验证发布（隔离 MySQL）',()=>{
  });
  it('真实来源单位只读元数据不泄价格；未生效与未确认零价人工不能进入修订',async()=>{
   const f=await fixture(),tools=new BundleToolsService(ds,resources,{} as OutboxService),base=await ds.manager.findOneByOrFail(ResourceRecord,{id:f.base.id}),product=await ds.manager.findOneByOrFail(ResourceRecord,{id:Number(base.data.productId)});
-  await ds.manager.update(ResourceRecord,{id:product.id},{data:{...product.data,purchaseSpec:'一袋'}});
+  await ds.manager.update(ResourceRecord,{id:product.id},{data:{...product.data,purchaseSpec:'箱'}});
   const material=await ds.manager.findOneByOrFail(ResourceRecord,{id:f.first.id});
-  await ds.manager.update(ResourceRecord,{id:material.id},{data:{...material.data,purchaseSpec:'500克/袋'}});
+  await ds.manager.update(ResourceRecord,{id:material.id},{data:{...material.data,purchaseSpec:'斤'}});
   const labels=await tools.composition(f.user,f.bundle.id);
-  expect(labels.baseUnits[f.base.id]).toMatchObject({unit:'KG',label:'一袋'});
-  expect(labels.facts[`base:${f.base.id}`].unit).toBe('一袋');
-  expect(labels.facts[`archive:${f.first.id}`].unit).toBe('500克/袋');
+  expect(labels.baseUnits[f.base.id]).toMatchObject({unit:'KG',label:'箱'});
+  expect(labels.facts[`base:${f.base.id}`].unit).toBe('箱');
+  expect(labels.facts[`archive:${f.first.id}`].unit).toBe('斤');
   expect(labels.lines).toEqual(expect.arrayContaining([expect.objectContaining({productId:f.first.id,unit:'KG'})]));
   await ds.manager.save(ResourceRecord,material);
   const data={...product.data};delete data.specUnit;await ds.manager.update(ResourceRecord,{id:product.id},{data:{...data,purchaseSpec:'张'}});
