@@ -6,6 +6,7 @@ import { Company, Department, FlowDefinition, Position, PositionPermission, Reso
 import { buildServices } from '../test-support';
 import { LegacyArchive } from './protocol';
 import { runSkuRepair } from './sku-repair';
+import { CostService } from '../resources/cost.service';
 import { configureSkuWorkflow } from './sku-workflow';
 
 const d=process.env.RESOURCE_DB_TEST==='1'?describe:describe.skip;
@@ -13,6 +14,42 @@ d('SKU专项修复：回滚、并发及人工修改保护',()=>{
   let ds:DataSource,s:ReturnType<typeof buildServices>['resources'];
   beforeAll(async()=>{ds=await new DataSource({...buildDataSourceOptions({...process.env,DB_NAME:process.env.TEST_DB_NAME??'kudesi_oa_test'}),migrationsRun:true}).initialize();s=buildServices(ds).resources;});
   afterAll(async()=>{await ds?.destroy();});
+  it('OEM漏项修复空跑回滚，正式恢复原料价后商品和基础编码一起重算且不重复包材',async()=>{
+    const token=randomBytes(5).toString('hex'),c=await ds.manager.save(Company,ds.manager.create(Company,{code:'oem'+token,name:'OEM修复测试',status:'active'}));
+    const u=await ds.manager.save(User,ds.manager.create(User,{companyId:c.id,account:'oem'+token,name:'管理员',passwordHash:'x',status:'active',isCompanyAdmin:true,mustChangePassword:false}));
+    const actor={id:u.id,companyId:c.id,name:u.name,permissions:{isCompanyAdmin:true,allow:[],deny:[]}};
+    const brandId=(await s.create(actor,'finance-brands',{name:'测试品牌'})).id;
+    const packCat=(await s.create(actor,'finance-categories',{archiveType:'oem_package',name:'包装',code:'PK'})).id;
+    const oemCat=(await s.create(actor,'finance-categories',{archiveType:'supplier_oem',name:'OEM',code:'OP'})).id;
+    const pack=await s.create(actor,'finance-products',{archiveType:'oem_package',categoryId:packCat,brandId,name:'测试袋',packagingCategory:'bag',capacities:'100G',specQty:100,specUnit:'G',purchaseSpec:'个',weightG:14,purchasePrice:33.5,freight:0,handlingFee:0,zeroValueReason:'运费：厂家包邮\n装卸费：厂家承担'});
+    const p=await s.create(actor,'finance-products',{archiveType:'purchased',supplyMode:'supplier_oem',categoryId:oemCat,brandId,name:'测试402',specQty:100,specUnit:'G',purchaseSpec:'袋',purchasePrice:160,freight:6.5,handlingFee:0.4});
+    await s.create(actor,'finance-product-boms',{productId:p.id,componentId:pack.id,qty:1});
+    await ds.query("INSERT INTO legacy_import_links(source_system,source_company_id,company_id,source_key,target_type,target_id,source_hash) VALUES('legacy-oa',3,?,'finance-products:old-oem','finance-products',?,?)",[c.id,p.id,'0'.repeat(64)]);
+    await ds.query("UPDATE resource_records SET data=JSON_SET(JSON_REMOVE(data,'$.purchasePrice'),'$.totalCost',40.4,'$.migrationNotice','OEM成本记录来源为生产BOM，汇总时不作为额外采购价重复加入') WHERE company_id=? AND id=?",[c.id,p.id]);
+    const originalBases=await s.findWhere(ds.manager,c.id,'finance-base-codes','productId',p.id);
+    await ds.query("UPDATE resource_records SET data=JSON_SET(data,'$.cost',40.4) WHERE company_id=? AND id=?",[c.id,originalBases[0].id]);
+    const bundle=await ds.manager.save(ResourceRecord,ds.manager.create(ResourceRecord,{companyId:c.id,type:'finance-bundles',title:'测试组合',status:'reverify',data:{code:'ZH-OEM-TEST'}}));
+    await ds.manager.save(ResourceRecord,ds.manager.create(ResourceRecord,{companyId:c.id,type:'finance-bundle-lines',title:'测试构成',status:'active',data:{bundleId:bundle.id,baseCodeId:originalBases[0].id,role:'main',qty:2}}));
+    const costs=new CostService(ds);expect((await costs.one(actor,bundle.id)).preShipCostCents).toBe(80.8);
+    const source:LegacyArchive={company:{id:3,name:c.name},departments:[],positions:[],employees:[],employeePositions:[],positionPermissions:[],records:[{id:'old-oem',type:'finance-products',data:{supplyMode:'supplier_oem',purchasePrice:160}}],exclusions:[],loadFile:async()=>{throw Error('no files');}};
+    const opts={companyId:c.id,actorId:u.id,expectedName:c.name,apply:false};
+    const dry=await runSkuRepair(ds,s,source,opts);
+    expect(dry.patches).toEqual([expect.objectContaining({id:p.id,values:{purchasePrice:160}})]);
+    expect((await ds.manager.findOneByOrFail(ResourceRecord,{id:p.id})).data.totalCost).toBe(40.4);
+    await runSkuRepair(ds,s,source,{...opts,apply:true,expectedPlan:dry});
+    expect((await ds.manager.findOneByOrFail(ResourceRecord,{id:p.id})).data).toMatchObject({purchasePrice:160,totalCost:200.4});
+    const bases=await s.findWhere(ds.manager,c.id,'finance-base-codes','productId',p.id);
+    expect(bases[0].data.cost).toBe(200.4);
+    expect(bases[0].data.code).toBe(originalBases[0].data.code);
+    expect((await costs.one(actor,bundle.id)).preShipCostCents).toBe(400.8);
+    const [last]=await ds.query('SELECT pre_ship_cost_cents AS cost FROM finance_cost_snapshots WHERE company_id=? AND bundle_id=? ORDER BY id DESC LIMIT 1',[c.id,bundle.id]);expect(Number(last.cost)).toBe(400.8);
+    const [outbox]=await ds.query('SELECT COUNT(*) AS n FROM outbox_jobs WHERE company_id=?',[c.id]);expect(Number(outbox.n)).toBe(0);
+    expect((await runSkuRepair(ds,s,source,opts)).patches).toHaveLength(0);
+    source.records[0].data.purchasePrice=230;
+    expect((await runSkuRepair(ds,s,source,opts)).conflicts).toEqual([expect.objectContaining({field:'purchasePrice'})]);
+    delete source.records[0].data.purchasePrice;
+    expect((await runSkuRepair(ds,s,source,opts)).conflicts[0].reason).toContain('禁止清空');
+  });
   it('空跑确实回滚；报告过期拒绝；正式执行保留人工改过的字段',async()=>{
     const token=randomBytes(5).toString('hex'),c=await ds.manager.save(Company,ds.manager.create(Company,{code:'repair'+token,name:'修复测试',status:'active'}));
     const u=await ds.manager.save(User,ds.manager.create(User,{companyId:c.id,account:'repair'+token,name:'管理员',passwordHash:'x',status:'active',isCompanyAdmin:true,mustChangePassword:false}));

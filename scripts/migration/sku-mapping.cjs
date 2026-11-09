@@ -62,9 +62,23 @@ exports.namingRules = (tables, categoryKey, categoryFamilies, preserveSourceScop
   else for(const r of rules)if(!used.has(String(r.category_id)))exclusions.push({type:'finance-bundle-naming-rules',id:String(r.category_id),reason:'没有显式的档案分类→基础编码分类关联，未猜测适用范围'});
   return{records,exclusions};
 };
-/** An automatic BOM result must not be counted again as extra purchase input. */
+/** OEM purchasePrice in the target is the seed-only input. Old purchasePrice
+ * and production_bom are totals with different scopes, never interchangeable. */
+exports.oemRawPurchase = payload => {
+  const { yuanToPreciseCents, sumUnitCents } = require('@kudesi/shared');
+  const raw = payload.rawMaterialPurchasePrice;
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  const cents = yuanToPreciseCents(raw);
+  if (cents < 0) throw Error('旧OEM原料采购价不能为负数');
+  if (payload.packagingCost != null && payload.purchasePrice != null) {
+    const packaging = yuanToPreciseCents(payload.packagingCost);
+    if (packaging < 0 || sumUnitCents([cents, packaging]) !== yuanToPreciseCents(payload.purchasePrice))
+      throw Error('旧OEM原料价、包材价与总采购价不一致，禁止猜测');
+  }
+  return raw;
+};
 exports.purchaseInput=(row,payload,costs)=>{
+  if(row.archive_key==='purchased'&&row.supply_mode==='supplier_oem')return exports.oemRawPurchase(payload);
   const c=costs.find(x=>x.cost_type==='purchase');
-  if(row.archive_key==='purchased'&&row.supply_mode==='supplier_oem'&&c?.source_type==='production_bom')return undefined;
   return c?c.unit_cost:payload.purchasePrice;
 };

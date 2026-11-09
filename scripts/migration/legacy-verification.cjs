@@ -51,9 +51,13 @@ function baseCostBasis(tables, base, day) {
     if (composed && Number(cost.manual_override) === 1) throw Error('旧成品成本已人工锁定，需保留锁定口径');
     const bom = composed && (tables.finance_product_archive_boms || []).filter(b => String(b.owner_product_id) === String(productId) && b.status === 'active').sort((a,b) => Number(b.id)-Number(a.id))[0];
     const children = [], labor = [];
-    const includePurchase = !composed || product.archive_key === 'purchased' && cost.source_type !== 'production_bom';
-    const node = { productId: String(productId), recordId: String(cost.id), unitCost: String(cost.unit_cost), freight: String(payload.freightAmount), handling: String(payload.handlingAmount), includePurchase, children, labor };
-    let amount = millionths(payload.freightAmount) + millionths(payload.handlingAmount) + (includePurchase ? millionths(cost.unit_cost) : 0n);
+    const isOem = product.archive_key === 'purchased' && product.supply_mode === 'supplier_oem';
+    const rawPurchase = isOem ? require('./sku-mapping.cjs').oemRawPurchase(payload) : undefined;
+    if (isOem && rawPurchase === undefined) return null;
+    const includePurchase = !composed || isOem;
+    const purchaseInput = isOem ? rawPurchase : cost.unit_cost;
+    const node = { productId: String(productId), recordId: String(cost.id), unitCost: String(cost.unit_cost), freight: String(payload.freightAmount), handling: String(payload.handlingAmount), includePurchase, ...(isOem ? { rawMaterialPurchasePrice: String(rawPurchase), purchaseBasis: 'explicit-oem-raw-input' } : {}), children, labor };
+    let amount = millionths(payload.freightAmount) + millionths(payload.handlingAmount) + (includePurchase ? millionths(purchaseInput) : 0n);
     if (composed && !bom && !includePurchase) return null;
     for (const line of bom ? (tables.finance_product_archive_bom_lines || []).filter(l => String(l.bom_id) === String(bom.id)) : []) {
       if (line.cost_treatment && line.cost_treatment !== 'include') throw Error('旧组成存在非计入成本行，须明确兼容');

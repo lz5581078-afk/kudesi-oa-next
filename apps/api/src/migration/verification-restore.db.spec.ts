@@ -63,6 +63,17 @@ suite('迁入验证原决定与转换后值的核对（MySQL）', () => {
     expect(hidden.migrationCostNote).toBeUndefined(); expect(hidden._legacyCostChange).toBeUndefined();
     expect(JSON.stringify(hidden)).not.toMatch(/fromCents|toCents|1250|1150/);
   });
+  it('旧OEM证明不能再排除原料采购价，也不能伪造原料金额', async () => {
+    const f=await fixture();
+    const node:any={recordId:'1',productId:'50',unitCost:'10.0000',freight:'1',handling:'0.5',quantity:'1',includePurchase:false};
+    Object.assign(f.row,{costBasis:{policy:'source-purchase-records-with-composition-recalculation',costCents:1150,components:[node]}});
+    f.source.sourceRows!.push({table:'finance_product_archive_costs',key:'1',row:{id:1,company_id:3,product_id:'50',unit_cost:'10.0000',source_type:'production_bom'}},{table:'finance_products',key:'50',row:{id:'50',company_id:3,archive_key:'purchased',supply_mode:'supplier_oem',payload_json:{freightAmount:1,handlingAmount:0.5,rawMaterialPurchasePrice:10}}});
+    expect((await restore(f))[0].reason).toContain('禁止仅按包材');
+    Object.assign(node,{includePurchase:true,purchaseBasis:'explicit-oem-raw-input',rawMaterialPurchasePrice:'11'});
+    expect((await restore(f))[0].reason).toContain('原料采购价');
+    node.rawMaterialPurchasePrice='10';
+    expect(await restore(f)).toEqual([]);
+  });
   it('旧审批需复核时不伪造通过，上传重量不一致也会阻止沿用', async () => {
     const f = await fixture(); f.row.report.status = 'reverify';
     expect((await restore(f))[0].reason).toContain('原差异基线');
