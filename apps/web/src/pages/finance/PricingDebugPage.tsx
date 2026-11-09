@@ -270,7 +270,6 @@ function PricingDebugContent() {
 
   return (
     <div className="pricing-debug-page pricing-reference">
-      <header className="pricing-reference-title"><h1>定价调试表</h1><p>从当前SKU成本表选择组合商品；按公司低价调节预留利润，试算不修改正式售价或成本。</p></header>
       <div className="pricing-debug-layout">
         <section className="card pricing-debug-panel">
           <header className="between"><h2>挑选商品</h2><small className="muted">{loading ? '正在筛选…' : `筛选结果 ${data.total} 项`}</small></header>
