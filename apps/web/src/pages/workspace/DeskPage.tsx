@@ -51,6 +51,7 @@ export function DeskPage() {
     subtitle: [current.departmentPath, def.focus].filter(Boolean).join(' · '),
     links: deskLinks(def, isAdmin ? 'boss' : current.level, can, isAdmin),
     skuApplication: (current.assigned || isAdmin) && (operating || type === 'live_control') && can('flow.apply.view'),
+    companyProducts: operating,
     operations: operating && profile !== 'operations_manager',
     linksHint: def.focus,
     cards: desk.cards,

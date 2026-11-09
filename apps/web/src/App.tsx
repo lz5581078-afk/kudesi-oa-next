@@ -64,6 +64,7 @@ import { TimeoutsPage } from './pages/flow/TimeoutsPage';
 import { MyTodosPage } from './pages/flow/TodosPage';
 import { HomePage } from './pages/workspace/HomePage';
 import { BossPage } from './pages/workspace/BossPage';
+import { CompanyProductsPage } from './pages/workspace/CompanyProductsPage';
 import { DeskPage } from './pages/workspace/DeskPage';
 import { PersonalPage } from './pages/workspace/PersonalPage';
 import { LiveDeskPage } from './pages/live/LiveDeskPage';
@@ -74,6 +75,7 @@ import { LiveManagePage } from './pages/live/LiveManagePage';
  * 新做一个页面 = 在这里登记组件 + 把注册表里该页面的 ready 改成 true。
  */
 const PAGE_COMPONENTS: Record<string, ComponentType> = {
+  'features.company-products': CompanyProductsPage,
   'features.live-desk': LiveDeskPage,
   'features.live': LiveManagePage,
   'workbench.home': HomePage,

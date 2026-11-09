@@ -15,6 +15,11 @@ export const DESKTOP_AFTER_SALES_ROUTES = {
   shared: '/after-sales/shared/:id',
 } as const;
 
+export const COMPANY_PRODUCTS = {
+  path: '/features/company-products',
+  permission: 'workbench.desk.view',
+} as const;
+
 export const OPENING_PREPAYMENT_PERMISSION = 'finance.docs.opening-prepayment';
 /** 转款单“确认入账”：在途转款对方确认到账后，记入转入账户（单独授权并写审计） */
 export const CONFIRM_TRANSFER_PERMISSION = 'finance.docs.confirm-transfer';
@@ -269,6 +274,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
       { ...page('features', 'live-desk', '我的直播', true), group: '直播管理' },
       // 直播管理：全览图、排场、场次记录、待审核、提成记录、主播工资、提成结算、提成规则（页面内标签，按下面的权限显示）
       { ...page('features', 'live', '直播管理', true), group: '直播管理' },
+      { ...page('features', 'company-products', '公司产品', true), ...COMPANY_PRODUCTS, group: '运营工具' },
     ],
   },
   {

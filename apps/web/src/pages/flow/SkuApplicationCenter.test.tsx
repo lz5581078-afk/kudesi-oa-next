@@ -50,3 +50,14 @@ it('隐藏退役历史版本，新建优先使用当前已发布版本',async()=
  expect((within(dialog).getByLabelText('流程模板') as HTMLSelectElement).value).toBe('6');
  expect(within(dialog).queryByRole('option',{name:/历史版本/})).toBeNull();
 });
+
+it('从公司产品直接打开查询并填入名称，等待用户点击搜索', async () => {
+  const close = vi.fn();
+  render(<MemoryRouter><SkuApplicationCenter initialQuery="合成苹果礼盒" onClose={close} /></MemoryRouter>);
+  const dialog = await screen.findByRole('dialog', { name: '新建SKU申请' });
+  const search = within(dialog).getByLabelText<HTMLInputElement>('SKU查重搜索');
+  expect(search.value).toBe('合成苹果礼盒');
+  expect(mocks.references).not.toHaveBeenCalled();
+  fireEvent.click(within(dialog).getByRole('button', { name: '关闭新建申请' }));
+  expect(close).toHaveBeenCalledOnce();
+});

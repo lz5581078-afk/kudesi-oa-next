@@ -2,18 +2,27 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { navPageByKey } from '@kudesi/shared';
 import { useAuth } from '../../auth/AuthContext';
-import { ArrowUpRight, Store } from 'lucide-react';
+import { ArrowUpRight, Package, Store } from 'lucide-react';
 import { FinanceModal } from '../finance/FinanceModal';
 import { workspaceApi, type MyStore } from './workspaceApi';
 import './myStores.css';
+
+export function CompanyProductsLink() {
+  const { can } = useAuth();
+  const products = navPageByKey('features.company-products');
+  return products && can(products.permission)
+    ? <Link to={products.path}><Package size={17} /> {products.label}<ArrowUpRight size={15} /></Link>
+    : null;
+}
 
 export function MyStores() {
   const { can } = useAuth();
   const pricing = navPageByKey('finance.pricing-debug');
   const [open, setOpen] = useState(false);
-  return <section className="card ws-section" aria-label="功能">
-    <div className="ws-head"><h2>功能</h2></div>
+  return <section className="card ws-section" aria-label="功能导航">
+    <div className="ws-head"><h2>功能导航</h2></div>
     <div className="desk-action-list"><button type="button" onClick={() => setOpen(true)}><Store size={17} /> 我的店铺<ArrowUpRight size={15} /></button>
+      <CompanyProductsLink />
       {pricing && can(pricing.permission) && <Link to={pricing.path}>{pricing.label}<ArrowUpRight size={15} /></Link>}
     </div>
     {open && <MyStoresDialog onClose={() => setOpen(false)} />}

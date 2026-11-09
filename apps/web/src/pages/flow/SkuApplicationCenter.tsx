@@ -11,18 +11,19 @@ import {flowApi,type ApplicationDraftTemplate} from './flowApi';
 import './skuApplicationCenter.css';
 
 /** 商品组合编码的申请入口，先显示自己的真实申请，再显式发起。 */
-export function SkuApplicationCenter({onClose}:{onClose:()=>void}){
+export function SkuApplicationCenter({onClose,initialQuery}:{onClose:()=>void;initialQuery?:string}){
  const {user}=useAuth();
  const identity=JSON.stringify([user?.companyId,user?.id,user?.permissions.isCompanyAdmin,[...(user?.permissions.allow??[])].sort(),[...(user?.permissions.deny??[])].sort()]);
- return <SkuApplicationWorkspace key={identity} onClose={onClose}/>;
+ return <SkuApplicationWorkspace key={identity} onClose={onClose} initialQuery={initialQuery}/>;
 }
-function SkuApplicationWorkspace({onClose}:{onClose:()=>void}){
+function SkuApplicationWorkspace({onClose,initialQuery}:{onClose:()=>void;initialQuery?:string}){
  const {can}=useAuth();
  const host=useRef<HTMLElement>(null);
- const [templates,setTemplates]=useState<ApplicationDraftTemplate[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState(''),[creating,setCreating]=useState(false),[revision,setRevision]=useState(0),[batch,setBatch]=useState<string|null>(null);
+ const [templates,setTemplates]=useState<ApplicationDraftTemplate[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState(''),[creating,setCreating]=useState(!!initialQuery),[revision,setRevision]=useState(0),[batch,setBatch]=useState<string|null>(null);
  useEffect(()=>{let alive=true;flowApi.applicationDraftTemplates(SKU_TEMPLATE).then(out=>{if(alive){setTemplates(out.templates.filter(template=>template.status==='active'||template.status==='draft'));setError('');}}).catch(e=>{if(alive)setError(e instanceof ApiError?e.message:'申请模板加载失败');}).finally(()=>{if(alive)setLoading(false);});return()=>{alive=false;};},[revision]);
- useEffect(()=>{const close=(event:KeyboardEvent)=>{if(event.key==='Escape'&&!event.defaultPrevented&&!creating&&!batch&&!host.current?.querySelector('[role="dialog"]')){event.preventDefault();onClose();}};window.addEventListener('keydown',close);return()=>window.removeEventListener('keydown',close);},[creating,batch,onClose]);
- if(creating)return <SkuDraftCreateDialog templates={templates} onClose={()=>setCreating(false)} onHistory={()=>{setCreating(false);setLoading(true);setRevision(value=>value+1);}} onCreated={ref=>{setCreating(false);setRevision(value=>value+1);setBatch(ref);}}/>;
+ const showCreate = creating && templates.length > 0;
+ useEffect(()=>{const close=(event:KeyboardEvent)=>{if(event.key==='Escape'&&!event.defaultPrevented&&!showCreate&&!batch&&!host.current?.querySelector('[role="dialog"]')){event.preventDefault();onClose();}};window.addEventListener('keydown',close);return()=>window.removeEventListener('keydown',close);},[showCreate,batch,onClose]);
+ if(showCreate)return <SkuDraftCreateDialog templates={templates} initialQuery={initialQuery} onClose={initialQuery ? onClose : ()=>setCreating(false)} onHistory={()=>{setCreating(false);setLoading(true);setRevision(value=>value+1);}} onCreated={ref=>{setCreating(false);setRevision(value=>value+1);setBatch(ref);}}/>;
  if(batch)return <SkuBatchPanel sourceLayout key={batch} batchKey={batch} onClose={onClose} onBack={()=>{setBatch(null);setRevision(value=>value+1);}} onChanged={()=>setRevision(value=>value+1)}/>;
  return <div className="modal-backdrop sku-application-backdrop" role="presentation"><section ref={host} className="modal card sku-application-center" role="dialog" aria-modal="true" aria-label="SKU批量申请">
   <header className="modal-head between"><h2>SKU批量申请</h2><button type="button" className="icon-button" aria-label="关闭SKU批量申请" autoFocus onClick={onClose}><X size={19}/></button></header>

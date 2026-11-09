@@ -53,7 +53,8 @@ describe('导航分组与搜索', () => {
     expect(primary.map((s) => s.id)).toEqual(['workbench', 'flow', 'finance', 'resource', 'features']);
     expect(more.map((s) => s.id)).toEqual(['after-sales', 'supervision', 'system']);
     const few = splitMobileSections(visibleSections((p) => p.startsWith('workbench.') || p.startsWith('system.')));
-    expect(few.primary.map((s) => s.id)).toEqual(['workbench']);
+    expect(few.primary.map((s) => s.id)).toEqual(['workbench', 'features']);
+    expect(few.primary.find(s => s.id === 'features')?.pages.map(p => p.id)).toEqual(['company-products']);
     expect(few.more.map((s) => s.id)).toEqual(['system']);
   });
 });
@@ -102,7 +103,7 @@ describe('岗位工作台直达导航', () => {
   });
   it('目录可读不增加页面权限；空目录移除汇总入口，失败保留恢复入口', () => {
     expect(withDeskNavigation(visibleSections((p) => p === 'workbench.personal.view'), positions)[0].pages.map((p) => p.id)).toEqual(['personal']);
-    expect(withDeskNavigation(visibleSections((p) => p === 'workbench.desk.view'), [])).toEqual([]);
+    expect(withDeskNavigation(visibleSections((p) => p === 'workbench.desk.view'), []).map(s => s.id)).toEqual(['features']);
     const sections = visibleSections(() => true);
     expect(withDeskNavigation(sections, null)).toBe(sections);
     expect(withDeskNavigation(sections, [{ ...positions[0], departmentPath: '' }]).find((s) => s.id === 'workbench')!.pages.at(-1)!.group).toBe('未分配部门');
