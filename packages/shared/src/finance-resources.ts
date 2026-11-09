@@ -22,6 +22,19 @@ const ARCHIVE_STOPPED:StatusDef={...STOPPED,reasonMinLength:1};
 const EXPRESS_NORMAL: StatusDef = { value: 'normal', label: '正常', tone: 'ok' };
 const EXPRESS_STOPPED: StatusDef = { value: 'inactive', label: '停用', tone: 'muted' };
 
+export const DEFAULT_SALES_SCENARIOS = [
+  ['standard', '公司自销', ''],
+  ['supply_chain', '供应链产品', 'GYL'],
+] as const;
+
+/** Normalize the abbreviated labels used by earlier seeds and imports. */
+export function salesScenarioName(code: string, name: string): string {
+  const key = code.toLowerCase();
+  if (key === 'standard' && name === '标准') return DEFAULT_SALES_SCENARIOS[0][1];
+  if (key === 'supply_chain' && name === '供应链') return DEFAULT_SALES_SCENARIOS[1][1];
+  return name;
+}
+
 export const UNIT_OPTIONS = o('G:克', 'KG:千克', 'J:斤', 'T:吨', 'ML:毫升', 'LTR:升', 'L:粒', 'K:棵', 'B:包', 'D:袋', 'BOX:盒', 'CTN:箱', 'BTL:瓶', 'CAN:罐', 'PCS:件', 'EA:个', 'SHEET:张', 'M:米', 'CM:厘米', 'MM:毫米');
 
 export const PACKAGING_CATEGORY_OPTIONS = o('bag:袋', 'bottle:瓶', 'box:盒', 'carton:箱', 'can:罐', 'label:标签', 'other:其他');

@@ -2,7 +2,7 @@
  * 开通一家新公司：默认部门、示例岗位（含权限）、默认销售平台/场景、公司管理员。
  * 种子脚本（第一家公司）和平台后台“通过申请”共用这一份，保证两条路径开出来的公司一样。
  */
-import { FINANCE_RESOURCE_DEFS } from '@kudesi/shared';
+import { DEFAULT_SALES_SCENARIOS, FINANCE_RESOURCE_DEFS } from '@kudesi/shared';
 import { EntityManager } from 'typeorm';
 import { ensureDefaultLiveRules } from '../live/live-core';
 import { Company, Department, Position, PositionPermission, ResourceRecord, User, WorkspaceType } from '../entities';
@@ -91,7 +91,6 @@ export const DEFAULT_POSITIONS: Array<{ name: string; workspaceType: WorkspaceTy
 ];
 
 export const DEFAULT_PLATFORMS = [['TB', '淘宝'], ['DY', '抖音'], ['KS', '快手'], ['PDD', '拼多多'], ['GENERAL', '通用']];
-export const DEFAULT_SCENARIOS = [['standard', '标准', ''], ['supply_chain', '供应链', 'GYL']];
 
 export interface ProvisionInput {
   code: string;
@@ -133,7 +132,7 @@ export async function provisionCompany(manager: EntityManager, input: ProvisionI
   const rec = (type: string, title: string, code: string, data: Record<string, unknown>) =>
     manager.save(manager.create(ResourceRecord, { companyId: company.id, type, title, uniqueKey: code.toLowerCase(), status: 'active', statusReason: null, searchText: `${title} ${code}`.toLowerCase(), data }));
   for (const [pcode, name] of DEFAULT_PLATFORMS) await rec('finance-platforms', name, pcode, { code: pcode, name });
-  for (const [scode, name, segment] of DEFAULT_SCENARIOS) await rec('finance-scenarios', name, scode, { code: scode, name, segment });
+  for (const [scode, name, segment] of DEFAULT_SALES_SCENARIOS) await rec('finance-scenarios', name, scode, { code: scode, name, segment });
   await ensureDefaultLiveRules(manager, company.id);
   return company;
 }
