@@ -59,6 +59,12 @@ export class UnconfiguredSender implements OutboxSender {
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
+/** Compare child codes and quantities independently of JSON key and row order. */
+function bundleCompositionKey(value: unknown): string {
+  const children = (value ?? []) as Array<{ src_sku_id: string; qty: number }>;
+  return JSON.stringify(children.map(child => [child.src_sku_id, Number(child.qty)]).sort());
+}
+
 /**
  * 出站队列（外部写入的唯一出口）：
  *  - 业务只“加入队列”，不直接调外部接口；
@@ -555,8 +561,9 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
       if (Math.round(Number(got.compose_sale_price) * 100) !== Number(p.priceCents)) throw new Error('回读的基本售价和写入的不一致，结果未知，请到聚水潭确认');
       return;
     }
-    const norm = (v: unknown) => JSON.stringify(((v as { src_sku_id: string; qty: number }[]) ?? []).map((c) => [c.src_sku_id, Number(c.qty)]).sort());
-    if (norm(got.childList) !== norm(p.childList)) throw new Error('回读的子商品和上传的不一致，请到聚水潭确认');
+    if (bundleCompositionKey(got.childList) !== bundleCompositionKey(p.childList)) {
+      throw new Error('回读的子商品和上传的不一致，请到聚水潭确认');
+    }
   }
 
   /** 分类写入后回读：聚水潭上的分类要和写入的一致；刚停用的分类聚水潭可能不再返回，算正常 */
@@ -675,7 +682,9 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
             }
           }else{
             const latest=await this.payloadFor('finance-bundles',current,em);
-            if(JSON.stringify(latest.childList)!==JSON.stringify(job.payloadJson.childList))throw new Error('组合装组成已变化，请重新核对后上传');
+            if (!Array.isArray(job.payloadJson.childList) || bundleCompositionKey(latest.childList) !== bundleCompositionKey(job.payloadJson.childList)) {
+              throw new Error('组合装组成已变化，请重新核对后上传');
+            }
             if(current.data.bundleCategoryId)await categories.requireForSku(companyId,'bundle',current.data.bundleCategoryId,sender);
             await this.verifyBundleChildren(companyId,job.payloadJson,sender);
           }

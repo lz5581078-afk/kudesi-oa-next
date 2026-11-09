@@ -4,11 +4,12 @@ import * as crypto from 'crypto';
 import { DataSource } from 'typeorm';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
-import { Company, User } from '../entities';
+import { Company, OutboxJob, User } from '../entities';
 import { buildServices } from '../test-support';
 import { ResourcesService } from '../resources/resources.service';
 import { BundleToolsService } from '../resources/bundle-tools.service';
 import { OutboxService } from './outbox.service';
+import { CategorySyncService } from './category-sync.service';
 import { FakeJstSender } from './fake-jst-sender';
 
 const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
@@ -59,7 +60,32 @@ d('组合装出站（真实数据库 + 假发送器）', () => {
     await outbox.enqueue(boss, 'finance-base-codes', [ids.bc]);
     expect((await outbox.processCompany(boss.companyId)).sent).toBe(1);
     expect((await outbox.enqueue(boss, 'finance-bundles', [ids.bundle])).queued).toBe(1);
-    expect((await outbox.processCompany(boss.companyId)).sent).toBe(1);
+    const queued = await ds.manager.findOneByOrFail(OutboxJob, {
+      companyId: boss.companyId, resourceId: ids.bundle, kind: 'bundle_upsert', status: 'pending',
+    });
+    // MySQL 的 JSON 读回后字段顺序和构建时可能不同。
+    expect(Object.keys((queued.payloadJson.childList as Record<string, unknown>[])[0])).toEqual(['qty', 'src_sku_id']);
+    const sender = Object.assign(fake, { categoryTarget: { key: 'test', name: '测试', coid: 'test' } });
+    const categories = jest.spyOn(CategorySyncService.prototype, 'requireForSku').mockResolvedValue(undefined);
+    try {
+      await ds.manager.update(OutboxJob, queued.id, {
+        payloadJson: { ...queued.payloadJson, childList: [{ qty: 3, src_sku_id: 'APPLE-A' }] } as never,
+        attempts: 4,
+      });
+      const sentBefore = fake.sent.length;
+      expect((await outbox.processCompany(boss.companyId)).failed).toBe(1);
+      expect(fake.sent).toHaveLength(sentBefore);
+      expect(await ds.manager.findOneByOrFail(OutboxJob, { id: queued.id })).toMatchObject({
+        status: 'failed', lastError: '组合装组成已变化，请重新核对后上传',
+      });
+
+      await ds.manager.update(OutboxJob, queued.id, { payloadJson: queued.payloadJson as never });
+      await outbox.retry(boss, queued.id);
+      expect((await outbox.processCompany(boss.companyId)).sent).toBe(1);
+    } finally {
+      categories.mockRestore();
+      Reflect.deleteProperty(sender, 'categoryTarget');
+    }
     const job = fake.sent[fake.sent.length - 1];
     expect(job.payload).toMatchObject({ childList: [{ src_sku_id: 'APPLE-A', qty: 2 }] });
     expect(String(job.payload.i_id)).not.toBe('');
