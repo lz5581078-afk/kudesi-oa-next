@@ -52,10 +52,20 @@ const ORG_ACTIONS: CatalogGroup = {
 
 export function permissionCatalog(): CatalogGroup[] {
   const groups: CatalogGroup[] = [];
+  const pagePermissions = new Map<string, CatalogItem>();
   for (const section of NAV_SECTIONS) {
     if (section.id === 'resource') continue; // 资料按类型单独列
     if (section.id === 'finance') continue; // 财务单独列
-    const items = section.pages.filter((p) => p.ready).map((p) => ({ key: p.permission, label: `查看「${p.label}」` }));
+    const items: CatalogItem[] = [];
+    for (const page of section.pages.filter(p => p.ready)) {
+      const existing = pagePermissions.get(page.permission);
+      if (existing) existing.label += `、「${page.label}」`;
+      else {
+        const item = { key: page.permission, label: `查看「${page.label}」` };
+        pagePermissions.set(page.permission, item);
+        items.push(item);
+      }
+    }
     if (items.length > 0) groups.push({ id: section.id, label: section.label, items });
   }
   groups.push(ORG_ACTIONS);

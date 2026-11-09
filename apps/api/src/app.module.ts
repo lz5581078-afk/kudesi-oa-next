@@ -186,6 +186,7 @@ import { PlatformIntegrationService } from './platform/platform-integrations.ser
 import { PlatformService } from './platform/platform.service';
 
 import { WorkspaceController } from './workspace/workspace.controller';
+import { CompanyProductsService } from './workspace/company-products.service';
 import { WorkspaceService } from './workspace/workspace.service';
 import { WorkspaceModuleRegistry } from './workspace/module-registry';
 
@@ -284,6 +285,7 @@ const env = loadEnv();
     MaintenanceRemoteAssistService,
     FlowScheduler,
     WorkspaceService,
+    CompanyProductsService,
     WorkspaceModuleRegistry,
     CaseSupport,
     AfterSalesService,

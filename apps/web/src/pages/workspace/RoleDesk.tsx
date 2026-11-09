@@ -1,14 +1,14 @@
 import { useCallback, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowUpRight, BriefcaseBusiness, RefreshCw } from 'lucide-react';
-import type { NavPage, SummaryCard } from '@kudesi/shared';
+import { COMPANY_PRODUCTS, type NavPage, type SummaryCard } from '@kudesi/shared';
 import { useAuth } from '../../auth/AuthContext';
 import { DeskApplications } from './DeskApplications';
 import { FlowSection } from './FlowSection';
 import { PersonalTaskPanel } from './PersonalTaskPanel';
 import { SummaryCards } from './SummaryCards';
 import './roleDesk.css';
-import { MyStores } from './MyStores';
+import { CompanyProductsLink, MyStores } from './MyStores';
 
 export interface DeskView {
   title: string;
@@ -17,6 +17,7 @@ export interface DeskView {
   linksHint?: string;
   skuApplication?: boolean;
   operations?: boolean;
+  companyProducts?: boolean;
   cards: SummaryCard[];
   pending: string[];
   blank?: boolean;
@@ -45,6 +46,10 @@ export function RoleDesk({ view }: { view: DeskView }) {
       </header>
       {typeof view.top === 'function' ? view.top(tick) : view.top}
       {view.blank && <section className="card ws-section"><div className="ws-head"><h2>专属业务</h2></div><p className="muted ws-pad">暂无配置</p></section>}
+      {view.companyProducts && !view.operations && can(COMPANY_PRODUCTS.permission) && <section className="card ws-section" aria-label="功能导航">
+        <div className="ws-head"><h2>功能导航</h2></div>
+        <div className="desk-action-list"><CompanyProductsLink /></div>
+      </section>}
       {view.operations ? <MyStores /> : view.links.length > 0 && <section className="card ws-section desk-business" aria-label="岗位常用业务">
         <div className="ws-head"><h2>常用业务</h2>{view.linksHint && <span className="muted">{view.linksHint}</span>}</div>
         <div className="desk-action-list">
