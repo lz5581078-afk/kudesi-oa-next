@@ -14,7 +14,7 @@ vi.mock('../../auth/AuthContext', () => ({ useAuth: () => ({
   can: createChecker({ isCompanyAdmin: admin, allow: ['*'], deny: [] }),
 }) }));
 vi.mock('./workspaceApi', () => ({ workspaceApi: { catalog: vi.fn(), desk: vi.fn() } }));
-vi.mock('./RoleDesk', () => ({ RoleDesk: ({ view }: { view: { title: string; top: (tick: number) => React.ReactNode; links: { path: string; label: string }[] } }) => <><h1>{view.title}</h1>{view.top(0)}{view.links.map(l => <a href={l.path} key={l.path}>{l.label}</a>)}</> }));
+vi.mock('./RoleDesk', () => ({ RoleDesk: ({ view }: { view: { title: string; top: (tick: number) => React.ReactNode; side?: (tick: number) => React.ReactNode; links: { path: string; label: string }[] } }) => <><h1>{view.title}</h1>{view.top(0)}{view.side?.(0)}{view.links.map(l => <a href={l.path} key={l.path}>{l.label}</a>)}</> }));
 vi.mock('../live/liveApi', () => ({ liveApi: { checkinContext: vi.fn(), workbench: vi.fn(), personalIncome: vi.fn(), integrationStatus: vi.fn(), start: vi.fn() } }));
 vi.mock('../live/dailyWorkApi', () => ({ dailyWorkApi: { mine: vi.fn(), start: vi.fn(), list: vi.fn() } }));
 const api = vi.mocked(workspaceApi), live = vi.mocked(liveApi), daily = vi.mocked(dailyWorkApi);
@@ -68,7 +68,7 @@ it('普通员工自己的中控岗位操作保持可用', async () => {
 });
 it('管理员查看职员工作台也显示主管业务入口，普通职员保持原入口', async () => {
   api.catalog.mockResolvedValue({ canBrowse: true, defaultPositionId: 4, positions: [position({ workspaceType: 'finance', name: '会计' })] } as never);
-  api.desk.mockResolvedValue({ title: '会计工作台', cards: [], pending: [] } as never);
+  api.desk.mockResolvedValue({ position: position({ workspaceType: 'finance', name: '会计' }), title: '会计工作台', cards: [], pending: [] } as never);
   open(); expect(await screen.findByRole('link', { name: '财务经营' })).toBeTruthy();
   cleanup(); admin = false; open(); await screen.findByRole('heading', { name: '会计工作台' });
   expect(screen.queryByRole('link', { name: '财务经营' })).toBeNull();
@@ -78,4 +78,12 @@ it('管理员在我的直播页也能看到开始入口，无本人身份时明�
   render(<MemoryRouter><LiveDeskPage /></MemoryRouter>);
   const button = await screen.findByRole('button', { name: '开始直播' });
   expect(button.hasAttribute('disabled')).toBe(true); fireEvent.click(button); expect(live.start).not.toHaveBeenCalled();
+});
+
+it('本人在人事岗位可从新版工作台签发临时主播开播码', async () => {
+  const hr = position({ workspaceType: 'general', name: '人事专员', departmentPath: '总部 / 人事部', assigned: true, referenceProfile: 'hr_admin' });
+  api.catalog.mockResolvedValue({ canBrowse: true, defaultPositionId: 4, positions: [hr] } as never);
+  api.desk.mockResolvedValue({ position: hr, title: '人事专员工作台', cards: [], pending: [] } as never);
+  open();
+  expect(await screen.findByRole('button', { name: '临时主播开播' })).toBeTruthy();
 });

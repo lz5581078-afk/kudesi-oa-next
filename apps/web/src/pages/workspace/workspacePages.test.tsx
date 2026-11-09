@@ -13,7 +13,7 @@ import { liveApi } from '../live/liveApi';
 vi.mock('./workspaceApi', () => ({ workspaceApi: { catalog: vi.fn(), desk: vi.fn(), tasks: vi.fn(), startTask: vi.fn(), submitTask: vi.fn(), reviewTask: vi.fn(), boss: vi.fn(), daily: vi.fn() } }));
 vi.mock('../flow/flowApi', async (orig) => {
   const mod = await orig<typeof import('../flow/flowApi')>();
-  return { ...mod, flowApi: { todos: vi.fn(), runs: vi.fn(), completeTask: vi.fn() } };
+  return { ...mod, flowApi: { templates: vi.fn().mockResolvedValue([]), todos: vi.fn(), runs: vi.fn(), completeTask: vi.fn() } };
 });
 let allow: string[] = ['*'];
 let isCompanyAdmin = false;
@@ -129,7 +129,7 @@ describe('岗位工作台', () => {
     w.desk.mockResolvedValue({ position: pos({ id: 5 }), title: '客服工作台', focus: '', pending: ['采购到货汇总'], cards: [{ key: 'm', label: '售后', value: null, hint: '暂无该模块', module: 'after-sales' }] } as never);
     wrap(<DeskPage />);
     expect(await screen.findByText('暂无该模块')).toBeTruthy();
-    expect(screen.getByText(/待接入业务：采购到货汇总/)).toBeTruthy();
+    expect(screen.getByText('采购到货汇总')).toBeTruthy();
     expect(screen.getByText('只显示你在岗的岗位')).toBeTruthy();
   });
 });
@@ -144,6 +144,19 @@ describe('本人岗位首页边界', () => {
     expect(await screen.findByRole('heading', { name: '本人的岗位工作台' })).toBeTruthy();
     expect(w.desk).toHaveBeenCalledWith(52);
     expect(w.desk).not.toHaveBeenCalledWith(51);
+  });
+
+  it('迁移来的短视频岗位使用原岗位业务和话术入口，不加载店铺经营或直播打卡', async () => {
+    const content = { id: 8, name: '短视频', workspaceType: 'operations' as const, level: 'staff' as const, departmentId: 8, departmentPath: '短视频部', assigned: true, isPrimary: true };
+    w.catalog.mockResolvedValue({ canBrowse: false, defaultPositionId: 8, positions: [content] });
+    w.desk.mockResolvedValue({ position: { ...content, referenceProfile: 'content' }, title: '短视频工作台', focus: '', pending: [], cards: [] });
+    wrap(<DeskPage />);
+    await screen.findByRole('heading', { name: '短视频工作台' });
+    expect(screen.getByRole('link', { name: '自媒体账号档案' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: '话术中心' }).getAttribute('href')).toBe('/features/live?tab=scripts');
+    expect(screen.queryByLabelText('每日经营')).toBeNull();
+    expect(screen.queryByRole('heading', { name: '本场上下播' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /SKU 批量申请/ })).toBeNull();
   });
 
   it('能浏览别人的岗位但未分配本人岗位时，不自动选中别人的工作台', async () => {
