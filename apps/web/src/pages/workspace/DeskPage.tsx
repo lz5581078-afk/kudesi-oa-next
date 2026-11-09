@@ -6,6 +6,7 @@ import { useSearchParams } from 'react-router-dom';
 import { deskFor, deskLinks, groupDeskPositions, type DeskCatalog } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
+import { DeskLiveLinks } from './DeskLiveLinks';
 import { DailyBusinessPanel } from './DailyBusinessPanel';
 import { RoleDesk, type DeskView } from './RoleDesk';
 import { workspaceApi, type DeskDto } from './workspaceApi';
@@ -38,17 +39,34 @@ export function DeskPage() {
   );
   if (!current && !wanted && catalog.defaultPositionId == null) return <div className="empty-state muted"><strong>你还没有分配有效岗位</strong><span>请联系管理员分配主岗位或兼岗。</span></div>;
   if (!current) return <div role="alert" className="notice error">没有这个岗位的工作台，或你无权查看。</div>;
-  const def = deskFor(current.workspaceType);
-  const view: DeskView | null = current && desk ? {
+  const position = desk?.position.id === current.id ? { ...current, referenceProfile: desk.position.referenceProfile } : current;
+  const type = position.workspaceType;
+  const profile = position.referenceProfile;
+  const operating = type === 'operations' && (!profile || ['operations', 'operations_manager'].includes(profile));
+  const checkinType = type === 'live_anchor' || type === 'live_control' ? type : operating ? 'operations' : null;
+  const showPersonalLive = !!checkinType && (position.assigned || isAdmin);
+  const def = deskFor(type, profile);
+  const view: DeskView | null = desk?.position.id === current.id ? {
     title: desk.title,
     subtitle: [current.departmentPath, def.focus].filter(Boolean).join(' · '),
     links: deskLinks(def, isAdmin ? 'boss' : current.level, can, isAdmin),
-    skuApplication: (current.assigned || isAdmin) && ['operations', 'live_control'].includes(current.workspaceType) && can('flow.apply.view'),
+    skuApplication: (current.assigned || isAdmin) && (operating || type === 'live_control') && can('flow.apply.view'),
     linksHint: def.focus,
     cards: desk.cards,
     pending: desk.pending,
     blank: current.workspaceType === 'blank',
-    top: refreshKey=><>{(current.assigned || isAdmin) && ['live_anchor','live_control','operations'].includes(current.workspaceType) && <>{isAdmin&&!current.assigned&&<p className="notice" role="status">管理员可查看本岗位操作入口；日常工作和上下播仍按当前账号的本人排班记录。</p>}<PersonalLiveIncome refreshKey={refreshKey}/>{['live_anchor','live_control'].includes(current.workspaceType)&&<DailyWorkPanel personal/>}<LiveCheckinPanel workspaceType={current.workspaceType as 'live_anchor'|'live_control'|'operations'}/></>}{current.workspaceType==='operations'&&can('resource.store-daily-metrics.view')&&<DailyBusinessPanel/>}</>,
+    top: refreshKey => <>
+      {operating && can('resource.store-daily-metrics.view') && <DailyBusinessPanel refreshKey={refreshKey} />}
+      {showPersonalLive && checkinType && <div className="desk-live-panels">
+        {isAdmin && !position.assigned && <p className="notice" role="status">管理员可查看本岗位操作入口；日常工作和上下播仍按当前账号的本人排班记录。</p>}
+        <LiveCheckinPanel key={`checkin-${refreshKey}`} workspaceType={checkinType} />
+        {checkinType !== 'operations' && <DailyWorkPanel key={`daily-${refreshKey}`} personal />}
+      </div>}
+    </>,
+    side: refreshKey => <>
+      <DeskLiveLinks position={position} can={can} isAdmin={isAdmin} />
+      {showPersonalLive && <PersonalLiveIncome refreshKey={refreshKey} />}
+    </>,
   } : null;
   return (
     <div>

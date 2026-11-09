@@ -68,7 +68,7 @@ it('普通员工自己的中控岗位操作保持可用', async () => {
 });
 it('管理员查看职员工作台也显示主管业务入口，普通职员保持原入口', async () => {
   api.catalog.mockResolvedValue({ canBrowse: true, defaultPositionId: 4, positions: [position({ workspaceType: 'finance', name: '会计' })] } as never);
-  api.desk.mockResolvedValue({ title: '会计工作台', cards: [], pending: [] } as never);
+  api.desk.mockResolvedValue({ position: position({ workspaceType: 'finance', name: '会计' }), title: '会计工作台', cards: [], pending: [] } as never);
   open(); expect(await screen.findByRole('link', { name: '财务经营' })).toBeTruthy();
   cleanup(); admin = false; open(); await screen.findByRole('heading', { name: '会计工作台' });
   expect(screen.queryByRole('link', { name: '财务经营' })).toBeNull();

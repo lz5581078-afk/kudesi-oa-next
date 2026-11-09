@@ -9,11 +9,14 @@ import { Company, Department, Position, ResourceRecord, User, WorkItem } from '.
 import { buildServices } from '../test-support';
 import { TaskService } from '../flow/task.service';
 import { WorkspaceModuleRegistry } from './module-registry';
+import { preserveSourceRow } from '../migration/source-rows';
+import type { CryptoService } from '../common/crypto.service';
 import { WorkspaceService } from './workspace.service';
 
 const d = process.env.RESOURCE_DB_TEST === '1' ? describe : describe.skip;
 
 d('工作台（真实数据库）', () => {
+  let encryption: CryptoService;
   let ds: DataSource, ws: WorkspaceService, tasks: TaskService, registry: WorkspaceModuleRegistry;
   let cid: number, otherCid: number, boss: AuthUser, worker: AuthUser, staff: AuthUser, stranger: AuthUser;
   let finPos: number, opsPos: number;
@@ -27,7 +30,8 @@ d('工作台（真实数据库）', () => {
     const svc = buildServices(ds);
     tasks = new TaskService(ds);
     registry = new WorkspaceModuleRegistry();
-    ws = new WorkspaceService(ds, svc.resources, registry);
+    encryption = svc.crypto;
+    ws = new WorkspaceService(ds, svc.resources, registry, encryption);
     const mkCompany = (n: string) => ds.manager.save(Company, ds.manager.create(Company, { code: `w${crypto.randomBytes(5).toString('hex')}`, name: n, status: 'active' }));
     const c = await mkCompany('工作台测试'), c2 = await mkCompany('别家');
     cid = c.id; otherCid = c2.id;
@@ -40,6 +44,24 @@ d('工作台（真实数据库）', () => {
     worker = au(await mk(cid, 'wk', '员工', { positionId: finPos }), cid, '员工', ['workbench.desk.view', 'finance.drafts.view']);
     staff = au(await mk(cid, 'st', '主管', { positionId: opsPos }), cid, '主管', ['tasks.assign']);
     stranger = au(await mk(otherCid, 'str', '外人'), otherCid, '外人', ['workbench.desk.view']);
+  });
+  it('通过同公司迁移映射恢复原岗位模板，并尊重后来修改的岗位类型', async () => {
+    await ds.transaction(async em => {
+      await preserveSourceRow(em, encryption, { companyId: cid, sourceCompanyId: 81, table: 'legacy_position_workspace_policy', key: 'current' }, {
+        resolutions: [{ positionId: '23', templateKey: 'content' }],
+      });
+      await em.query(
+        'INSERT INTO legacy_import_links (source_system, source_company_id, company_id, source_key, target_type, target_id, source_hash) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        ['legacy-oa', 81, cid, 'position:23', 'position', opsPos, '0'.repeat(64)],
+      );
+    });
+    try {
+      expect(await ws.desk(staff, opsPos)).toMatchObject({ position: { referenceProfile: 'content' }, focus: '内容任务 · 自媒体账号' });
+      await ds.manager.update(Position, { id: opsPos, companyId: cid }, { workspaceType: 'finance' });
+      expect((await ws.desk(staff, opsPos)).position.referenceProfile).toBeUndefined();
+    } finally {
+      await ds.manager.update(Position, { id: opsPos, companyId: cid }, { workspaceType: 'operations' });
+    }
   });
   afterAll(async () => { await ds?.destroy(); });
 
