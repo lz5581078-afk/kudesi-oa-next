@@ -150,6 +150,15 @@ db('直接档案 BOM 沿统一修订与验证发布（隔离 MySQL）',()=>{
  });
  it('真实来源单位只读元数据不泄价格；未生效与未确认零价人工不能进入修订',async()=>{
   const f=await fixture(),tools=new BundleToolsService(ds,resources,{} as OutboxService),base=await ds.manager.findOneByOrFail(ResourceRecord,{id:f.base.id}),product=await ds.manager.findOneByOrFail(ResourceRecord,{id:Number(base.data.productId)});
+  await ds.manager.update(ResourceRecord,{id:product.id},{data:{...product.data,purchaseSpec:'箱'}});
+  const material=await ds.manager.findOneByOrFail(ResourceRecord,{id:f.first.id});
+  await ds.manager.update(ResourceRecord,{id:material.id},{data:{...material.data,purchaseSpec:'斤'}});
+  const labels=await tools.composition(f.user,f.bundle.id);
+  expect(labels.baseUnits[f.base.id]).toMatchObject({unit:'KG',label:'箱'});
+  expect(labels.facts[`base:${f.base.id}`].unit).toBe('箱');
+  expect(labels.facts[`archive:${f.first.id}`].unit).toBe('斤');
+  expect(labels.lines).toEqual(expect.arrayContaining([expect.objectContaining({productId:f.first.id,unit:'KG'})]));
+  await ds.manager.save(ResourceRecord,material);
   const data={...product.data};delete data.specUnit;await ds.manager.update(ResourceRecord,{id:product.id},{data:{...data,purchaseSpec:'张'}});
   const context=await tools.composition(f.user,f.bundle.id);expect(context.baseUnits[f.base.id]).toMatchObject({unit:'张',available:true});expect(JSON.stringify(context.baseUnits)).not.toMatch(/purchasePrice|totalCost|unitPrice/);
   const noBase:AuthUser={...f.user,permissions:{isCompanyAdmin:false,allow:['resource.finance-bundles.view'],deny:['resource.finance-base-codes.view','product.cost.view']}};expect((await tools.composition(noBase,f.bundle.id)).baseUnits).toEqual({});
