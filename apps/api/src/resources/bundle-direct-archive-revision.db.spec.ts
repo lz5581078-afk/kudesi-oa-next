@@ -6,7 +6,7 @@ import * as crypto from 'crypto';
 import { DataSource } from 'typeorm';
 import type { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
-import { Company, OutboxJob, ResourceChangeLog, ResourceLink, ResourceRecord, User } from '../entities';
+import { Company, Notification, OutboxJob, OutboxSwitch, Position, ResourceChangeLog, ResourceLink, ResourceRecord, User } from '../entities';
 import { buildServices } from '../test-support';
 import type { ResourcesService } from './resources.service';
 import { CostService } from './cost.service';
@@ -38,6 +38,50 @@ db('直接档案 BOM 沿统一修订与验证发布（隔离 MySQL）',()=>{
   const envelope=async(input:Array<Record<string,unknown>>,weight?:{mode:'auto'|'manual';grams:number})=>JSON.stringify({version:1,sourceToken:bundleCompositionToken(await ds.manager.findOneByOrFail(ResourceRecord,{id:bundle.id,companyId:user.companyId}),await lines()),lines:input,...(weight?{weight}:{})});
   return{user,category,main,first,second,base,bundle,lines,payload,envelope};
  };
+ it('商品新增进入未验证、变更使两类编码进入二次验证时提醒财务，同一状态不重复提醒',async()=>{
+  const { user, category, main, base, bundle } = await fixture();
+  const finance = await ds.manager.save(Position, ds.manager.create(Position, {
+    companyId:user.companyId, name:'测试财务岗', workspaceType:'finance', status:'active',
+  }));
+  await ds.manager.update(User, user.id, {extraPositionIds:[finance.id]});
+  await ds.manager.save(OutboxSwitch, ds.manager.create(OutboxSwitch, {
+    companyId:user.companyId, channel:'feishu', enabled:true, updatedBy:user.id,
+  }));
+  await ds.query(
+    "INSERT INTO feishu_identities(company_id,user_id,tenant_key,app_id,open_id,oa_notifications) VALUES(?,?,'t','a',?,1)",
+    [user.companyId,user.id,`test-finance-${user.id}`],
+  );
+  const notices = () => ds.manager.find(Notification, {
+    where:{companyId:user.companyId, kind:'product_code_review'}, order:{id:'ASC'},
+  });
+
+  const request = {
+    requestKey:crypto.randomUUID(), collections:[],
+    values:{archiveType:'raw',categoryId:category.id,name:'新增提醒测试',specQty:1,specUnit:'KG',purchaseSpec:'千克',purchasePrice:200,freight:10,handlingFee:20},
+  };
+  const sourceCategory = await resources.create(user,'finance-supplier-categories',{name:'测试供应商分类',code:'GYS'});
+  const supplier = await resources.create(user,'finance-suppliers',{name:'测试供应商',categoryIds:[sourceCategory.id]});
+  const createInput = {
+    ...request,
+    collections:[{type:'finance-product-sources',expected:[],rows:[{values:{supplierId:supplier.id,originArea:'山东',purchasePrice:200}}]}],
+  };
+  const created = await resources.saveForm(user,'finance-products',createInput);
+  expect((await resources.saveForm(user,'finance-products',createInput)).id).toBe(created.id);
+  const [createdNotice] = await notices();
+  expect(createdNotice).toMatchObject({userId:user.id,link:'/finance/finance-base-codes'});
+  expect(createdNotice.body).toContain('未验证');
+
+  await resources.update(user,'finance-products',main.id,{weightManual:true,weightG:1200});
+  expect((await resources.get(user,'finance-base-codes',base.id)).status).toBe('reverify');
+  expect((await resources.get(user,'finance-bundles',bundle.id)).status).toBe('reverify');
+  await resources.update(user,'finance-products',main.id,{weightManual:true,weightG:1300});
+  const saved = await notices();
+  expect(saved).toHaveLength(2);
+  expect(saved[1].body).toContain(`${base.data.code}（二次验证）`);
+  expect(saved[1].body).toContain(`${bundle.data.code}（二次验证）`);
+  expect(await ds.manager.countBy(OutboxJob,{companyId:user.companyId,channel:'feishu',kind:'feishu_notice'})).toBe(2);
+ });
+
  it('直接档案修订发布保留productId与控制列、六位元报价精度、同一验证事务和BOM版本',async()=>{
   const f=await fixture();const revision=await resources.create(f.user,'finance-bundle-revisions',{bundleId:f.bundle.id,reason:'真实档案替换并修订数量',payload:await f.envelope((await f.payload()).map(line=>line.productId?{...line,role:'main',cost:999999,unitCost:999999}:line))});
   expect(JSON.parse(String(revision.data.payload)).lines.find((line:{productId?:number})=>line.productId)).not.toHaveProperty('cost');
