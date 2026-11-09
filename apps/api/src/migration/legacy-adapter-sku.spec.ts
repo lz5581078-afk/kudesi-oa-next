@@ -2,6 +2,17 @@ import { readFakeLegacy } from './fake-legacy';
 const mapping = require('../../../../scripts/migration/sku-mapping.cjs');
 
 describe('SKU 迁移口径', () => {
+  it('OEM保留独立原料价，只加一次包材，含包材总价和BOM记录都不能充当原料价', () => {
+    const row={archive_key:'purchased',supply_mode:'supplier_oem'};
+    const costs=[{cost_type:'purchase',source_type:'production_bom',unit_cost:'0.335'}];
+    expect(mapping.purchaseInput(row,{rawMaterialPurchasePrice:1.6,packagingCost:0.335,purchasePrice:1.935},costs)).toBe(1.6);
+    expect(mapping.purchaseInput(row,{rawMaterialPurchasePrice:'2.300000',packagingCost:0.335,purchasePrice:2.635},costs)).toBe('2.300000');
+    expect(mapping.purchaseInput(row,{purchasePrice:1.935},costs)).toBeUndefined();
+    expect(()=>mapping.purchaseInput(row,{rawMaterialPurchasePrice:1.6,packagingCost:0.335,purchasePrice:1.6},costs)).toThrow(/不一致/);
+    expect(()=>mapping.purchaseInput(row,{rawMaterialPurchasePrice:-1},costs)).toThrow();
+    expect(mapping.purchaseInput({...row,supply_mode:'original_purchase'},{purchasePrice:5},costs)).toBe('0.335');
+  });
+
   it('包装称重支持旧中文单位，缺省按旧源码的千克解释，未知单位拒绝猜测',()=>{
     expect(mapping.packageWeight('13','克')).toEqual({weightG:13,weightUnit:'g'});
     expect(mapping.packageWeight('0.2','千克')).toEqual({weightG:200,weightUnit:'kg'});

@@ -17,9 +17,11 @@ describe('旧商品验证只读核对入口', () => {
   });
   it('OEM的production_bom是汇总记录，按底层采购记录重新汇总，不重复加入旧汇总价', () => {
     const base = { id: 80, source_product_id: 'oem' };
-    const tables = { finance_products: [{ id: 'oem', archive_key: 'purchased', supply_mode: 'supplier_oem', payload_json: { purchasePrice: 2, freightAmount: 0.004, handlingAmount: 0 } }, { id: 'package', archive_key: 'package', payload_json: { freightAmount: 0.065, handlingAmount: 0 } }], finance_product_archive_costs: [{ id: 1, product_id: 'oem', cost_type: 'purchase', unit_cost: '0.3350', source_type: 'production_bom', status: 'active', effective_from: '2026-01-01' }, { id: 2, product_id: 'package', cost_type: 'purchase', unit_cost: '0.3350', source_type: 'archive_purchase_price', status: 'active', effective_from: '2026-01-01' }], finance_product_archive_boms: [{ id: 1, owner_product_id: 'oem', status: 'active' }], finance_product_archive_bom_lines: [{ id: 1, bom_id: 1, component_product_id: 'package', quantity: '1.000000', loss_rate: '0.000000', cost_treatment: 'include' }] };
-    const b = baseCostBasis(tables, base, '2026-11-01'); expect(b.costCents).toBe(40.4);
-    expect(b.components[0].node.includePurchase).toBe(false);
+    const tables = { finance_products: [{ id: 'oem', archive_key: 'purchased', supply_mode: 'supplier_oem', payload_json: { purchasePrice: 1.935, rawMaterialPurchasePrice: 1.6, packagingCost: 0.335, freightAmount: 0.004, handlingAmount: 0 } }, { id: 'package', archive_key: 'package', payload_json: { freightAmount: 0.065, handlingAmount: 0 } }], finance_product_archive_costs: [{ id: 1, product_id: 'oem', cost_type: 'purchase', unit_cost: '0.3350', source_type: 'production_bom', status: 'active', effective_from: '2026-01-01' }, { id: 2, product_id: 'package', cost_type: 'purchase', unit_cost: '0.3350', source_type: 'archive_purchase_price', status: 'active', effective_from: '2026-01-01' }], finance_product_archive_boms: [{ id: 1, owner_product_id: 'oem', status: 'active' }], finance_product_archive_bom_lines: [{ id: 1, bom_id: 1, component_product_id: 'package', quantity: '1.000000', loss_rate: '0.000000', cost_treatment: 'include' }] };
+    const b = baseCostBasis(tables, base, '2026-11-01'); expect(b.costCents).toBe(200.4);
+    expect(b.components[0].node.includePurchase).toBe(true);
     expect(b.components[0].node.children[0].node.recordId).toBe('2');
+    delete (tables.finance_products[0].payload_json as any).rawMaterialPurchasePrice;
+    expect(baseCostBasis(tables, base, '2026-11-01')).toBeNull();
   });
 });

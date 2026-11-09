@@ -24,7 +24,15 @@ function referenceCost(row: Row, source: LegacyArchive): number | null {
     const payload = (typeof product.payload_json === 'string' ? JSON.parse(product.payload_json) : product.payload_json) as Row;
     if (String(payload.freightAmount) !== node.freight || String(payload.handlingAmount) !== node.handling) throw new Error('旧成本独立核算与原运杂费不一致');
     if (node.includePurchase === false && product.archive_key !== 'self_made' && record.source_type !== 'production_bom') throw new Error('旧成本核算不能遗漏采购价');
-    let amount = sumUnitCents([node.includePurchase === false ? '0' : node.unitCost, node.freight, node.handling].map(v => yuanToPreciseCents(v, 4)));
+    const isOem = product.archive_key === 'purchased' && product.supply_mode === 'supplier_oem';
+    let purchase = node.includePurchase === false ? '0' : node.unitCost;
+    if (isOem) {
+      if (node.includePurchase !== true || node.purchaseBasis !== 'explicit-oem-raw-input' || payload.rawMaterialPurchasePrice == null || String(payload.rawMaterialPurchasePrice) !== node.rawMaterialPurchasePrice) throw new Error('旧OEM核算缺少独立原料采购价，禁止仅按包材恢复验证');
+      purchase = node.rawMaterialPurchasePrice;
+      const raw = yuanToPreciseCents(purchase, 4);
+      if (raw < 0 || (payload.packagingCost != null && payload.purchasePrice != null && sumUnitCents([raw, yuanToPreciseCents(payload.packagingCost, 4)]) !== yuanToPreciseCents(payload.purchasePrice, 4))) throw new Error('旧OEM原料和包材采购价依据不一致');
+    }
+    let amount = sumUnitCents([purchase, node.freight, node.handling].map(v => yuanToPreciseCents(v, 4)));
     for (const child of node.children ?? []) {
       const line = original('finance_product_archive_bom_lines', child.sourceLineId);
       if (!line || String(line.component_product_id) !== child.node.productId || String(line.quantity) !== child.quantity || Number(line.loss_rate) !== Number(child.lossRate)) throw new Error('旧成本独立核算与原组成不一致');

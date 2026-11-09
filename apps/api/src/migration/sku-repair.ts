@@ -4,7 +4,7 @@ import { AuthUser } from '../common/auth.decorators';
 import { Company, ResourceChangeLog, ResourceRecord, User } from '../entities';
 import { ResourcesService } from '../resources/resources.service';
 import { planCategoryFix } from '../resources/category-structure-fix';
-import { registerCostSnapshots } from '../resources/cost-snapshot';
+import { registerCostSnapshots, recordSourceChange } from '../resources/cost-snapshot';
 import { LegacyArchive, LegacyRef } from './protocol';
 import { MigrationError, safeFailure } from './runner';
 
@@ -12,7 +12,7 @@ export const SKU_SOURCE_TYPES=['finance-products','finance-product-boms','financ
 const stable = (value: unknown): unknown => Array.isArray(value) ? value.map(stable) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).filter(([k])=>k!=='locator').sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,stable(v)])) : value;
 export const skuRepairHash = (value: unknown) => createHash('sha256').update(JSON.stringify(stable(value))).digest('hex');
 interface RepairPatch { sourceKey: string; type: string; id: number; before: string; values: Record<string, unknown> }
-export interface SkuRepairPlan { companyId: number; sourceCompanyId: number; sourceHash: string; targetHash: string; oemCategoryIds: number[]; relinks: Array<{sourceKey:string;type:string;id:number;sourceHash:string}>; patches: RepairPatch[]; additions: Array<{ type: string; id: string }>; conflicts: Array<{ sourceKey: string; field: string; reason: string }> }
+export interface SkuRepairPlan { companyId: number; sourceCompanyId: number; sourceHash: string; targetHash: string; oemCategoryIds: number[]; costRefreshIds: number[]; costRefreshBundleIds: number[]; relinks: Array<{sourceKey:string;type:string;id:number;sourceHash:string}>; patches: RepairPatch[]; additions: Array<{ type: string; id: string }>; conflicts: Array<{ sourceKey: string; field: string; reason: string }> }
 
 /** Existing records only: allowlisted field corrections; manual edits remain explicit conflicts. */
 export async function planSkuRepair(em: EntityManager, companyId: number, source: LegacyArchive): Promise<SkuRepairPlan> {
@@ -22,7 +22,7 @@ export async function planSkuRepair(em: EntityManager, companyId: number, source
   const byId = new Map(rows.map(r=>[r.id,r]));
   const logs = await em.find(ResourceChangeLog, { where: { companyId, action:'update' } });
   const categories = await planCategoryFix(em, companyId);
-  const plan: SkuRepairPlan = { companyId, sourceCompanyId:source.company.id, sourceHash:skuRepairHash(source.records), targetHash:skuRepairHash(rows.map(r=>[r.id,r.type,r.status,r.data])),oemCategoryIds:categories.oem.filter(m=>m.decision==='move').flatMap(m=>m.ids),relinks:[],patches:[],additions:[],conflicts:[] };
+  const plan: SkuRepairPlan = { companyId, sourceCompanyId:source.company.id, sourceHash:skuRepairHash(source.records), targetHash:skuRepairHash(rows.map(r=>[r.id,r.type,r.status,r.data])),oemCategoryIds:categories.oem.filter(m=>m.decision==='move').flatMap(m=>m.ids),costRefreshIds:[],costRefreshBundleIds:[],relinks:[],patches:[],additions:[],conflicts:[] };
   const fields = ['weightG','weightManual','weightUnit','purchaseSpec','giftShortName','giftCodeShortName'] as const;
   const manuallyEdited = (r:ResourceRecord,field:string) => logs.some(l=>l.resourceId===r.id && l.resourceType===r.type && !l.note?.startsWith('旧系统') && l.note!=='构成变化，自动汇总成本和重量' && skuRepairHash(l.beforeJson?.[field]??null)!==skuRepairHash(l.afterJson?.[field]??null));
   for(const sourceRow of source.records){
@@ -55,13 +55,24 @@ export async function planSkuRepair(em: EntityManager, companyId: number, source
         propose(field,sourceRow.data[field]);
       }
       if(sourceRow.data.rawFinishedNames){const names=[...new Set(`${r.data.rawFinishedNames??''}\n${sourceRow.data.rawFinishedNames}`.split(/\r?\n/).map(s=>s.trim()).filter(Boolean))];propose('rawFinishedNames',names.join('\n'));}
-      if(sourceRow.data.supplyMode==='supplier_oem'&&sourceRow.notices?.some(n=>n.includes('不作为额外采购价重复加入')))propose('purchasePrice',null);
+      if(sourceRow.data.supplyMode==='supplier_oem') {
+        if(sourceRow.data.purchasePrice===undefined || sourceRow.data.purchasePrice===null) {
+          plan.conflicts.push({sourceKey,field:'purchasePrice',reason:'旧OEM缺少明确原料采购价，禁止清空现值或按零元修复'});
+        } else if (r.data.purchasePrice == null && String(r.data.migrationNotice??'').includes('不作为额外采购价重复加入')) {
+          propose('purchasePrice',sourceRow.data.purchasePrice);
+        } else if (skuRepairHash(r.data.purchasePrice??null)!==skuRepairHash(sourceRow.data.purchasePrice)) {
+          plan.conflicts.push({sourceKey,field:'purchasePrice',reason:'现值不符合已知迁移漏项，保留并人工核对'});
+        }
+      }
     }
     if(r.type==='finance-bundles'&&!r.data.brandId){const ref=(sourceRow.data.brandId as LegacyRef|undefined)?.legacyRef;if(ref){const brand=ids.get(`${ref.type}:${ref.id}`);if(brand)propose('brandId',brand);}}
     if(r.type==='finance-bundles'&&/^V\d{1,3}$/i.test(String(r.data.configNo))&&String(r.data.configNo).replace(/^V/i,'').padStart(2,'0')===sourceRow.data.configNo)propose('configNo',sourceRow.data.configNo);
     if(r.type==='finance-product-boms')for(const field of ['qty','lossPercent'])if(sourceRow.data[field]!==undefined)propose(field,sourceRow.data[field]);
     if(Object.keys(values).length)plan.patches.push({sourceKey,type:r.type,id:r.id,before:skuRepairHash([r.status,r.data]),values});
   }
+  const repairedProducts=new Set(plan.patches.filter(p=>p.type==='finance-products' && Object.hasOwn(p.values,'purchasePrice')).map(p=>p.id));
+  plan.costRefreshIds=rows.filter(r=>r.type==='finance-base-codes' && !r.archivedAt && (repairedProducts.has(Number(r.data.productId)) || rows.some(l=>l.type==='finance-base-code-lines' && !l.archivedAt && l.data.baseCodeId===r.id && repairedProducts.has(Number(l.data.productId))))).sort((a,b)=>Number(!!a.data.canonicalId)-Number(!!b.data.canonicalId)||a.id-b.id).map(r=>r.id);
+  plan.costRefreshBundleIds=[...new Set(rows.filter(r=>r.type==='finance-bundle-lines' && !r.archivedAt && plan.costRefreshIds.includes(Number(r.data.baseCodeId))).map(r=>Number(r.data.bundleId)))].sort((a,b)=>a-b);
   return plan;
 }
 
@@ -85,6 +96,10 @@ export async function runSkuRepair(ds:DataSource,resources:ResourcesService,sour
     for(const id of plan.oemCategoryIds)await resources.patchData(q.manager,user,'finance-categories',id,{archiveType:'oem_package'},'旧系统SKU分类归属修正');
     for(const link of plan.relinks)await q.manager.query('INSERT INTO legacy_import_links(source_system,source_company_id,company_id,source_key,target_type,target_id,source_hash) VALUES(?,?,?,?,?,?,?)',['legacy-oa',source.company.id,company.id,link.sourceKey,link.type,link.id,link.sourceHash]);
     for(const p of plan.patches)await resources.importPatch(q.manager,user,p.type,p.id,p.values);
+    // Normal archive auto-linkage is suppressed during migration. Refresh only
+    // existing dependents explicitly; do not create codes or stamp verification.
+    for(const id of plan.costRefreshIds)await resources.importPatch(q.manager,user,'finance-base-codes',id,{});
+    await recordSourceChange(q.manager,company.id,actor.id,plan.costRefreshBundleIds,'旧系统OEM原料采购价补齐后重新汇总成本');
     opts.preparePlan?.(plan);
     if(opts.apply)await q.commitTransaction();else await q.rollbackTransaction();
     return plan;
