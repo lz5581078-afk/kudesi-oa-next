@@ -121,10 +121,10 @@ function BundlesContent() {
   const syncBadge=(row:ResourceDto)=>{const state=syncStates[row.id],appearance=syncAppearance(state?.state||''),Icon=appearance[1];return <button type="button" className={`bundle-list-sync-badge ${appearance[2]}`} title={state?.message||appearance[0]} onClick={()=>setSync(String(row.data.code||''))}><Icon size={14}/><span>{appearance[0]}</span></button>;};
   const syncSummary=()=>{const rows=data?.items??[],states=rows.map(row=>syncStates[row.id]?.state),readFailed=states.includes('error'),ready=!loading&&!readFailed&&states.every(Boolean),count=(values:string[])=>states.filter(state=>values.includes(state)).length;return <div className="bundle-list-sync-counts" role="status" aria-live="polite" aria-label="本页聚水潭同步统计"><span>本页</span><span className="success"><CheckCircle2 size={15}/>同步成功 <strong>{ready?count(['synced']):'—'}</strong> 条</span><span className="failed"><AlertCircle size={15}/>同步失败 <strong>{ready?count(['failed']):'—'}</strong> 条</span>{!ready?<span>{readFailed?'状态读取失败':'正在读取状态…'}</span>:<>{count(['queued','confirming'])>0&&<span>同步中 {count(['queued','confirming'])} 条</span>}{count(['blocked_intent','incomplete'])>0&&<span>待补齐 {count(['blocked_intent','incomplete'])} 条</span>}{count(['not_synced'])>0&&<span>未同步 {count(['not_synced'])} 条</span>}{count(['unavailable'])>0&&<span>待刷新 {count(['unavailable'])} 条</span>}</>}</div>;};
 
-  const columns=[['code','组合编码'],['mainStyleCode','主款式编码'],['styleCode','款式编码'],['name','商品名称 / 简称'],['platformId','平台'],['propertiesValue','规格'],...(canCost||canPrice?[['price',canCost&&canPrice?'成本价 / 销售价':canCost?'成本价':'销售价']]:[]),['weightG','重量'],['componentCount','组成'],['packageCount','包装'],['status','状态']];
+  const columns=[['code','组合编码'],['mainStyleCode','主款式编码'],['styleCode','款式编码'],['name','商品名称 / 简称'],['platformId','平台'],['propertiesValue','规格'],...(canCost||canPrice?[['price',canCost&&canPrice?'成本价 / 销售价':canCost?'成本价':'销售价']]:[]),['weightG','重量'],['componentCount','组成'],['status','状态']];
   const sortValue=(row:ResourceDto,key:string):string|number=>{
     const summary=summaries[row.id];
-    if(key==='weightG'||key==='componentCount'||key==='packageCount')return summary?.[key]??-1;
+    if(key==='weightG'||key==='componentCount')return summary?.[key]??-1;
     if(key==='price')return(canCost?summary?.cost:summary?.salePrice)??-1;
     if(key==='mainStyleCode')return summary?.mainStyleCode||String(row.data.mainStyleCode||'');
     if(key==='platformId')return row.refLabels.platformId||'';
@@ -141,7 +141,6 @@ function BundlesContent() {
     if(key==='price')return <>{canCost&&money(summary?.cost)}{canPrice&&<small>销售 {summary?.salePrice==null?'待补齐':`¥${Number(unitYuanText(summary.salePrice)).toFixed(3)}`}</small>}</>;
     if(key==='weightG')return summary?.weightG==null?'待补齐':`${(summary.weightG/1000).toFixed(6)} kg`;
     if(key==='componentCount')return <button type="button" className="link-button" onClick={()=>setReferenceDetail(row)}><Eye size={15}/>{`查看 ${summary?.componentCount??'—'} 项`}</button>;
-    if(key==='packageCount')return summary?(summary.packageCount?<><strong>{summary.packageCount} 项</strong><small title={summary.packageSummary}>{summary.packageSummary||'已维护'}</small></>:<span className="bundle-package-empty-label" title="当前BOM没有明确的包装组成；系统不会根据重量区间猜测添加包装">当前BOM无包装项</span>):'—';
     if(key==='status'){const st={tone:row.status==='inactive'?'muted':'success',label:row.status==='inactive'?'停用':'启用'};return <><span className={`pill ${st.tone==='muted'?'warn':st.tone}`}>{st.label}</span></>;}
     if(key==='code')return <><strong>{String(row.data.code||'-')}</strong>{tab==='verified'&&canAny('finance.jst-sync.view')&&syncBadge(row)}</>;
     if(key==='platformId')return row.refLabels.platformId||'-';
