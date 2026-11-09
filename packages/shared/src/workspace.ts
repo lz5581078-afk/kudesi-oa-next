@@ -4,7 +4,8 @@
  * 菜单、权限、路径都不在这里重复定义。
  */
 import { NAV_SECTIONS, type NavPage } from './navigation';
-import type { PositionWorkspaceType } from './position-templates';
+import { workspaceTypeFromLegacyTemplate, type PositionWorkspaceType } from './position-templates';
+import { LEGACY_DESK_PROFILES } from './legacy-desk-profiles';
 
 /** 个人任务的四个分类（旧系统：新任务 / 进行中 / 待我复核 / 已完成）。 */
 export const TASK_VIEWS = [
@@ -74,20 +75,24 @@ export interface DeskDef {
 }
 
 export const DESK_DEFS: Readonly<Record<PositionWorkspaceType, DeskDef>> = {
-  boss: { type: 'boss', title: '老板工作台', focus: '经营总览 · 异常跟进', links: ['workbench.boss', 'finance.overview', 'finance.history', 'flow.overview', 'resource.org-tree'], modules: ['supervision'] },
+  boss: { type: 'boss', title: '老板工作台', focus: '经营总览 · 异常跟进', links: ['workbench.boss', 'finance.overview', 'finance.history', 'supervision.center', 'flow.overview', 'resource.org-tree'], modules: ['supervision'] },
   general: { type: 'general', title: '综合事务工作台', focus: '经营资料 · 账号与资产', links: ['resource.stores', 'resource.licenses', 'resource.phones', 'resource.qualifications', 'resource.memos', 'resource.fixed-assets', 'resource.employees', 'resource.org-tree'], managerLinks: ['flow.overview', 'resource.position-profiles'] },
   operations: { type: 'operations', title: '运营工作台', focus: '店铺经营 · SKU申请', links: ['resource.stores', 'finance.finance-products', 'finance.finance-bundles', 'finance.pricing-debug', 'resource.phones'], managerLinks: ['flow.overview', 'finance.overview', 'features.live'], modules: ['live'] },
   finance: { type: 'finance', title: '财务工作台', focus: 'SKU成本审核 · 财务单据', links: ['finance.cost-table', 'finance.history', 'finance.drafts', 'finance.finance-express-prices', 'finance.cash-bank', 'finance.finance-products'], managerLinks: ['finance.overview', 'flow.overview'] },
   cashier: { type: 'cashier', title: '出纳工作台', focus: '收付款资料 · 资金核对', links: ['finance.doc-withdrawal', 'finance.cash-bank', 'finance.doc-receipt', 'finance.doc-payment', 'finance.doc-transfer', 'finance.drafts'], managerLinks: ['finance.overview'] },
   warehouse: { type: 'warehouse', title: '仓库工作台', focus: '发货组成 · 库存与收货', links: ['finance.inventory', 'finance.finance-bundles', 'finance.doc-purchase-in', 'finance.finance-products'], managerLinks: ['flow.overview'], pending: ['仓库收发货汇总'], modules: ['after-sales'] },
   purchasing: { type: 'purchasing', title: '采购供应链工作台', focus: '供应商资料 · 到货跟进', links: ['finance.finance-suppliers', 'finance.finance-products', 'finance.doc-purchase-in', 'finance.history'], managerLinks: ['flow.overview'], pending: ['采购到货汇总'] },
-  support: { type: 'support', title: '客服工作台', focus: '售后处理 · 订单申诉', links: ['resource.stores'], managerLinks: ['flow.overview'], modules: ['after-sales', 'supervision'] },
+  support: { type: 'support', title: '客服工作台', focus: '售后处理 · 订单申诉', links: ['after-sales.table', 'after-sales.appeals', 'resource.stores'], managerLinks: ['supervision.center', 'flow.overview'], modules: ['after-sales', 'supervision'] },
   live_anchor: { type: 'live_anchor', title: '主播工作台', focus: '我的直播 · 排场与提成', links: ['features.live-desk'], modules: ['live'] },
   live_control: { type: 'live_control', title: '中控工作台', focus: '我的直播 · 排场与提成', links: ['features.live-desk'], modules: ['live'] },
   blank: { type: 'blank', title: '空白工作台', focus: '', links: [] },
 };
 
-export const deskFor = (type: string | null | undefined): DeskDef => DESK_DEFS[(type as PositionWorkspaceType) ?? 'blank'] ?? DESK_DEFS.blank;
+export function deskFor(type: string | null | undefined, referenceProfile?: string): DeskDef {
+  const base = DESK_DEFS[(type as PositionWorkspaceType) ?? 'blank'] ?? DESK_DEFS.blank;
+  if (!referenceProfile || workspaceTypeFromLegacyTemplate(referenceProfile) !== base.type || !Object.hasOwn(LEGACY_DESK_PROFILES, referenceProfile)) return base;
+  return { ...base, ...LEGACY_DESK_PROFILES[referenceProfile], pending: LEGACY_DESK_PROFILES[referenceProfile].pending, managerLinks: undefined };
+}
 
 /** 导航页面键“分区.页面id” → 导航页面（只认已完成的）。 */
 export function navPageByKey(key: string): (NavPage & { sectionId: string; sectionLabel: string }) | null {
@@ -131,6 +136,7 @@ export interface DeskPosition {
   id: number;
   name: string;
   workspaceType: PositionWorkspaceType;
+  referenceProfile?: string;
   level: 'boss' | 'manager' | 'staff';
   departmentId: number | null;
   departmentPath: string;

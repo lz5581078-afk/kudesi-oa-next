@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useCallback, useEffect, useState } from 'react';
 import { TASK_VIEWS, type PersonalTaskList, type PersonalTaskRow, type TaskView } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
@@ -29,7 +30,7 @@ export function PersonalTaskPanel({ refreshKey = 0, onChanged }: { refreshKey?: 
   const done = (msg: string) => { setOpen(null); setNotice(msg); load(); onChanged?.(); };
   return (
     <section className="card ws-section ws-tasks" aria-label="个人任务">
-      <div className="ws-head"><h2>个人任务</h2><button type="button" className="secondary-button small" disabled={loading} onClick={load}>刷新</button></div>
+      <div className="ws-head"><h2>个人任务</h2><div className="toolbar-inline"><Link to="/workbench/tasks">任务中心</Link><button type="button" className="secondary-button small" disabled={loading} onClick={load}>刷新</button></div></div>
       <div className="tabs" role="tablist" aria-label="个人任务分类">
         {TASK_VIEWS.map((t) => (
           <button key={t.key} role="tab" type="button" aria-selected={view === t.key} className={view === t.key ? 'tab active' : 'tab'} onClick={() => { setView(t.key); setPage(1); }}>
