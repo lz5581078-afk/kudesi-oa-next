@@ -72,7 +72,7 @@ describe('商品组合编码页', () => {
       return{items:all.slice((page-1)*200,page*200),total:all.length,page,pageSize:200};
     });
     vi.mocked(jstApi.bundleOverview).mockResolvedValue({status:{pending:1}});
-    render(<BundlesPage/>);fireEvent.click(screen.getByRole('button',{name:'归档与聚水潭禁用记录'}));fireEvent.click(screen.getAllByText('更多操作',{selector:'summary'}).find(node=>!node.closest('tr'))!);await screen.findByRole('option',{name:'合成平台200'});await screen.findByText('ZH-FULL',{selector:'td[data-label="组合编码"] strong'});
+    render(<BundlesPage/>);await within(screen.getByRole('combobox',{name:'销售平台筛选'})).findByRole('option',{name:'合成平台200'});await screen.findByText('ZH-FULL',{selector:'td[data-label="组合编码"] strong'});
 
     vi.mocked(jstApi.bundleComposition).mockResolvedValue({referenceDetail:{id:7,code:'ZH-FULL',name:'完整详情',shortName:'',styleCode:'',mainStyleCode:'',platform:'',spec:'',lines:lines.map(line=>({id:line.id,role:'main',name:line.refLabels.baseCodeId,code:'',spec:'',qty:1,unit:'',weightG:null,isRawFinishedName:false}))}} as never);
     fireEvent.click(screen.getByRole('button',{name:/查看 .* 项/}));
