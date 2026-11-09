@@ -76,3 +76,6 @@
 }
 
 .company-products-layout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:16px;align-items:start}.company-products-directory{display:grid;gap:10px}.company-products-directory .code-category-directory{width:auto}.company-products-layout>section{min-width:0}.company-products-layout .company-products-filters{margin-bottom:12px}@media(max-width:760px){.company-products-layout{grid-template-columns:1fr}.company-products-directory{max-height:280px;overflow:auto}}
+
+.company-product-cropped-image { width: 100%; height: 100%; display: block; }
+.company-product-cover > .company-product-cropped-image { position: absolute; inset: 0; }
