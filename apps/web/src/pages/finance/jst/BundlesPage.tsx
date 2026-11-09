@@ -155,30 +155,34 @@ function BundlesContent() {
   return (
     <div className="finance-code-page finance-bundle-reference">
       {applications&&<SkuApplicationCenter onClose={()=>setApplications(false)}/>}
-      <div className="page-head finance-page-toolbar" aria-label="组合编码操作">
-        <div className="finance-toolbar-description"><h1>商品组合编码</h1><p>销售组合装，对标聚水潭组合装商品</p></div>
-        <div className="finance-page-actions">
-        <button type="button" className="secondary-button" onClick={()=>setDialog('naming')}><ClipboardCheck size={16}/>组合品编码配置中心</button>
-        <button type="button" className="secondary-button" onClick={()=>setApplications(true)}><ClipboardCheck size={16}/>SKU批量申请</button>
+      <BundleArchiveHistory toolbar={archiveButton => (
+        <div className="bundle-workbench-toolbar">
+          <CodeVerificationTabs scope="bundle" value={tab} counts={counts} onChange={value=>{setTab(value);setPage(1);setChecked([]);setCategoryId('');setQuery({keyword,platform,enabledState});setData(null);setReferenceDetail(null);}}/>
+          <div className="bundle-workbench-actions" role="group" aria-label="组合编码操作">
+            <button type="button" className="secondary-button" onClick={()=>setDialog('naming')}>组合品编码配置中心</button>
+            <button type="button" className="secondary-button" onClick={()=>setApplications(true)}>SKU批量申请</button>
+            {archiveButton}
+            <details className="bundle-extra-tools">
+              <summary className="secondary-button">更多操作</summary>
+              <div className="bundle-extra-actions">
+                <button type="button" className="secondary-button" onClick={()=>setUnknownInactive(true)}>验证状态待确认的停用记录</button>
+                {tab!=='verified'&&canAny('finance.jst-sync.view') && <button type="button" className="secondary-button" onClick={() => setSync('')}>聚水潭同步维护</button>}
+                {can('edit') && <button type="button" className="secondary-button" disabled={checked.length !== 1 || one?.status === 'archived'} onClick={() => one && setRevise(one)}>修改构成</button>}
+                {can('edit') && <button type="button" className="secondary-button" disabled={checked.length !== 1 || one?.status === 'archived'} onClick={() => one && setManual(one)}>改码 / 改名</button>}
+                {can('delete') && <button type="button" className="secondary-button" disabled={checked.length !== 1} onClick={() => one && setRemove(one)}>删除 / 归档</button>}
+                {can('edit') && <button type="button" className="secondary-button" onClick={() => setDialog('regen')}>按新规则重生成编码</button>}
+                {can('import') && <button type="button" className="secondary-button" onClick={() => setDialog('import')}>导入</button>}
+                {can('export') && <button type="button" className="secondary-button" onClick={async () => { try { const o = await resourceApi.export(TYPE, true); downloadText(o.filename, o.csv); } catch (e) { setError(e instanceof ApiError ? e.message : '导出失败'); } }}>导出</button>}
+              </div>
+            </details>
+          </div>
         </div>
-      </div>
-      <BundleArchiveHistory>        <details className="bundle-extra-tools"><summary>更多操作</summary><div className="pill-row"><label>销售平台<select aria-label="销售平台筛选" value={platform} onChange={e=>setPlatform(e.target.value)}><option value="">全部平台</option>{platforms.map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</select></label><button type="button" className="secondary-button" onClick={()=>setUnknownInactive(true)}>验证状态待确认的停用记录</button>
-          {tab!=='verified'&&canAny('finance.jst-sync.view') && <button type="button" className="secondary-button" onClick={() => setSync('')}>聚水潭同步维护</button>}
-          {can('edit') && <button type="button" className="secondary-button" disabled={checked.length !== 1 || one?.status === 'archived'} onClick={() => one && setRevise(one)}>修改构成</button>}
-          {can('edit') && <button type="button" className="secondary-button" disabled={checked.length !== 1 || one?.status === 'archived'} onClick={() => one && setManual(one)}>改码 / 改名</button>}
-          {can('delete') && <button type="button" className="secondary-button" disabled={checked.length !== 1} onClick={() => one && setRemove(one)}>删除 / 归档</button>}
-
-          {can('edit') && <button type="button" className="secondary-button" onClick={() => setDialog('regen')}>按新规则重生成编码</button>}
-          {can('import') && <button type="button" className="secondary-button" onClick={() => setDialog('import')}>导入</button>}
-          {can('export') && <button type="button" className="secondary-button" onClick={async () => { try { const o = await resourceApi.export(TYPE, true); downloadText(o.filename, o.csv); } catch (e) { setError(e instanceof ApiError ? e.message : '导出失败'); } }}>导出</button>}
-
-        </div></details></BundleArchiveHistory>
-      <CodeVerificationTabs scope="bundle" value={tab} counts={counts} onChange={value=>{setTab(value);setPage(1);setChecked([]);setCategoryId('');setQuery({keyword,platform,enabledState});setData(null);setReferenceDetail(null);}}/>
+      )}/>
       <div className="tree-layout">
       <FinanceCodeDirectory cats={categories} counts={categoryCounts} kicker="商品组合编码分类" value={Number(categoryId)||null} onPick={id=>{setCategoryId(id?String(id):'');setPage(1);setChecked([]);setQuery({keyword,platform,enabledState});}} onManage={canAny('resource.finance-categories.edit')?()=>setManageCategories(true):undefined}/>
 
       <section className="card" id="bundle-verification-workspace" role="tabpanel" aria-labelledby={`bundle-verification-tab-${tab}`}><div className="bundle-list-heading"><h2>{category?`${bundleCategoryDisplayName(String(category.data.name||category.title))}组合编码`:'组合编码'}（{data?.total??0}）</h2>          {can('create') && (categoryId && leaf ? <button type="button" className="primary-button" onClick={() => setDialog('generate')}><Plus size={16}/>新建组合编码</button> : <span className="bundle-list-create-hint">选择末级分类后可新增</span>)}</div>
-        <form className="toolbar" onSubmit={e=>{e.preventDefault();setPage(1);setChecked([]);setQuery({keyword,platform,enabledState});}}><input className="grow" aria-label="搜索" placeholder="组合编码、主款式编码、款式编码、商品名称或简称" value={keyword} onChange={(e) => setKeyword(e.target.value)} /><select aria-label="状态筛选" value={enabledState} onChange={e=>setEnabledState(e.target.value)}><option value="">全部状态</option><option value="active">启用</option><option value="inactive">停用</option></select><button type="submit" className="secondary-button" disabled={loading}><Search size={16}/>{loading?'查询中...':'查询'}</button></form>
+        <form className="toolbar bundle-list-filters" onSubmit={e=>{e.preventDefault();setPage(1);setChecked([]);setQuery({keyword,platform,enabledState});}}><input className="grow" aria-label="搜索" placeholder="组合编码、主款式编码、款式编码、商品名称或简称" value={keyword} onChange={(e) => setKeyword(e.target.value)} /><select aria-label="销售平台筛选" value={platform} onChange={e=>setPlatform(e.target.value)}><option value="">全部平台</option>{platforms.map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</select><select aria-label="状态筛选" value={enabledState} onChange={e=>setEnabledState(e.target.value)}><option value="">全部状态</option><option value="active">启用</option><option value="inactive">停用</option></select><button type="submit" className="secondary-button" disabled={loading}><Search size={16}/>{loading?'查询中...':'查询'}</button></form>
         {tab==='verified'&&canAny('finance.jst-sync.view')&&<div className="base-batch-verification-bar"><button type="button" className="secondary-button" onClick={()=>setSync('')}><RefreshCw size={16}/>聚水潭同步维护</button>{syncSummary()}</div>}
         {tab!=='verified'&&<div className="base-batch-verification-bar"><span>已选 {checked.length} 条</span>          {can('edit') && <button type="button" className="secondary-button" disabled={loading||checked.length===0||checked.length>50} onClick={() => setVerifyIds(verifiable.map((r) => r.id))}><ClipboardCheck size={16}/>批量验证</button>}
 </div>}
