@@ -260,16 +260,36 @@ export class BundleToolsService {
       const {costCompositionFacts}=await import('./cost-components');const current=await costCompositionFacts(em,user.companyId,bundle.data,lines);
       const units=await loadUnitLists(em,user.companyId),unitField=getResourceDef('finance-bundle-lines')!.fields.find(field=>field.key==='unit')!;
       const baseUnits:Record<number,{unit:string;label:string;available:boolean}>={};
+      const baseSystemSpecs = new Map<number, string>();
       if(createChecker(user.permissions)('resource.finance-base-codes.view')){
         const bases=await em.find(ResourceRecord,{where:{companyId:user.companyId,type:'finance-base-codes'}}),byId=new Map(bases.map(row=>[row.id,row]));
-        const products=await em.createQueryBuilder(ResourceRecord,'p').select('p.id','id').addSelect("COALESCE(NULLIF(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(p.data,'$.specUnit')),'null'),''),NULLIF(JSON_UNQUOTE(JSON_EXTRACT(p.data,'$.purchaseSpec')),'null'))",'unit').where('p.companyId=:companyId AND p.type=:type',{companyId:user.companyId,type:'finance-products'}).getRawMany<{id:number;unit:string|null}>(),productUnits=new Map(products.map(row=>[Number(row.id),row.unit||'']));
-        for(const row of bases.filter(row=>row.status==='verified'&&!row.archivedAt)){const real=typeof row.data.canonicalId==='number'?byId.get(row.data.canonicalId):row;const unit=str(row.data.baseUnit)||str(row.data.codeSpecUnit)||(['composed','external_import'].includes(str(real?.data.origin))?str(real?.data.codeSpecUnit):productUnits.get(Number(real?.data.productId))||'');baseUnits[row.id]={unit,label:unitLabelFor(units,unitField,{},unit),available:!!real&&real.status==='verified'&&!real.archivedAt&&!!unit};}
+        const products = await em.createQueryBuilder(ResourceRecord, 'p').select('p.id', 'id')
+          .addSelect("NULLIF(JSON_UNQUOTE(JSON_EXTRACT(p.data,'$.specUnit')),'null')", 'specUnit')
+          .addSelect("NULLIF(JSON_UNQUOTE(JSON_EXTRACT(p.data,'$.purchaseSpec')),'null')", 'purchaseSpec')
+          .where('p.companyId=:companyId AND p.type=:type', {companyId:user.companyId,type:'finance-products'})
+          .getRawMany<{id:number;specUnit:string|null;purchaseSpec:string|null}>();
+        const productsById = new Map(products.map(row => [Number(row.id), row]));
+        for (const row of bases.filter(row => row.status === 'verified' && !row.archivedAt)) {
+          const real = typeof row.data.canonicalId === 'number' ? byId.get(row.data.canonicalId) : row;
+          const independent = ['composed','external_import'].includes(str(real?.data.origin));
+          const product = independent ? undefined : productsById.get(Number(real?.data.productId));
+          const unit = str(row.data.baseUnit) || str(row.data.codeSpecUnit) ||
+            (independent ? str(real?.data.codeSpecUnit) : product?.specUnit || product?.purchaseSpec || '');
+          const systemSpec = product?.purchaseSpec?.trim();
+          if (systemSpec) baseSystemSpecs.set(row.id, systemSpec);
+          const label = systemSpec || unitLabelFor(units, unitField, {}, unit);
+          baseUnits[row.id] = {unit,label,available:!!real && real.status === 'verified' && !real.archivedAt && !!unit};
+        }
       }
       const facts:Record<string,{title:string;code:string;unit:string;weightG:number|null;available:boolean}>={};
       for(const [index,line]of lines.entries()){
         const kind=line.laborId?'labor':line.productId?'archive':'base',type=kind==='labor'?'finance-labor-costs':kind==='archive'?'finance-products':'finance-base-codes',sourceId=Number(line.laborId??line.productId??line.baseCodeId);
         const source=await em.findOne(ResourceRecord,{where:{companyId:user.companyId,type,id:sourceId}});
-        facts[`${kind}:${sourceId}`]={title:source?(kind==='base'?str(source.data.name)||source.title:kind==='labor'?str(source.data.workName)||source.title:str(source.data.name)||source.title):records[index].title,code:str(source?.data.code)||str(source?.data.workCode),unit:kind==='labor'?source?await bundleLaborUnit(em,user.companyId,source):'':unitLabelFor(units,unitField,line,line.unit||(kind==='base'?baseUnits[sourceId]?.unit:source?.data.specUnit)),weightG:current.lines[index]?.unitWeightG??null,available:!!source&&!source.archivedAt&&source.status===(kind==='base'?'verified':'active')};
+        let displayUnit = unitLabelFor(units, unitField, line, line.unit);
+        if (kind === 'labor') displayUnit = source ? await bundleLaborUnit(em, user.companyId, source) : '';
+        if (kind === 'archive' && source) displayUnit = str(source.data.purchaseSpec).trim() || '未维护系统规格';
+        if (kind === 'base') displayUnit = baseSystemSpecs.get(sourceId) || displayUnit || baseUnits[sourceId]?.label || '';
+        facts[`${kind}:${sourceId}`]={title:source?(kind==='base'?str(source.data.name)||source.title:kind==='labor'?str(source.data.workName)||source.title:str(source.data.name)||source.title):records[index].title,code:str(source?.data.code)||str(source?.data.workCode),unit:displayUnit,weightG:current.lines[index]?.unitWeightG??null,available:!!source&&!source.archivedAt&&source.status===(kind==='base'?'verified':'active')};
       }
       const revisions=(await this.resources.findWhere(em,user.companyId,'finance-bundle-revisions','bundleId',id)).sort((a,b)=>b.id-a.id),pending=revisions.find(row=>row.id===bundle.data.pendingRevisionId&&row.status==='pending');
       const parsed=pending?readRevisionPayload(pending.data.payload):null;
