@@ -30,6 +30,10 @@ export class WorkspaceController {
   @Get('daily')
   daily(@CurrentUser() user: AuthUser, @Query() q: DailyQuery) { return this.ws.daily(user, q.date); }
 
+  @RequirePermission('workbench.desk.view')
+  @Get('my-stores')
+  myStores(@CurrentUser() user: AuthUser) { return this.ws.myStores(user); }
+
   @AuthenticatedOnly()
   @Get('tasks')
   tasks(@CurrentUser() user: AuthUser, @Query() q: TasksQuery) { return this.ws.tasks(user, q); }

@@ -1,9 +1,12 @@
 import type { BossDashboard, DailyBusiness, DeskCatalog, DeskPosition, PersonalTaskList, SummaryCard } from '@kudesi/shared';
 import { api } from '../../api/client';
 
+export interface MyStore { id: number; name: string; platform: string; platformLabel: string }
+
 export interface DeskDto { position: DeskPosition; title: string; focus: string; pending: string[]; cards: SummaryCard[] }
 
 export const workspaceApi = {
+  myStores: () => api<MyStore[]>('/workspace/my-stores'),
   catalog: () => api<DeskCatalog>('/workspace/catalog'),
   desk: (positionId: number) => api<DeskDto>(`/workspace/desk/${positionId}`),
   tasks: (p: { view: string; page?: number; pageSize?: number }) => api<PersonalTaskList>(`/workspace/tasks?view=${p.view}&page=${p.page ?? 1}&pageSize=${p.pageSize ?? 8}`),
