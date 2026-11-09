@@ -110,7 +110,7 @@ export function VerifyDialog({ ids, isAdmin, onClose, onDone, readOnly = false }
           )}
           {!inspectionOnly && <><hr />
           <label className="check"><input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} /> 我已核对以上 {ready.length} 条的资料和上传内容，确认无误</label>
-          {isAdmin && <label className="check"><input type="checkbox" checked={sync} onChange={(e) => setSync(e.target.checked)} /> 验证后加入聚水潭同步队列（只排队；总开关打开并接入接口后才会真正发送）</label>}
+          {isAdmin && <label className="check"><input type="checkbox" checked={sync} onChange={(e) => setSync(e.target.checked)} /> 验证后加入聚水潭同步队列（由后台发送并回查）</label>}
           {anyReplace && <label className="check"><input type="checkbox" checked={replaceOk} onChange={(e) => setReplaceOk(e.target.checked)} /> 已处理旧编码的库存、在途订单、组合装及店铺映射关联，确认禁用旧编码并创建新编码</label>}</>}
         </div>
         <div className="modal-foot">

@@ -7,7 +7,7 @@
 /** 新系统对这一组能力的接入程度 */
 export type JstReadiness = 'queue' | 'partial' | 'planned' | 'none';
 export const JST_READINESS_LABEL: Record<JstReadiness, string> = {
-  queue: '已接入出站队列（开关见实时状态）',
+  queue: '已接入出站队列',
   partial: '已接入部分只读能力',
   planned: '规划：尚未启用通用定时同步',
   none: '未开始',
@@ -40,7 +40,7 @@ export const JST_CAPABILITY_GROUPS: readonly JstCapabilityGroup[] = [
     tested: ['/open/sku/query', '/open/skumap/query', '/open/mall/item/query', '/open/combine/sku/query', '/open/category/query'],
     systemUse: '落到财务基础资料的商品档案、SKU成本表、店铺商品映射和后续利润核算。',
     syncPlan: '商品主数据每日同步；成本和映射变更支持按需同步。',
-    readiness: 'queue', newSystem: '基础编码、组合装上传，基本售价同步和分类同步已做成出站任务；真实发送器已接入，是否可用及是否允许发送以上方实时状态为准。',
+    readiness: 'queue', newSystem: '基础编码、组合装上传，基本售价同步和分类同步已做成出站任务；授权有效后由后台处理，可在上方查看接口和队列状态。',
   },
   {
     name: '订单履约', status: 'active', summary: '订单查询、订单上传、订单取消、发货回传、备注、标签和异常单。',
@@ -117,7 +117,7 @@ export const JST_RULES: readonly JstRule[] = [
   { title: '幂等落库', text: '以聚水潭单号、内部单号、SKU、店铺编号等唯一键覆盖更新，不重复生成资料。' },
   { title: '写入审批', text: '订单上传、采购上传、入库、库存更新、发货回传等写入动作必须来自流程节点并保留操作日志。' },
   { title: '异常监督', text: '同步失败、权限不足、token过期、字段无法匹配时生成异常，进入接口对接监督视图。' },
-  { title: '出站队列与总开关', text: '新系统的所有外部写入只能先进出站队列，由单一发送器按总开关发送；总开关默认关闭，公司管理员可随时一键停止。' },
+  { title: '出站队列', text: '聚水潭写入统一进入出站队列，由后台核对授权账号后发送，并记录结果。' },
 ];
 
 /** 旧系统页面上写的“已读取授权能力”数量（页面确认过的可用 API 数，部分分类的明细还没补全）。 */

@@ -15,7 +15,7 @@ const withoutScope=(value:Record<string,unknown>|null)=>{if(!value)return value;
 export class CategoryDependencyPending extends Error {}
 
 const scopeName={product:'商品编码分类',bundle:'商品组合编码分类',archive:'商品档案分类'};
-/** 同一分类计划及出站队列：自动授权只绑定可信完整连接，实际发送仍受总开关控制。 */
+/** 同一分类计划及出站队列：自动授权只绑定可信完整连接。 */
 @Injectable()
 export class CategorySyncService{
  constructor(@InjectDataSource() private readonly ds:DataSource,private readonly outbox:OutboxService){}
@@ -137,7 +137,6 @@ export class CategorySyncService{
  });}
  async retryAutomatic(user:AuthUser,scope:CategoryScope){this.admin(user);this.scope(scope);return this.ds.transaction(async em=>{const policy=await categoryPolicy(em,user.companyId,scope,true),sender=await this.outbox.senderFor(user.companyId);if(!policy||policy.data.enabled!==true||!sender.categoryTarget||policy.data.targetKey!==sender.categoryTarget.key)throw new ConflictException('分类自动同步未开启或授权目标已变化');policy.data={...policy.data,generation:(num(policy.data.generation)??0)+1,nextAttemptAt:0,lastError:'',failedGeneration:undefined};policy.updatedBy=user.id;await em.save(ResourceRecord,policy);await em.query('INSERT INTO jst_category_runs(company_id,mode,actor_id,status,message,details_json) VALUES(?,?,?,?,?,?)',[user.companyId,scope,user.id,'success','管理员重新安排自动同步核对',JSON.stringify({scope,mode:'retry',changes:[]})]);return{queued:1};});}
  async drainAutomatic(companyId:number){
-  if((await this.outbox.getSwitch(companyId)).enabled!==true)return;
   const ids=(await this.ds.manager.find(ResourceRecord,{where:{companyId,type:CATEGORY_POLICY_TYPE},select:['id','data']})).filter(row=>row.data.enabled===true&&(num(row.data.generation)??0)>(num(row.data.processedGeneration)??0)).map(row=>row.id);
   for(const id of ids)await this.ds.transaction(async em=>{
    const policy=await em.findOne(ResourceRecord,{where:{id,companyId,type:CATEGORY_POLICY_TYPE},lock:{mode:'pessimistic_write'}});if(!policy||policy.data.enabled!==true)return;const scope=policy.data.scope as CategoryScope;if(!categoryScopes.includes(scope))return;const generation=num(policy.data.generation)??0;if(generation<=(num(policy.data.processedGeneration)??0)||Number(policy.data.nextAttemptAt||0)>Date.now())return;

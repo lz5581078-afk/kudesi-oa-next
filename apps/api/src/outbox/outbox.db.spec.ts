@@ -1,4 +1,4 @@
-/** 出站队列（聚水潭同步）的真实数据库测试：总开关默认允许；只入队不发送；失败退避；中途关闸立刻停。 */
+/** 出站队列（聚水潭同步）的真实数据库测试：只入队不发送；失败退避；已取消的任务不发送。 */
 import 'reflect-metadata';
 import * as crypto from 'crypto';
 import { DataSource } from 'typeorm';
@@ -44,7 +44,7 @@ d('聚水潭同步队列（真实数据库）', () => {
   });
   afterAll(async () => { await ds?.destroy(); });
 
-  it('总开关默认允许；没验证的不能同步；入队只改状态不发送，同一版本不会重复入队', async () => {
+  it('没验证的不能同步；入队只改状态不发送，同一版本不会重复入队', async () => {
     expect((await outbox.getSwitch(boss.companyId)).enabled).toBe(true);
     await expect(outbox.enqueue(staff, 'finance-base-codes')).rejects.toThrow(/管理员/);
     await expect(outbox.enqueue(boss, 'finance-products')).rejects.toThrow(/不支持/);
@@ -57,13 +57,13 @@ d('聚水潭同步队列（真实数据库）', () => {
     expect(j.rows[0].payload).toMatchObject({ code: 'APPLE-A' });
   });
 
-  it('开关关着、或没有接入真实发送器：一条也不发', async () => {
+  it('没有接入真实发送器：一条也不发', async () => {
     expect(await outbox.processCompany(boss.companyId)).toEqual({ sent: 0, failed: 0, blocked: true }); // 默认发送器没配置
     expect(sentKeys).toHaveLength(0);
-    await expect(outbox.setSwitch(staff, true)).rejects.toThrow(/管理员/);
   });
 
-  it('开关打开且发送器就绪才发送；成功后标记已同步；失败退避重试，超过次数标记失败', async () => {
+  it('忽略旧总开关并在发送器就绪后发送；成功后标记已同步；失败退避重试，超过次数标记失败', async () => {
+    await ds.query("INSERT INTO outbox_switches (company_id, channel, enabled) VALUES (?, 'jushuitan', 0)", [boss.companyId]);
     const ready = sender();
     outbox.setSender({ ...ready, forCompany: async companyId => companyId === boss.companyId ? ready : { configured: false, send: async () => {} } });
     const originalPatch=svc.patchData.bind(svc);let uploadWhileSending=false;
@@ -73,7 +73,11 @@ d('聚水潭同步队列（真实数据库）', () => {
       }
       return originalPatch(...args);
     });
-    try { await outbox.processAll(); } finally { patchSpy.mockRestore(); }
+    try {
+      await outbox.processAll();
+    } finally {
+      patchSpy.mockRestore();
+    }
     expect(uploadWhileSending).toBe(true);
 
     expect(sentKeys).toHaveLength(1);
@@ -107,7 +111,7 @@ d('聚水潭同步队列（真实数据库）', () => {
     expect(job.status).toBe('done');
   });
 
-  it('一键停止：处理到一半被关掉，后面的不再发送；已取消的任务不会发', async () => {
+  it('已取消的任务不会发', async () => {
     const bcs: number[] = [];
     for (const code of ['K-1', 'K-2', 'K-3']) {
       const b = await mkBc(`物料${code}`, code);
@@ -118,11 +122,10 @@ d('聚水潭同步队列（真实数据库）', () => {
     const jobs = (await outbox.jobs(boss, { status: 'pending', page: 1, pageSize: 10 })).rows;
     await outbox.cancel(boss, jobs[jobs.length - 1].id);
     const before = sentKeys.length;
-    outbox.setSender(sender({ send: async (j) => { sentKeys.push(j.idempotencyKey); await outbox.setSwitch(boss, false, '一键停止'); } }));
-    const r = await outbox.processCompany(boss.companyId);
-    expect(sentKeys.length - before).toBe(1);
-    expect(r.blocked).toBe(true);
-    expect((await outbox.jobs(boss, { page: 1, pageSize: 10 })).counts).toMatchObject({ pending: 1, cancelled: 1 });
+    outbox.setSender(sender());
+    expect((await outbox.processCompany(boss.companyId)).sent).toBe(2);
+    expect(sentKeys.length - before).toBe(2);
+    expect((await outbox.jobs(boss, { page: 1, pageSize: 10 })).counts.cancelled).toBe(1);
   });
   it('旧队列中超出聚水潭精度的单价直接停止，不自动重试或执行写入', async () => {
     const { assertJstNormalPricePrecision } = await import('./jst-price-precision');
@@ -132,7 +135,7 @@ d('聚水潭同步队列（真实数据库）', () => {
     const writes = jest.fn();
     outbox.setSender(sender({ send: async job => { assertJstNormalPricePrecision(job.payload); writes(); } }));
     await ds.query("INSERT INTO outbox_jobs(company_id,channel,kind,resource_type,resource_id,idempotency_key,payload_json,created_by) VALUES(?,'jushuitan','base_code_upsert','finance-base-codes',?,'precision-guard',?,?)", [boss.companyId, bc.id, JSON.stringify({ sku_id: 'PRECISION-GUARD', cost_price: 0.012345 }), boss.id]);
-    await outbox.setSwitch(boss, true, '精度测试');
+
     expect(await outbox.processCompany(boss.companyId)).toMatchObject({ sent: 0, failed: 1 });
     const job = (await outbox.jobs(boss, { status: 'failed', page: 1, pageSize: 100 })).rows.find((j: { resourceId: number }) => j.resourceId === bc.id)!;
     expect(job).toMatchObject({ status: 'failed', attempts: 1 });
@@ -163,7 +166,7 @@ d('聚水潭同步队列（真实数据库）', () => {
     const bc=await mkBc('合成迟到入队','LATE-OLD'),writes=jest.fn();outbox.setSender(sender({send:async j=>{writes(j);}}));
     await svc.update(boss,'finance-base-codes',bc.id,{code:'LATE-NEW',codeChangeReason:'先完成未上传改码'});
     await ds.query("INSERT INTO outbox_jobs(company_id,channel,kind,resource_type,resource_id,idempotency_key,payload_json,created_by) VALUES(?,'jushuitan','base_code_upsert','finance-base-codes',?,'late-old-code',?,?)",[boss.companyId,bc.id,JSON.stringify({code:'LATE-OLD'}),boss.id]);
-    await outbox.setSwitch(boss,true,'仅合成发送器');expect(await outbox.processCompany(boss.companyId)).toMatchObject({sent:0,failed:1});expect(writes).not.toHaveBeenCalled();
+    expect(await outbox.processCompany(boss.companyId)).toMatchObject({sent:0,failed:1});expect(writes).not.toHaveBeenCalled();
     expect(await ds.manager.findOneByOrFail(OutboxJob,{companyId:boss.companyId,idempotencyKey:'late-old-code'})).toMatchObject({status:'cancelled',lastError:expect.stringContaining('编码已变化')});
     expect((await svc.get(boss,'finance-base-codes',bc.id)).data).toMatchObject({code:'LATE-NEW'});expect((await svc.get(boss,'finance-base-codes',bc.id)).data._financeCodeUploaded).not.toBe(true);
   });
@@ -171,7 +174,7 @@ d('聚水潭同步队列（真实数据库）', () => {
   it('历史改码替换队列也不再执行，不能绕过已上传编码保护',async()=>{
     const bc=await mkBc('历史改码任务合成','LEGACY-REPLACE'),writes=jest.fn();outbox.setSender(sender({send:async j=>{writes(j);}}));
     await ds.query("INSERT INTO outbox_jobs(company_id,channel,kind,resource_type,resource_id,idempotency_key,payload_json,created_by) VALUES(?,'jushuitan','base_code_replace','finance-base-codes',?,'legacy-replace-guard',?,?)",[boss.companyId,bc.id,JSON.stringify({code:'LEGACY-REPLACE',oldCode:'UPLOADED-OLD'}),boss.id]);
-    await outbox.setSwitch(boss,true,'仅合成发送器');expect(await outbox.processCompany(boss.companyId)).toMatchObject({sent:0,failed:1});expect(writes).not.toHaveBeenCalled();
+    expect(await outbox.processCompany(boss.companyId)).toMatchObject({sent:0,failed:1});expect(writes).not.toHaveBeenCalled();
     expect(await ds.manager.findOneByOrFail(OutboxJob,{companyId:boss.companyId,idempotencyKey:'legacy-replace-guard'})).toMatchObject({status:'cancelled',lastError:expect.stringContaining('编码不可替换')});
   });
 

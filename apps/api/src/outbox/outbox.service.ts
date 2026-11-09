@@ -14,7 +14,7 @@ import { createChecker, SPECIAL_PERMISSIONS } from '@kudesi/shared';
 import { assertArchiveBundleIdentity, afterJobDone, afterJobFailed, afterJobSent, beforeJobSend, type JobOutcome } from './outbox-handlers';
 
 export const JST_CHANNEL = 'jushuitan';
-/** 组合基本售价自动同步的独立开关（外部写入，默认关；总开关关着时同样不发送） */
+/** 组合基本售价自动同步的独立开关（外部写入，默认关；按独立设置发送） */
 export const PRICE_CHANNEL = 'jst_price';
 export const OUTBOX_SENDER = 'OUTBOX_SENDER';
 const MAX_ATTEMPTS = 5;
@@ -62,7 +62,7 @@ const str = (v: unknown) => (typeof v === 'string' ? v : '');
 /**
  * 出站队列（外部写入的唯一出口）：
  *  - 业务只“加入队列”，不直接调外部接口；
- *  - 聚水潭同步默认允许，随时可以一键停止；关着的时候队列只积压，不发送；
+ *  - 已提交的聚水潭同步任务由后台处理；
  *  - 单一 worker 串行发送，失败按 2 的幂次分钟退避，最多重试 5 次；同一个版本只入队一次（幂等键）。
  */
 @Injectable()
@@ -80,7 +80,7 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
   setSender(s: OutboxSender) { this.sender = s; }
 
   onModuleInit() {
-    if (process.env.NODE_ENV === 'test' || process.env.OUTBOX_WORKER === 'off') return;
+    if (process.env.NODE_ENV === 'test') return;
     this.timer = setInterval(() => void this.processAll(), 30_000);
     this.timer.unref();
   }
@@ -90,7 +90,7 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
     if (!user.permissions.isCompanyAdmin) throw new ForbiddenException('只有公司管理员能管理对外同步');
   }
 
-  /** 组合装的同步维护：公司管理员，或被授予「组合装同步维护」权限的人（个人拒绝优先）；基础编码和总开关仍只有管理员 */
+  /** 组合装的同步维护：公司管理员，或被授予「组合装同步维护」权限的人（个人拒绝优先）；基础编码仍只有管理员 */
   canBundles(user: AuthUser) { return createChecker(user.permissions)(SPECIAL_PERMISSIONS.financeBundleSync); }
   needBundles(user: AuthUser) {
     if (!this.canBundles(user)) throw new ForbiddenException('没有「组合装同步维护」的权限');
@@ -104,14 +104,14 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
   get senderReadCategories() { return this.sender.readCategories ? () => this.sender.readCategories!() : null; }
 
   async getSwitch(companyId: number, channel: string = JST_CHANNEL) {
-    const row = await this.dataSource.manager.findOne(OutboxSwitch, { where: { companyId, channel } });
+    const row = channel === JST_CHANNEL ? null : await this.dataSource.manager.findOne(OutboxSwitch, { where: { companyId, channel } });
     let senderConfigured = false;
     try { senderConfigured = (await this.senderFor(companyId)).configured; } catch { /* 缺少公司授权 */ }
     return { enabled: row?.enabled ?? (channel === JST_CHANNEL), note: row?.note ?? null, updatedAt: row?.updatedAt ?? null, senderConfigured };
   }
 
-  /** 总开关（channel=jushuitan）和基本售价同步开关（channel=jst_price）都只有公司管理员能改；总开关关着，什么都不发 */
-  async setSwitch(user: AuthUser, enabled: boolean, note?: string, channel: string = JST_CHANNEL) {
+  /** 基本售价同步开关只有公司管理员能改 */
+  async setSwitch(user: AuthUser, enabled: boolean, note: string | undefined, channel: typeof PRICE_CHANNEL) {
     this.admin(user);
     await this.dataSource.manager.query(
       'INSERT INTO outbox_switches (company_id, channel, enabled, note, updated_by) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), note = VALUES(note), updated_by = VALUES(updated_by)',
@@ -263,7 +263,7 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
     return { queued, skipped,...(opts.approvalIntent?{blocked}:{}) };
   }
 
-  /** 手工上传的普通商品资料：只加入队列（总开关开着、接入真实接口后才会发送），结果回写上传记录。 */
+  /** 手工上传的普通商品资料：只加入队列（接入真实接口后才会发送），结果回写上传记录。 */
   async enqueueUpload(user: AuthUser, recordId: number, payload: Record<string, unknown>, options: { em?: EntityManager; expectedTargetKey?: string; idempotencyKey?: string } = {}) {
     this.admin(user);
     try { assertJstNormalPricePrecision(payload); } catch (e) { throw new BadRequestException((e as Error).message); }
@@ -487,9 +487,6 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
     return { ok: true };
   }
 
-  private async enabled(companyId: number) {
-    return (await this.getSwitch(companyId)).enabled;
-  }
 
   private normalMismatch(expected:Record<string,unknown>,observed:Record<string,unknown>){
     for (const key of ['sku_id', 'i_id', 'name', 'short_name', 'properties_value', 'c_name', 'brand', 'unit', 'weight', 'cost_price', 'purchase_price']) {
@@ -591,13 +588,11 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
     if (this.running) return;
     this.running = true;
     try {
-      const companies = await this.dataSource.query(
-        `SELECT c.id FROM companies c
-         LEFT JOIN outbox_switches sw ON sw.company_id = c.id AND sw.channel = ?
-         WHERE sw.enabled = 1 OR (sw.company_id IS NULL AND c.status = 'active')`,
-        [JST_CHANNEL],
-      );
-      for (const c of companies as { id: number }[]) await this.processCompany(c.id);
+      const companies = await this.dataSource.query("SELECT id FROM companies WHERE status = 'active' ORDER BY id");
+      for (const c of companies as { id: number }[]) {
+        try { await this.processCompany(c.id); }
+        catch (error) { this.log.error(`聚水潭队列处理失败（公司 ${c.id}）：${(error as Error).message}`); }
+      }
     } catch (e) { this.log.error(`出站队列处理失败：${(e as Error).message}`); }
     finally { this.running = false; }
   }
@@ -616,12 +611,11 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  /** 开关关着、或没有接入真实发送器：一条也不发 */
+  /** 没有接入真实发送器时保留队列 */
   async processCompany(companyId: number): Promise<{ sent: number; failed: number; blocked: boolean }> {
     let sender:OutboxSender,configurationMessage='聚水潭授权或应用尚未配置';
     try{sender=await this.senderFor(companyId);}catch(error){if(!(error instanceof ExternalConfigurationError))throw error;configurationMessage=error.message;sender=new UnconfiguredSender();}
-    const enabled=await this.enabled(companyId);
-    if (!sender.configured || !enabled){if(enabled&&!sender.configured)await this.blockPendingApprovalConfiguration(companyId,configurationMessage);return { sent: 0, failed: 0, blocked: true };}
+    if (!sender.configured){await this.blockPendingApprovalConfiguration(companyId,configurationMessage);return { sent: 0, failed: 0, blocked: true };}
     const {CategorySyncService,CategoryDependencyPending}=await import('./category-sync.service');
     const categories=new CategorySyncService(this.dataSource,this);
     await categories.drainAutomatic(companyId);
@@ -635,7 +629,6 @@ export class OutboxService implements OnModuleInit, OnModuleDestroy {
     let sent = 0, failed = 0;
     const sys = { id: 0, companyId, name: '同步队列', permissions: { isCompanyAdmin: true, allow: [], deny: [] } } as AuthUser;
     for (const job of jobs) {
-      if (!(await this.enabled(companyId))) return { sent, failed, blocked: true }; // 中途被关掉：立刻停
       try{sender=await this.senderFor(companyId);}catch(error){if(!(error instanceof ExternalConfigurationError))throw error;await this.blockPendingApprovalConfiguration(companyId,error.message);return {sent,failed,blocked:true};}
       if(!sender.configured){await this.blockPendingApprovalConfiguration(companyId,'聚水潭授权或应用尚未配置');return {sent,failed,blocked:true};}
       const claim = (manager:EntityManager) => manager.update(OutboxJob, { id: job.id, status: 'pending' }, { status: 'sending' });

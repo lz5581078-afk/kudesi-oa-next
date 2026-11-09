@@ -15,7 +15,7 @@ export interface PricePlanRow { bundleId: number; code: string; name: string; ac
 /**
  * 最低售价自动同步（旧系统 compose_sale_price）：
  *  成本表算出来的“最低售价”写成聚水潭组合装的基本售价；只改价格，不碰子商品和其他字段（preserveChildPrices）。
- *  - 外部写入：只入出站队列；有独立开关（默认关），总开关关着也不发；
+ *  - 外部写入：只入出站队列；有独立开关（默认关）；
  *  - 只处理已验证、已经成功同步到聚水潭、没有排队中任务、运费/利润率/成本齐全、账号一致的组合；
  *  - 不满足的写“被拦截”和日志，不发送；每次最多 25 个。
  */

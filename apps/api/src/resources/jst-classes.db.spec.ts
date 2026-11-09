@@ -332,7 +332,7 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
     expect(JSON.stringify(plain)).not.toContain('cost_price');
     // 发送成功后：和上次上传一致就是已同步；资料再变就出现差异
     outbox.setSender({ configured: true, send: async () => undefined });
-    await outbox.setSwitch(boss, true);
+
     await outbox.processCompany(boss.companyId);
     const synced = (await outbox.items(boss, { type: 'finance-base-codes', page: 1, pageSize: 20 })).rows.find((r) => r.id === ids.c1)!;
     expect(synced.state).toBe('synced');
@@ -344,6 +344,6 @@ d('聚水潭分类：基础编码与组合编码（真实数据库）', () => {
     await bc.verify(boss, [{ id: ids.c1, signature: again.signature }], { confirmed: true, syncToJst: false });
     const changed = (await outbox.items(boss, { type: 'finance-base-codes', page: 1, pageSize: 20 })).rows.find((r) => r.id === ids.c1)!;
     expect(changed.diff.map((d) => d.field)).toEqual(expect.arrayContaining(['short_name', 'cost_price']));
-    await outbox.setSwitch(boss, false);
+
   });
 });

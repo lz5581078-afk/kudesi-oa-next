@@ -9,7 +9,7 @@ const msg = (e: unknown) => (e instanceof ApiError ? e.message : (e as Error).me
 const when = (s: string) => formatOaDateTime(s);
 const yuan = (c: number | null) => (c === null ? '—' : money(c));
 
-/** 同步队列页下半部分：基本售价同步、归档任务、分类同步。都只是“排队”，真正发送受总开关控制。 */
+/** 同步队列页下半部分：基本售价同步、归档任务、分类同步。都只是“排队”，由后台发送。 */
 export function JstSyncExtras({ onQueued }: { onQueued: () => void }) {
   const { user, can } = useAuth();
   const isAdmin = !!user?.permissions.isCompanyAdmin;
@@ -45,7 +45,7 @@ function PriceSync({ isAdmin, onQueued }: { isAdmin: boolean; onQueued: () => vo
   };
   useEffect(() => { void load(); }, [page]); // eslint-disable-line react-hooks/exhaustive-deps
   async function toggle(on: boolean) {
-    if (on && !window.confirm('打开后，成本表算出的最低售价会作为基本售价写入聚水潭组合装（只改价格，不动子商品）。需要同步总开关也打开才会真正发送。确定吗？')) return;
+    if (on && !window.confirm('打开后，成本表算出的最低售价会作为基本售价写入聚水潭组合装（只改价格，不动子商品）。确定吗？')) return;
     try { setSw(await jstApi.setPriceSwitch(on)); } catch (e) { setError(msg(e)); }
   }
   async function run() {
@@ -139,7 +139,7 @@ function CategorySync({ onQueued }: { onQueued: () => void }) {
   async function exec() {
     if (!preview) return;
     setError('');
-    try { const r = await jstApi.categoryExecute(scope, preview.signature); setNotice(`已加入队列 ${r.queued} 项${r.retired ? `，收尾 ${r.retired} 项` : ''}。只是排队，总开关打开后才会发送。`); setPreview(null); await loadRuns(); onQueued(); } catch (e) { setError(msg(e)); }
+    try { const r = await jstApi.categoryExecute(scope, preview.signature); setNotice(`已加入队列 ${r.queued} 项${r.retired ? `，收尾 ${r.retired} 项` : ''}。后台将发送并回查。`); setPreview(null); await loadRuns(); onQueued(); } catch (e) { setError(msg(e)); }
   }
   return (
     <div>

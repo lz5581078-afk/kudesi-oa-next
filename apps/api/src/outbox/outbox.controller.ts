@@ -55,10 +55,6 @@ export class OutboxController {
   getSwitch(@CurrentUser() u: AuthUser) { return this.outbox.getSwitch(u.companyId); }
 
   @RequirePermission('finance.jst-sync.view')
-  @Put('switch')
-  setSwitch(@CurrentUser() u: AuthUser, @Body() b: SwitchDto) { return this.outbox.setSwitch(u, b.enabled, b.note); }
-
-  @RequirePermission('finance.jst-sync.view')
   @Get('jobs')
   jobs(@CurrentUser() u: AuthUser, @Query() q: JobsDto) { return this.outbox.jobs(u, { status: q.status, kind: q.kind, page: q.page ?? 1, pageSize: q.pageSize ?? 20 }); }
 

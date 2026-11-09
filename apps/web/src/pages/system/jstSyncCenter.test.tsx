@@ -15,10 +15,10 @@ const overview = {
 };
 
 describe('聚水潭同步能力中心', () => {
-  it('显示真实对外同步状态：总开关关闭、发送器未接入、队列和失败原因；只读，没有任何写入按钮', async () => {
+  it('显示真实对外同步状态：发送器未接入、队列和失败原因；只读，没有任何写入按钮', async () => {
     apiMock.mockResolvedValue(overview as never);
     render(<MemoryRouter><JstSyncCenterPage /></MemoryRouter>);
-    expect(await screen.findByText('已关闭（不会发送）')).toBeTruthy();
+    await screen.findByText(/未接入（队列只积压，不发送）/);
     expect(screen.getByText(/未接入（队列只积压，不发送）/)).toBeTruthy();
     expect(screen.getByText(/排队中 2 · 失败 1/)).toBeTruthy();
     expect(screen.getByText(/还没有接入聚水潭接口/)).toBeTruthy();
@@ -28,20 +28,20 @@ describe('聚水潭同步能力中心', () => {
   it('能力地图、实测记录按模块筛选、同步任务建议、保护规则都在', async () => {
     apiMock.mockResolvedValue(overview as never);
     render(<MemoryRouter><JstSyncCenterPage /></MemoryRouter>);
-    await screen.findByText('已关闭（不会发送）');
+    await screen.findByText(/未接入（队列只积压，不发送）/);
     expect(screen.getByRole('region', { name: '商品资料' })).toBeTruthy();
     expect(within(screen.getByRole('region', { name: '订单履约' })).getByText(/直播场次已有订单只读查询/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText('按模块筛选'), { target: { value: '售后' } });
     expect(screen.getAllByText('/open/refund/single/query').length).toBeGreaterThan(0);
     expect(screen.queryByText('/open/supplier/query', { selector: 'td code' })).toBeNull();
     expect(screen.getByText('财务费用同步')).toBeTruthy();
-    expect(screen.getByText(/出站队列与总开关/)).toBeTruthy();
+    expect(screen.getByText(/由后台核对授权账号后发送/)).toBeTruthy();
   });
   it('加载失败给重试', async () => {
     apiMock.mockRejectedValueOnce(new Error('x')).mockResolvedValue(overview as never);
     render(<MemoryRouter><JstSyncCenterPage /></MemoryRouter>);
     await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
     fireEvent.click(screen.getByText('重试'));
-    expect(await screen.findByText('已关闭（不会发送）')).toBeTruthy();
+    await screen.findByText(/未接入（队列只积压，不发送）/);
   });
 });

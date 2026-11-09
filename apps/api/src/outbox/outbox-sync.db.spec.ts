@@ -69,7 +69,7 @@ d('组合装同步维护（真实数据库 + 假发送器）', () => {
     ids.bc = bc.id;
     ids.scen = (await svc.create(boss, 'finance-scenarios', { code: 'standard', name: '标准', segment: '' })).id;
     ids.bcat = (await svc.create(boss, 'finance-categories', { archiveType: 'bundle', name: '水果组合', code: 'SGZH' })).id;
-    await outbox.setSwitch(boss, true, '测试');
+
     outbox.setSender(fake);
     // 基础编码先上传
     await outbox.enqueue(boss, 'finance-base-codes', [ids.bc]);
@@ -165,14 +165,14 @@ d('组合装同步维护（真实数据库 + 假发送器）', () => {
     // 没有 product.price.view 的人看不到价格
     const seen = await price.logs({ ...nobody, permissions: { isCompanyAdmin: false, allow: [SPECIAL_PERMISSIONS.financeBundleSync], deny: [] } }, { page: 1, pageSize: 10 });
     expect(seen.rows.every((r: { priceCents: number | null }) => r.priceCents === null)).toBe(true);
-    // 总开关一键停止：价格任务也不发
+    // 关闭售价同步后，待发送的价格任务暂停
     await svc.update(boss, 'finance-bundles', ids.b1, { manualFreight: 900, overrideReason: '涨运费' });
     expect((await price.run(helper, { ids: [ids.b1] })).queued).toBe(1);
-    await outbox.setSwitch(boss, false, '一键停止');
+    await outbox.setSwitch(boss, false, '关价格', 'jst_price');
     const n = fake.sent.length;
-    expect((await outbox.processCompany(boss.companyId)).blocked).toBe(true);
+    expect((await outbox.processCompany(boss.companyId)).sent).toBe(0);
     expect(fake.sent.length).toBe(n);
-    await outbox.setSwitch(boss, true, '恢复');
+    await outbox.setSwitch(boss, true, '恢复价格', 'jst_price');
     fake.readMode = 'mismatch';
     expect((await outbox.processCompany(boss.companyId)).failed).toBe(1);
     fake.readMode = 'ok';

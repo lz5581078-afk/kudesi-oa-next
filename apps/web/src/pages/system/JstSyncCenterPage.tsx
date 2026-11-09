@@ -45,7 +45,7 @@ export function JstSyncCenterPage() {
         <div className="metric"><span className="muted">已读取授权能力（旧系统记录）</span><strong>{JST_GRANTED_ENDPOINT_COUNT}+</strong><small className="muted">页面确认的可用接口数，部分分类明细未补全</small></div>
         <div className="metric"><span className="muted">已实测只读接口（旧系统记录）</span><strong>{passed}</strong><small className="muted">仅展示历史记录，本页不会重新调用接口测试</small></div>
         <div className="metric"><span className="muted">建议首批同步任务</span><strong>{JST_SYNC_TASKS.length}</strong><small className="muted">先只读同步，再逐步开放写入</small></div>
-        <div className="metric"><span className="muted">写入类接口策略</span><strong>出站队列 + 总开关</strong><small className="muted">默认允许发送，可手动暂停</small></div>
+        <div className="metric"><span className="muted">写入类接口策略</span><strong>出站队列</strong><small className="muted">后台处理已提交任务</small></div>
       </div>
 
       <h2 className="section-title">新系统当前的对外同步状态</h2>
@@ -54,7 +54,6 @@ export function JstSyncCenterPage() {
       {data && (
         <div className="card" style={{ padding: 16 }}>
           <dl className="kv-grid">
-            <div><dt>外部写入总开关</dt><dd><span className={`pill ${data.switch.enabled ? 'warn' : 'ok'}`}>{data.switch.enabled ? '已打开' : '已关闭（不会发送）'}</span></dd></div>
             <div><dt>基本售价同步开关</dt><dd><span className={`pill ${data.priceSwitch.enabled ? 'warn' : 'ok'}`}>{data.priceSwitch.enabled ? '已打开' : '已关闭'}</span></dd></div>
             <div><dt>聚水潭发送器</dt><dd><span className={`pill ${data.senderConfigured ? 'warn' : 'muted'}`}>{data.senderConfigured ? '已接入' : '未接入（队列只积压，不发送）'}</span></dd></div>
             <div><dt>队列任务</dt><dd>{total === 0 ? '没有任务' : Object.entries(data.counts).map(([k, n]) => `${STATUS_LABEL[k] ?? k} ${n}`).join(' · ')}</dd></div>
