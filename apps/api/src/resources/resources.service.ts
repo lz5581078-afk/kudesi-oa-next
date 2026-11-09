@@ -23,6 +23,7 @@ import { withTrustedResourceImport } from './resource-import-capability';
 import { beginPurchaseHistoryBatch, flushPurchaseHistory } from './product-purchase-history';
 import { beforeFormSaveRule, afterFormSaveRule, beforeStatusChangeRule, beforeDirectStatusRule } from './resource-rules';
 import { saveResourceForm } from './resource-form';
+import { beginProductReminder, endProductReminder, finishProductReminder, trackCodeReviewChange, withProductReminder } from './product-base-code-reminder';
 import { sourceProductFormKind } from './source-unit-form';
 import type { ResourceFormInput } from '@kudesi/shared';
 import { ExternalConfigService } from '../integrations/external-config.service';
@@ -781,7 +782,8 @@ export class ResourcesService implements RuleHost {
     const note = [options.note, secretChanged ? '修改了密码/证件号/卡号类字段' : null].filter(Boolean).join('；') || undefined;
     await this.writeLog(em, user, def, record.id, options.logAction ?? (existing ? 'update' : 'create'), before, record, note);
     if (!existing) await afterCreateRule(def.key, { em, host: this, user, record, plain: values });
-    await afterSaveRule(def.key, { em, host: this, user, record, existing: before, plain: values, reason: options.reason });
+    trackCodeReviewChange(em, record, before);
+    await withProductReminder(em, def.key, () => afterSaveRule(def.key, { em, host: this, user, record, existing: before, plain: values, reason: options.reason }));
     return record;
   }
 
@@ -1001,6 +1003,7 @@ export class ResourcesService implements RuleHost {
     record.updatedBy = user.id;
     await em.save(ResourceRecord, record);
     await this.writeLog(em, user, def, id, 'update', before, record, note);
+    trackCodeReviewChange(em, record, before);
   }
 
   async countWhere(em: EntityManager, companyId: number, type: string, field: string, value: unknown) {
@@ -1425,11 +1428,14 @@ export class ResourcesService implements RuleHost {
       },
       endCopy: em=>this.files.endCopyScope(em),
       lock:async(em,def)=>{if(['finance-product-units','finance-products'].includes(def.key)&&!await em.findOne(Company,{where:{id:user.companyId},lock:{mode:'pessimistic_write'}}))throw new NotFoundException('公司不存在');await beforeBomVersionLock(em,user,def.key);},
-      before: async(em,def,existing)=>{if(def.key==='finance-products')await beginSourceProductQuality({em,user,existing,input});await beforeFormSaveRule(def.key,{em,host:this,user,existing,input});},
-      after: (em, def, record) => afterFormSaveRule(def.key, { em, host: this, user, record }),
+      before: async(em,def,existing)=>{if(def.key==='finance-products'){beginProductReminder(em);await beginSourceProductQuality({em,user,existing,input});}await beforeFormSaveRule(def.key,{em,host:this,user,existing,input});},
+      after: async (em, def, record) => {
+        await afterFormSaveRule(def.key, { em, host: this, user, record });
+        if (def.key === 'finance-products') await finishProductReminder(em);
+      },
       save: (em, def, existing, values, options) => this.saveRecord(em, user, def, existing, def.key==='finance-products'&&sourceProductQualityActive(em,user)?sourceQualityValues(values):values, options),
       afterCollectionSaved:(em,parent,child,rows)=>sourceQualitySavedRows(em,parent,child,rows),
-      end:em=>endSourceProductQuality(em),
+      end:em=>{endSourceProductQuality(em);endProductReminder(em);},
       remove: (em, childType, childId, reason, objects) => this.removeRecord(em, user, childType, childId, reason, objects),
     }, cleanup);
     await this.files.deleteObjects(user.companyId, cleanup);
@@ -1875,7 +1881,7 @@ export class ResourcesService implements RuleHost {
     await em.delete(ResourceLink, { companyId: user.companyId, targetType: type, targetId: id, relation: 'manual' });
     await em.delete(ResourceRecord, { id, companyId: user.companyId });
     cleanup.push(...(await this.files.deleteAllFor(em, user.companyId, type, id)));
-    await afterDeleteRule(def.key, { em, host: this, user, record: existing });
+    await withProductReminder(em, def.key, () => afterDeleteRule(def.key, { em, host: this, user, record: existing }));
     await this.writeLog(em, user, def, id, 'delete', existing, null, reason.trim());
   }
 
