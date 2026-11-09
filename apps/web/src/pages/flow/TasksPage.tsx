@@ -22,7 +22,6 @@ export function TasksPage() {
   return (
     <div>
       <div className="page-head"><h1>任务中心</h1></div>
-      <p className="muted">分给你的任务和流程待办都在“我的待办”里办理；这里新建任务、看你指派出去的任务进度{can('tasks.routines.manage') ? '、管理周期任务' : ''}。</p>
       <div className="tabs">
         <button type="button" className={tab === 'assigned' ? 'tab active' : 'tab'} onClick={() => setTab('assigned')}>我指派的任务</button>
         <button type="button" className={tab === 'supervised' ? 'tab active' : 'tab'} onClick={() => setTab('supervised')}>我监督的任务{pending > 0 ? ` (${pending})` : ''}</button>

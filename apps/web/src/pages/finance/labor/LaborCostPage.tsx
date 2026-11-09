@@ -110,7 +110,7 @@ export function LaborCostPage() {
   return (
     <div className="labor-cost-page">
       <header className="labor-page-heading">
-        <div><span>财务模块 · 数据版本</span><h1>人力成本表</h1><p>按版本维护各类工作的计价标准，供成本核算和业务单据引用。</p></div>
+        <div><span>财务模块 · 数据版本</span><h1>人力成本表</h1></div>
         {can('create') && <button type="button" className="primary-button" onClick={() => setVersionForm({ record: null })}><Plus size={17}/>新建成本版本</button>}
       </header>
       {error && <div role="alert" className="notice error">{error}</div>}

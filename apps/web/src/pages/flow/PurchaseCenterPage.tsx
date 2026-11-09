@@ -65,7 +65,6 @@ export function PurchaseCenterPage() {
   return (
     <div className="purchase-page">
       <div className="page-head"><h1>采购申请中心</h1></div>
-      <p className="muted">提交采购需求后，方案、审批、付款、发货、到货、质检、费用和入库结算都在这里按流程一步步办理，进度一目了然。</p>
       <div className="tab-row" role="tablist">
         <button type="button" role="tab" aria-selected={tab === 'list'} className={tab === 'list' ? 'tab active' : 'tab'} onClick={() => switchTab('list')}>采购进度</button>
         <button type="button" role="tab" aria-selected={tab === 'new'} className={tab === 'new' ? 'tab active' : 'tab'} onClick={() => switchTab('new')}>新建采购申请</button>

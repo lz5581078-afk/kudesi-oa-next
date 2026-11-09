@@ -31,7 +31,7 @@ export function BossPage() {
   return (
     <div className="ws-page" aria-busy={loading}>
       <div className="page-head between">
-        <div><h1>老板总控台</h1><p className="muted">先看要你处理的事，再看今天的经营数字；点任何数字可查看明细。</p></div>
+        <div><h1>老板总控台</h1></div>
         <div className="toolbar-inline">
           <span className="muted" role="status">{loading ? '正在更新…' : d ? `数据截至 ${clock(d.asOf)}` : ''}</span>
           <button type="button" className="secondary-button" disabled={loading} onClick={load}>刷新</button>

@@ -37,7 +37,6 @@ export function PackagingMatchPage() {
   return (
     <div>
       <div className="page-head"><h1>包装方案匹配试算</h1></div>
-      <p className="muted">方案和匹配规则在“包装方案”里维护。这里只试算，不会改任何数据；没有命中时按业务规则保持无包装，不会自动补行。</p>
       <form className="form-grid" onSubmit={run}>
         <label>使用场景<select aria-label="使用场景" value={scene} onChange={(e) => setScene(e.target.value)}>{SCENES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
         <label>对象类型<select aria-label="对象类型" value={targetType} onChange={(e) => setTargetType(e.target.value as 'bundle')}><option value="bundle">商品组合</option><option value="base_code">基础编码</option><option value="product_archive">商品档案</option></select></label>

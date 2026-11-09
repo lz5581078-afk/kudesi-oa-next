@@ -51,7 +51,7 @@ export function AfterSalesPage() {
   return (
     <div className="svc-page">
       <div className="page-head">
-        <div><h1>售后表格</h1><p className="muted">售后工单、72 小时完结监督、退款补偿流程。超时的会进入“兜底监督”。</p></div>
+        <div><h1>售后表格</h1></div>
         <div className="row-actions">
           <button type="button" className="primary-button svc-jump" onClick={() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>登记工单</button>
           <button type="button" className="secondary-button" disabled={loading} onClick={load}>{loading ? '刷新中…' : '刷新'}</button>
