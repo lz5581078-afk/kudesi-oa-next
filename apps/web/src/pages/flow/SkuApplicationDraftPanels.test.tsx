@@ -72,3 +72,13 @@ it('原运营导航显示当前位置与禁用边界，切换及收起均复用�
  const region=await screen.findByRole('region',{name:'规格资料配置'}),name=await within(region).findByLabelText('内部规格名称');expect(screen.getByText('运营配置 · 第 1 / 2 个待处理规格')).toBeTruthy();expect(screen.getByRole('button',{name:'上一规格'}).hasAttribute('disabled')).toBe(true);expect(within(region).getByText('当前规格 · 资料编辑')).toBeTruthy();expect(within(region).getByRole('button',{name:'添加主商品'}).querySelector('svg')).toBeTruthy();
  fireEvent.change(name,{target:{value:'未保存规格'}});const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);fireEvent.click(screen.getByRole('button',{name:'下一规格'}));fireEvent.click(within(region).getByRole('button',{name:'收起编辑'}));expect(confirm).toHaveBeenCalledTimes(2);expect(next).not.toHaveBeenCalled();expect(close).not.toHaveBeenCalled();confirm.mockReturnValue(true);fireEvent.click(screen.getByRole('button',{name:'下一规格'}));fireEvent.click(within(region).getByRole('button',{name:'收起编辑'}));expect(next).toHaveBeenCalledTimes(1);expect(close).toHaveBeenCalledTimes(1);expect(call.mock.calls.some(([path])=>path.endsWith('/draft'))).toBe(false);
 });
+
+it('仓库批量套用至少选两条同节点可办理规格，不能只按整批数量启用',async()=>{
+ const warehouse={...row,canEditDraft:false,mine:true,runStatus:'running',stepKey:'warehouse',stepName:'仓库完善',stepType:'execute',canSaveWarehouseDraft:true} as typeof row;
+ current={...board([warehouse,{...warehouse,runId:9,specName:'规格乙'}]),applicationHeader:{...header,steps:[{key:'warehouse',name:'仓库完善',type:'execute'}]}};
+ render(<MemoryRouter><SkuBatchPanel sourceLayout batchKey="Bdraft" onClose={()=>undefined} onChanged={()=>undefined}/></MemoryRouter>);
+ fireEvent.click(await screen.findByLabelText('选择 规格甲'));
+ expect(screen.getByRole('button',{name:'批量套用发货组成'}).hasAttribute('disabled')).toBe(true);
+ fireEvent.click(screen.getByLabelText('选择 规格乙'));
+ expect(screen.getByRole('button',{name:'批量套用发货组成'}).hasAttribute('disabled')).toBe(false);
+});
