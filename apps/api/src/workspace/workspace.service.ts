@@ -3,7 +3,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException,
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
 import {
-  createChecker, deskFor, departmentPath, isTaskView, taskStage, todayInChina, WORKSPACE_MODULES, workspaceTypeFromLegacyTemplate,
+  getResourceDef, mergeCategoryOptions, createChecker, deskFor, departmentPath, isTaskView, taskStage, todayInChina, WORKSPACE_MODULES, workspaceTypeFromLegacyTemplate,
   marginPpm, type BossDashboard, type DailyBusiness, type BossPerson, type DeskCatalog, type DeskPosition, type PersonalTaskList, type PersonalTaskRow, type SummaryCard, type TaskView, type WorkspaceModuleKey,
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
@@ -11,6 +11,7 @@ import { Department, Notification, Position, User, WorkItem } from '../entities'
 import { ResourcesService } from '../resources/resources.service';
 import { CryptoService } from '../common/crypto.service';
 import { readSourceRow } from '../migration/source-rows';
+import { loadCategoryRows } from '../resources/category-options';
 import { WorkspaceModuleRegistry } from './module-registry';
 
 const COST_VIEW = 'product.cost.view';
@@ -29,6 +30,24 @@ export class WorkspaceService {
   ) {}
 
   private can(user: AuthUser, key: string) { return createChecker(user.permissions)(key); }
+
+  /** 本人店铺摘要：不返回凭据、财务数据或其他运营人的资料。管理员同样只查本人。 */
+  async myStores(user: AuthUser) {
+    const rows: Array<{ id: number; name: string; platform: string | null }> = await this.dataSource.query(
+      `SELECT id, title AS name, JSON_UNQUOTE(JSON_EXTRACT(data, '$.platform')) AS platform
+       FROM resource_records WHERE company_id = ? AND type = 'stores' AND archived_at IS NULL
+       AND JSON_UNQUOTE(JSON_EXTRACT(data, '$.operatorUserId')) = ? ORDER BY title, id`,
+      [user.companyId, String(user.id)],
+    );
+    const def = getResourceDef('stores')!;
+    const options = mergeCategoryOptions(def.fields.find(field => field.key === 'platform')?.options ?? [],
+      await loadCategoryRows(this.dataSource.manager, user.companyId, def));
+    const labels = new Map(options.map(option => [option.value, option.label]));
+    return rows.map(row => {
+      const platform = row.platform && row.platform !== 'null' ? row.platform : '';
+      return { id: Number(row.id), name: row.name, platform, platformLabel: labels.get(platform) ?? (platform || '未设置平台') };
+    });
+  }
 
   // ================= 岗位目录 =================
 

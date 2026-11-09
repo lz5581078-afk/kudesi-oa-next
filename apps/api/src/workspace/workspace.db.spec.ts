@@ -45,6 +45,21 @@ d('工作台（真实数据库）', () => {
     staff = au(await mk(cid, 'st', '主管', { positionId: opsPos }), cid, '主管', ['tasks.assign']);
     stranger = au(await mk(otherCid, 'str', '外人'), otherCid, '外人', ['workbench.desk.view']);
   });
+  it('我的店铺只返回本人同公司未归档记录，管理员也不能看其他运营人，且不泄露凭据', async () => {
+    const mine = await rec(cid, 'stores', '本人抖音店', { operatorUserId: worker.id, platform: 'douyin', password: 'must-not-return' });
+    await rec(cid, 'stores', '本人淘宝店', { operatorUserId: String(worker.id), platform: 'taobao' });
+    await rec(cid, 'stores', '其他运营人店', { operatorUserId: staff.id, platform: 'douyin' });
+    await rec(otherCid, 'stores', '跨公司店', { operatorUserId: worker.id, platform: 'douyin' });
+    await rec(cid, 'self-media', '不是店铺', { operatorUserId: worker.id });
+    await rec(cid, 'stores', '公共店', { platform: 'douyin' });
+    const archived = await rec(cid, 'stores', '归档店', { operatorUserId: worker.id, platform: 'douyin' });
+    await ds.manager.update(ResourceRecord, archived.id, { archivedAt: new Date() });
+    const rows = await ws.myStores(worker);
+    expect(rows.map(row => row.name).sort()).toEqual(['本人抖音店', '本人淘宝店']);
+    expect(rows.find(row => row.id === mine.id)).toEqual({ id: mine.id, name: '本人抖音店', platform: 'douyin', platformLabel: '抖音' });
+    expect(await ws.myStores(boss)).toEqual([]);
+    expect(await ws.myStores(stranger)).toEqual([]);
+  });
   it('通过同公司迁移映射恢复原岗位模板，并尊重后来修改的岗位类型', async () => {
     await ds.transaction(async em => {
       await preserveSourceRow(em, encryption, { companyId: cid, sourceCompanyId: 81, table: 'legacy_position_workspace_policy', key: 'current' }, {
