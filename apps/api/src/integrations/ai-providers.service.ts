@@ -204,4 +204,19 @@ export class AiProviderService {
     if (!r || r.status === 'inactive') return null;
     try { return { baseUrl: r.baseUrl, apiKey: this.crypto.decrypt(r.enc), model: r.model, enabled: true }; } catch { return null; }
   }
+
+  /** 本公司已启用的 DeepSeek 官方接口（只认 https://api.deepseek.com，和话术整理一致）；没有就返回 null。 */
+  async resolveDeepseek(companyId: number): Promise<VisionConfig | null> {
+    const rows: Array<{ baseUrl: string; enc: string; model: string | null }> = await this.ds.query(
+      'SELECT base_url AS baseUrl, api_key_enc AS enc, model_name AS model FROM ai_providers WHERE company_id = ? AND status = ? ORDER BY id', [companyId, 'active']);
+    for (const row of rows) {
+      try {
+        const url = new URL(row.baseUrl);
+        if (url.protocol !== 'https:' || url.hostname !== 'api.deepseek.com' || url.port || url.username || url.password || url.search || url.hash || !['/', '/v1', '/v1/'].includes(url.pathname)) continue;
+        const apiKey = this.crypto.decrypt(row.enc);
+        if (apiKey.trim()) return { baseUrl: row.baseUrl.replace(/\/+$/, ''), apiKey, model: row.model?.trim() || 'deepseek-flash', enabled: true };
+      } catch { /* 密钥不可用时跳过，不返回也不记录 */ }
+    }
+    return null;
+  }
 }

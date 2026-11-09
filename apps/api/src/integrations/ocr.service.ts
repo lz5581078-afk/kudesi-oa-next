@@ -134,8 +134,8 @@ export class OcrService {
   async parseSkuSpecNames(user: AuthUser, names: string[]): Promise<Array<{ name: string; mainGrams: number | null; giftGrams: number | null }>> {
     const can = createChecker(user.permissions);
     if (!can('flow.apply.view')) throw new ForbiddenException('没有权限执行此操作');
-    const cfg = await this.visionFor(user.companyId, 'sku_spec_parse');
-    if (!cfg || !cfg.enabled) throw new BadRequestException('还没有启用 AI，请管理员先到“系统 → AI 设置”为“规格名称拆解”选好模型');
+    const cfg = (await this.ai?.resolveVision(user.companyId, 'sku_spec_parse')) ?? (await this.ai?.resolveDeepseek(user.companyId)) ?? (await this.settings.getVision(user.companyId));
+    if (!cfg || !cfg.enabled) throw new BadRequestException('还没有启用 AI，请管理员先到“系统 → AI API 接口”添加并启用 DeepSeek（或在 AI 设置里为“规格名称拆解”选好模型）');
     const list = names.map((n) => String(n ?? '').trim().slice(0, 100));
     let reply: string;
     try { reply = await this.visionFactory(cfg).recognizeText(skuSpecPrompt(list)); } catch { throw new BadRequestException('AI 调用失败，请稍后重试'); }
