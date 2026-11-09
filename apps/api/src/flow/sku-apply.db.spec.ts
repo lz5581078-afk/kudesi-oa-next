@@ -100,6 +100,7 @@ d('SKU 批量申请流程（真实数据库）', () => {
     ids.tb = (await resources.create(admin, 'finance-platforms', { code: 'TB', name: '淘宝' })).id;
     ids.dy = (await resources.create(admin, 'finance-platforms', { code: 'DY', name: '抖音' })).id;
     ids.scen = (await resources.create(admin, 'finance-scenarios', { code: 'standard', name: '标准', segment: '' })).id;
+    ids.supplyScene = (await resources.create(admin, 'finance-scenarios', { code: 'supply_chain', name: '供应链', segment: 'GYL' })).id;
 
     // 子商品已在聚水潭上（组合装上传前的依赖检查）
     await ds.query("UPDATE resource_records SET data = JSON_SET(data, '$.jstUploadedCode', JSON_UNQUOTE(JSON_EXTRACT(data, '$.code'))) WHERE company_id = ? AND type = 'finance-base-codes'", [admin.companyId]);
@@ -281,6 +282,10 @@ d('SKU 批量申请流程（真实数据库）', () => {
 
   it('申请选项接口不需要财务资料权限，也不带成本；预览只对相关的人开放', async () => {
     const meta = await sku.options(ops, 'meta');
+    expect(meta.scenarios?.slice(0, 2)).toEqual([
+      { id: ids.scen, code: 'standard', name: '公司自销' },
+      { id: ids.supplyScene, code: 'supply_chain', name: '供应链产品' },
+    ]);
     expect(meta.platforms!.map((p) => p.name)).toEqual(expect.arrayContaining(['淘宝', '抖音']));
     expect(meta.bundleCategories!.map((c) => c.id)).toContain(ids.bcat);
     const mains = await sku.options(ops, 'main', '苹果');

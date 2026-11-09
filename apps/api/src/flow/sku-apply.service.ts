@@ -8,7 +8,7 @@ import {inheritedSkuBrandId} from './sku-brand';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, In,type EntityManager } from 'typeorm';
-import { createChecker, getResourceDef, normalizeSpecs, normalizeWarehouse, sumUnitCents, multiplyUnitCents, WAREHOUSE_ROLE_LABEL, type SkuSpec, type WarehouseSpec } from '@kudesi/shared';
+import { createChecker, DEFAULT_SALES_SCENARIOS, salesScenarioName, getResourceDef, normalizeSpecs, normalizeWarehouse, sumUnitCents, multiplyUnitCents, WAREHOUSE_ROLE_LABEL, type SkuSpec, type WarehouseSpec } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { Company, FlowRun, FlowStep, ResourceRecord,WorkItem } from '../entities';
 import { BundleToolsService } from '../resources/bundle-tools.service';
@@ -41,7 +41,13 @@ export class SkuApplyService {
     if (kind === 'meta') {
       const selected=(type:string)=>new Set<number>(type==='finance-scenarios'?[Number(context?.payload.scenarioId)]:type==='finance-platforms'?platformIdsOf(context?.payload??{}):type==='finance-brands'?[Number(context?.payload.brandId),...((context?.payload.specs as SkuSpec[]|undefined)??[]).map(spec=>Number(spec.brandId))]:[]);
       const rows = async (type: string) => (await em.find(ResourceRecord, { where: { companyId: user.companyId, type }, order: { title: 'ASC' } })).filter(r=>context?selected(type).has(r.id):r.status==='active').map(r=>({id:r.id,name:r.title,code:str(r.data.code)}));
-      return { scenarios: await rows('finance-scenarios'), platforms: await rows('finance-platforms'), brands: await rows('finance-brands'), bundleCategories: (await this.bundleCategoryLeaves(user.companyId)).filter(row=>!context||row.id===Number(context.payload.bundleCategoryId)) };
+      const scenarios = (await rows('finance-scenarios')).map(row => ({ ...row, name: salesScenarioName(row.code, row.name) }));
+      const scenarioOrder = (code: string) => {
+        const index = DEFAULT_SALES_SCENARIOS.findIndex(([key]) => key === code.toLowerCase());
+        return index < 0 ? DEFAULT_SALES_SCENARIOS.length : index;
+      };
+      scenarios.sort((a, b) => scenarioOrder(a.code) - scenarioOrder(b.code));
+      return { scenarios, platforms: await rows('finance-platforms'), brands: await rows('finance-brands'), bundleCategories: (await this.bundleCategoryLeaves(user.companyId)).filter(row=>!context||row.id===Number(context.payload.bundleCategoryId)) };
     }
     if (kind === 'names') {
       // 重新提交时按编号回填商品名称（只给编码、名称、规格）
@@ -130,7 +136,15 @@ export class SkuApplyService {
     const wh = Array.isArray(warehouse) ? warehouse as WarehouseSpec[] : undefined;
     const created = (run.payload._created as CreatedBundle[] | undefined) ?? null;
     const specs = normalizeSpecs(run.payload.specs,{quantityScale:run.payload._applicationDraftOrigin===true?6:0}).specs;
-    const label = async (type: string, id: number | null | undefined) => (id ? (await em.findOne(ResourceRecord, { where: { id, companyId: user.companyId, type }, select: ['id', 'title'] }))?.title ?? '' : '');
+    const label = async (type: string, id: number | null | undefined) => {
+      if (!id) return '';
+      const row = await em.findOne(ResourceRecord, {
+        where: { id, companyId: user.companyId, type },
+        select: type === 'finance-scenarios' ? ['id', 'title', 'data'] : ['id', 'title'],
+      });
+      if (!row) return '';
+      return type === 'finance-scenarios' ? salesScenarioName(str(row.data.code), row.title) : row.title;
+    };
     const platforms = await Promise.all(platformIdsOf(run.payload).map(async (id) => ({ id, name: await label('finance-platforms', id) })));
     const info = async (baseCodeId: number) => {
       const bc = await em.findOne(ResourceRecord, { where: { id: baseCodeId, companyId: user.companyId, type: 'finance-base-codes' } });
