@@ -14,7 +14,7 @@ db('公司产品图册', () => {
   let ds: DataSource;
   afterAll(async () => { await ds?.destroy(); });
 
-  it('分类和公司隔离，取马甲主品照片与专属归属，按仓计库存，仅授权返回价格和保存属性', async () => {
+  it('基础编码目录对应档案，未建码保留，无马甲及无对应分类隐藏，库存与权限隔离', async () => {
     ds = await new DataSource({ ...buildDataSourceOptions({ ...process.env, DB_NAME: process.env.TEST_DB_NAME }), migrationsRun: true }).initialize();
     const company = (name: string) => ds.manager.save(Company, { code: randomBytes(8).toString('hex'), name, status: 'active' });
     const [ours, theirs] = await Promise.all([company('公司产品测试'), company('另一家公司')]);
@@ -25,19 +25,25 @@ db('公司产品图册', () => {
     const service = new CompanyProductsService(ds, resources, files);
     const rec = (type: string, title: string, data: Record<string, unknown>, status = 'active', companyId = ours.id) =>
       ds.manager.save(ResourceRecord, { type, title, data, status, companyId });
-    const group = await rec('finance-categories', '生鲜', { archiveType: 'bundle' });
-    const leaf = await rec('finance-categories', '水果', { archiveType: 'bundle', parentId: group.id });
+    const group = await rec('finance-code-dictionaries', '生鲜', { kind: 'product_category', sort: 1 });
+    const leaf = await rec('finance-code-dictionaries', '水果', { kind: 'product_category', parentId: group.id, sort: 2 });
+    const archiveRoot = await rec('finance-categories', '生鲜', { archiveType: 'purchased' });
+    const archiveLeaf = await rec('finance-categories', '水果', { archiveType: 'purchased', parentId: archiveRoot.id });
+    const uncoded = await rec('finance-products', '未建码水果', { archiveType: 'purchased', name: '未建码水果', categoryId: archiveLeaf.id });
+    const unmapped = await rec('finance-products', '无对应分类', { archiveType: 'purchased' });
+    const noAlias = await rec('finance-products', '无马甲原料', { archiveType: 'raw', categoryId: archiveLeaf.id });
     const raw = await resources.create(admin, 'finance-categories', { archiveType: 'raw', name: '测试库存分类', code: 'CATALOG' });
     const archive = await resources.create(admin, 'finance-products', {
-      archiveType: 'raw', name: '合成苹果', categoryId: raw.id, specQty: 1, specUnit: 'KG', purchaseSpec: '千克',
+      archiveType: 'raw', name: '合成苹果', rawFinishedNames: '苹果马甲\n苹果马甲二', categoryId: raw.id, specQty: 1, specUnit: 'KG', purchaseSpec: '千克',
       weightG: 1000, purchasePrice: 1, freight: 0, handlingFee: 0, zeroValueReason: '运费：无\n装卸费：无',
     });
+    const uncodedAlias = await rec('finance-products', '未建码原料', { archiveType: 'raw', rawFinishedNames: '未建码马甲', categoryId: raw.id });
     const photo = await ds.manager.save(ResourceFile, {
       companyId: ours.id, resourceType: 'finance-products', resourceId: archive.id, fieldKey: 'photos',
       mime: 'image/jpeg', name: '苹果照片', size: 123, storageKey: 'fixture.jpg',
     });
     const signer = jest.spyOn(files, 'urlOf').mockResolvedValue({ url: 'https://example.invalid/photo', name: photo.name, mime: photo.mime, expiresIn: 300 });
-    const base = await rec('finance-base-codes', '苹果', { productId: archive.id, name: '苹果' });
+    const base = await rec('finance-base-codes', '苹果', { productId: archive.id, name: '苹果', codeDictionaryCategoryId: leaf.id });
     const alias = await rec('finance-base-codes', '苹果马甲', { canonicalId: base.id, name: '苹果马甲' });
     const members = await familyMembers(ds.manager, ours.id);
     await rec(EXCLUSIVE_TYPE, '专属', { familyKey: members.get(alias.id)!.familyKey, ownerId: owner.id, ownerName: owner.name,
@@ -59,18 +65,30 @@ db('公司产品图册', () => {
       accountId: archive.id, subId: warehouse.id, qty: 30, unit: '千克', amountCents: 0 });
 
     expect(await service.list(viewer, { category: group.id, keyword: '苹果' })).toMatchObject({
-      total: 1, items: [{ id: sku.id, category: '生鲜 / 水果', stock: 2, owners: [owner.name], photo: { name: photo.name } }],
+      total: 1, items: [{ id: archive.id, name: '苹果马甲、苹果马甲二', category: '生鲜 / 水果', stock: 8, owners: [owner.name], photo: { name: photo.name } }],
     });
     expect(signer).toHaveBeenCalledWith(ours.id, photo.id, 'finance-products');
-    expect((await service.list(viewer, { category: 0 })).items.map(row => row.name)).toEqual(['未分类组合']);
-    const detail = await service.detail(viewer, sku.id);
-    expect(detail).toMatchObject({ weightG: 2000, photos: [{ name: photo.name }] });
+    expect((await service.list(viewer, { category: 0 })).items).toEqual([]);
+    const catalog = await service.list(viewer, { category: group.id });
+    expect(catalog.total).toBe(3);
+    expect(catalog.items.map(row => row.id)).toEqual(expect.arrayContaining([archive.id, uncoded.id, uncodedAlias.id]));
+    expect(catalog.counts[leaf.id]).toBe(3);
+    expect(catalog.categories.map(row => row.id)).toEqual([group.id, leaf.id]);
+    for (const hidden of [unmapped, noAlias, sku]) await expect(service.detail(viewer, hidden.id)).rejects.toThrow('产品不存在');
+    const detail = await service.detail(viewer, archive.id);
+    expect(detail).toMatchObject({ weightG: 1000, photos: [{ name: photo.name }] });
     expect(detail).not.toHaveProperty('priceCents');
-    expect((await service.detail({ ...viewer, permissions: { ...viewer.permissions, allow: ['product.price.view'] } }, sku.id)).priceCents).toBe(2570);
+    expect(detail).not.toHaveProperty('purchasePrice');
+    await ds.manager.save(FinanceEntry, { companyId: ours.id, documentId: draft.id, entryDate: '2026-11-03', kind: 'inventory', accountId: archive.id, subId: warehouse.id, qty: 3, unit: '袋', amountCents: 0 });
+    const mixed = await service.detail(viewer, archive.id);
+    expect(mixed.stock).toBeNull();
+    expect(mixed.stockBalances).toHaveLength(2);
+    expect(mixed.stockBalances).toEqual(expect.arrayContaining([{ unit: '袋', qty: 3 }]));
+    await expect(service.setAttributes(admin, unmapped.id, { priceRestricted: true, tags: [] })).rejects.toThrow('产品不存在');
     await expect(service.detail(viewer, otherSku.id)).rejects.toThrow('产品不存在');
-    await expect(service.setAttributes(viewer, sku.id, { priceRestricted: true, tags: [] })).rejects.toThrow('管理员');
-    await service.setAttributes(admin, sku.id, { priceRestricted: true, tags: [' 新品 ', '新品'] });
-    expect(await service.detail(viewer, sku.id)).toMatchObject({ priceRestricted: true, tags: ['新品'] });
+    await expect(service.setAttributes(viewer, archive.id, { priceRestricted: true, tags: [] })).rejects.toThrow('管理员');
+    await service.setAttributes(admin, archive.id, { priceRestricted: true, tags: [' 新品 ', '新品'] });
+    expect(await service.detail(viewer, archive.id)).toMatchObject({ priceRestricted: true, tags: ['新品'] });
     await expect(service.setAttributes(admin, otherSku.id, { priceRestricted: true, tags: [] })).rejects.toThrow('产品不存在');
   });
 });

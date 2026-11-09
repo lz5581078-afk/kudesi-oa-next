@@ -6,23 +6,25 @@ import { api, ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { SkuApplicationCenter } from '../flow/SkuApplicationCenter';
 import './companyProducts.css';
+import { FinanceCodeDirectory } from '../finance/jst/FinanceCodeDirectory';
+import '../finance/jst/baseCodeReference.css';
 
 type Photo = { url: string; name: string };
 type Attributes = { priceRestricted: boolean; tags: string[] };
 type Product = Attributes & {
   id: number; name: string; code: string; category: string; specification: string;
-  stock: number | null; owners: string[];
+  stock: number | null; stockUnit: string; stockBalances: Array<{unit:string;qty:number}>; owners: string[];
 };
 type Catalog = {
   items: Array<Product & { photo: Photo | null }>;
-  categories: Array<{ id: number; name: string }>;
+  categories: Array<{ id: number; name: string; parentId:number|null }>; counts:Record<number,number>;
   total: number; page: number; pageSize: number;
 };
-type Detail = Product & { photos: Photo[]; weightG: number | null; styleCode: string; priceCents?: number | null };
+type Detail = Product & { photos: Photo[]; weightG: number | null };
 
 const endpoint = '/workspace/company-products';
 const message = (error: unknown) => error instanceof ApiError ? error.message : '读取失败，请重试。';
-const inventory = (stock: number | null) => stock === null ? '暂无数据' : `${stock.toLocaleString('zh-CN')} 套`;
+const inventory = (product: Product) => product.stockBalances.length ? product.stockBalances.map(s=>`${s.qty.toLocaleString('zh-CN')} ${s.unit}`).join(' / ') : '暂无数据';
 
 function useCatalogRequest<T>(path: string | null) {
   const [result, setResult] = useState<{ path: string; data?: T; error?: string }>();
@@ -82,18 +84,13 @@ function CompanyProducts() {
   }
 
   return <div className="company-products">
-    <header className="company-products-heading"><div><h1>公司产品</h1><p className="muted">按分类查看公司产品、库存和专属归属。</p></div></header>
+    <header className="company-products-heading"><h1>公司产品</h1></header>
     <CatalogSearch key={params.get('keyword') ?? ''} keyword={params.get('keyword') ?? ''}
       onSearch={keyword => update({ keyword, page: '' })} />
     {list.error ? <LoadError error={list.error} onRetry={list.retry} /> : list.data ? <>
-      <div className="company-products-filters">
-        <label>产品分类 <select value={params.get('category') ?? ''} onChange={event => update({ category: event.target.value, page: '' })}>
-          <option value="">全部分类</option>
-          {list.data.categories.map(category => <option value={category.id} key={category.id}>{category.name}</option>)}
-          <option value="0">未分类</option>
-        </select></label>
-        <span className="muted">共 {list.data.total} 件产品</span>
-      </div>
+      <div className="company-products-layout"><div className="company-products-directory">
+        <FinanceCodeDirectory cats={list.data.categories} counts={list.data.counts} value={params.has('category')?Number(params.get('category')):null} onPick={id=>update({category:id===null?'':String(id),page:''})}/>
+      </div><section><div className="company-products-filters"><span className="muted">共 {list.data.total} 件产品</span></div>
       <div className="company-products-grid">
         {list.data.items.map(product => {
           const target = new URLSearchParams(listParams);
@@ -101,7 +98,7 @@ function CompanyProducts() {
           return <Link key={product.id} className="card company-product-card" to={`?${target}`}>
             <div className="company-product-cover">
               <ProductImage photo={product.photo} />
-              <span className="company-product-stock">库存 {inventory(product.stock)}</span>
+              <span className="company-product-stock">库存 {inventory(product)}</span>
             </div>
             <div className="company-product-body">
               <span className="muted">{product.category}</span>
@@ -117,6 +114,7 @@ function CompanyProducts() {
         <span>第 {list.data.page} 页</span>
         <button type="button" className="secondary-button" disabled={list.data.page * list.data.pageSize >= list.data.total} onClick={() => update({ page: String(list.data!.page + 1) })}>下一页</button>
       </nav>}
+      </section></div>
     </> : <p role="status">正在读取公司产品…</p>}
   </div>;
 }
@@ -153,10 +151,9 @@ function ProductDetail({ product, canEdit, canApply, onApply }: { product: Detai
   const [attributes, setAttributes] = useState<Attributes>(product);
   const [editing, setEditing] = useState(false);
   const values = [
-    ['组合编码', product.code], ['款式编码', product.styleCode], ['规格', product.specification],
-    ['库存', inventory(product.stock)], ['重量', product.weightG === null ? '暂无数据' : `${product.weightG.toLocaleString('zh-CN', { maximumFractionDigits: 6 })} 克`],
+    ['商品档案编码', product.code], ['规格', product.specification],
+    ['库存', inventory(product)], ['重量', product.weightG === null ? '暂无数据' : `${product.weightG.toLocaleString('zh-CN', { maximumFractionDigits: 6 })} 克`],
   ];
-  if (product.priceCents !== undefined) values.push(['基本售价', product.priceCents === null ? '暂无记录' : `¥${(product.priceCents / 100).toFixed(2)}`]);
   return <article className="card company-product-detail">
     <div>
       <div className="company-product-cover">{product.photos[index] ? <a href={product.photos[index].url} target="_blank" rel="noreferrer" aria-label="打开原图"><ProductImage photo={product.photos[index]} /></a> : <ProductImage photo={null} />}</div>
