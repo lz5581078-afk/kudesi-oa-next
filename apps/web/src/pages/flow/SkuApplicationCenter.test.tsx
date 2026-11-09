@@ -7,6 +7,7 @@ vi.mock('../../auth/AuthContext',()=>({useAuth:()=>({user:mocks.identity,can:()=
 vi.mock('./flowApi',async original=>({...await original<typeof import('./flowApi')>(),flowApi:{templates:(...args:unknown[])=>mocks.templates(...args),applicationDraftTemplates:(...args:unknown[])=>mocks.draftTemplates(...args),createApplicationDrafts:(...args:unknown[])=>mocks.createDrafts(...args),runs:(...args:unknown[])=>mocks.runs(...args),start:(...args:unknown[])=>mocks.start(...args)}}));
 vi.mock('./SkuApply',async original=>({...await original<typeof import('./SkuApply')>(),skuApi:{startSplit:(...args:unknown[])=>mocks.split(...args),draftReferences:(...args:unknown[])=>mocks.references(...args)}}));
 vi.mock('./SkuBatchPanel',()=>({SkuBatchPanel:({batchKey,onClose}:{batchKey:string;onClose:()=>void})=><div role="dialog" aria-label="真实批量办理面板">{batchKey}<button onClick={onClose}>关闭办理</button></div>}));
+vi.mock('./SkuAiFillPanel',()=>({SkuAiFillPanel:({names,onApply}:{names:string[];onApply:(fill:unknown)=>void})=><button type="button" onClick={()=>onApply({brandId:7,specs:[{name:names[0],main:[{baseCodeId:1,qty:2},{baseCodeId:2,qty:1}],gift:[{baseCodeId:9,qty:2}],warnings:[]}]})}>应用测试填写</button>}));
 import {SkuApplicationCenter} from './SkuApplicationCenter';
 import {RunsPage} from './RunsPage';
 const template:TemplateInfo={key:'sku-batch-apply',label:'SKU批量申请',description:'真实SKU申请',active:true,version:1,fields:[],stepFields:{},steps:[{name:'运营申请',type:'submit'}]};
@@ -49,4 +50,14 @@ it('隐藏退役历史版本，新建优先使用当前已发布版本',async()=
  render(<Page/>);const dialog=await openCreate();await searchAndNext(dialog);
  expect((within(dialog).getByLabelText('流程模板') as HTMLSelectElement).value).toBe('6');
  expect(within(dialog).queryByRole('option',{name:/历史版本/})).toBeNull();
+});
+
+it('AI 一键填写应用后：建立申请时把凑好的主商品/赠品和默认品牌带进草稿，由下一步人工审核',async()=>{
+ mocks.createDrafts.mockResolvedValue({batchKey:'Bai',headerVersion:1,runs:[]});
+ render(<Page/>);const dialog=await openCreate();await searchAndNext(dialog);
+ fireEvent.change(within(dialog).getByLabelText('申请标题'),{target:{value:'AI填写'}});fireEvent.change(within(dialog).getByLabelText('第1个规格名称'),{target:{value:'500g'}});
+ fireEvent.click(within(dialog).getByRole('button',{name:/AI 一键填写/}));fireEvent.click(await screen.findByText('应用测试填写'));
+ fireEvent.click(within(dialog).getByRole('button',{name:'建立申请'}));
+ await waitFor(()=>expect(mocks.createDrafts).toHaveBeenCalled());
+ expect(mocks.createDrafts.mock.calls[0][0].payloads).toEqual([{batchName:'AI填写',brandId:7,specs:[{name:'500g',main:[{baseCodeId:1,qty:2},{baseCodeId:2,qty:1}],gift:[{baseCodeId:9,qty:2}]}]}]);
 });

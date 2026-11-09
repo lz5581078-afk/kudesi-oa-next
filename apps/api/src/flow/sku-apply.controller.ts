@@ -1,11 +1,12 @@
 import {SKU_BATCH_REF} from './sku-batch-reference';
 import {FlowConfirmationDto} from './flow-confirmation.dto';
-import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, Optional, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsObject, IsOptional, IsString, Matches, MaxLength,Min,Max, ValidateNested } from 'class-validator';
 import { AuthUser, CurrentUser, RequirePermission, AuthenticatedOnly } from '../common/auth.decorators';
 import { SkuApplyService, type SkuOptionKind } from './sku-apply.service';
 import { SkuBatchService, type BatchAction } from './sku-batch.service';
+import { OcrService } from '../integrations/ocr.service';
 
 class OptionsQuery {
   @IsOptional() @IsIn(['true']) catalog?:'true';
@@ -62,10 +63,20 @@ class ReturnSpecsDto {
   @IsString() @MaxLength(500) reason!: string;
 }
 
+class AiParseDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(100) @IsString({ each: true }) @MaxLength(100, { each: true }) names!: string[];
+}
+
 /** SKU 批量申请的辅助接口。不另开菜单：申请从“申请中心”发起，预览显示在流程详情里。 */
 @Controller('flow/sku-apply')
 export class SkuApplyController {
-  constructor(private readonly sku: SkuApplyService, private readonly batches: SkuBatchService) {}
+  constructor(private readonly sku: SkuApplyService, private readonly batches: SkuBatchService, @Optional() private readonly ocr?: OcrService) {}
+
+  /** AI 一键填写：只读规格名称里的主商品/赠品重量（克），不入库、不改任何申请；凑数和填写在前端按所选商品计算，由人工审核后才提交 */
+  @RequirePermission('flow.apply.view')
+  @Post('ai-parse')
+  @HttpCode(200)
+  async aiParse(@CurrentUser() user: AuthUser, @Body() b: AiParseDto) { if (!this.ocr) throw new BadRequestException("AI 暂未开通"); return { items: await this.ocr.parseSkuSpecNames(user, b.names) }; }
 
   @AuthenticatedOnly()
   @Get('options')

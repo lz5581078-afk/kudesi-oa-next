@@ -11,6 +11,7 @@ export const AI_SCOPES = {
   business_license_recognition: '营业执照识别',
   express_price_recognition: '快递价格表识别',
   resume_recognition: '简历/登记表识别（招聘）',
+  sku_spec_parse: '规格名称拆解（SKU申请一键填写）',
 } as const;
 export type AiScope = keyof typeof AI_SCOPES;
 export const AI_SYNC_CHANNEL = 'ai_models';
