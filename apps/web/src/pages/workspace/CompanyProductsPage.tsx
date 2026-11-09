@@ -12,7 +12,7 @@ import '../finance/jst/baseCodeReference.css';
 type Photo = { url: string; name: string };
 type Attributes = { priceRestricted: boolean; tags: string[] };
 type Product = Attributes & {
-  id: number; name: string; code: string; category: string; specification: string;
+  id: number; name: string; alias: string | null; imagePosition: string; code: string; category: string; specification: string;
   stock: number | null; stockUnit: string; stockBalances: Array<{unit:string;qty:number}>; owners: string[];
 };
 type Catalog = {
@@ -58,7 +58,8 @@ function CompanyProducts() {
     if (value) listParams.set(key, value);
   }
   const list = useCatalogRequest<Catalog>(productId ? null : `${endpoint}?${listParams}`);
-  const detail = useCatalogRequest<Detail>(/^\d+$/.test(productId) ? `${endpoint}/${productId}` : null);
+  const aliasQuery = params.has('alias') ? `?${new URLSearchParams({alias: params.get('alias')!})}` : '';
+  const detail = useCatalogRequest<Detail>(/^\d+$/.test(productId) ? `${endpoint}/${productId}${aliasQuery}` : null);
   const back = `${COMPANY_PRODUCTS.path}?${listParams}`;
 
   function update(values: Record<string, string>) {
@@ -75,7 +76,7 @@ function CompanyProducts() {
     return <div className="company-products">
       <Link className="secondary-button" to={back}><ArrowLeft size={16} /> 返回公司产品</Link>
       {error ? <LoadError error={error} onRetry={detail.retry} /> : detail.data ? <>
-        <ProductDetail key={productId} product={detail.data} canEdit={!!user?.permissions.isCompanyAdmin}
+        <ProductDetail key={`${productId}:${detail.data.alias}`} product={detail.data} canEdit={!!user?.permissions.isCompanyAdmin}
           canApply={can('flow.apply.view')} onApply={() => update({ apply: 'sku' })} />
         {params.get('apply') === 'sku' && can('flow.apply.view') &&
           <SkuApplicationCenter initialQuery={detail.data.name} onClose={() => update({ apply: '' })} />}
@@ -95,9 +96,10 @@ function CompanyProducts() {
         {list.data.items.map(product => {
           const target = new URLSearchParams(listParams);
           target.set('product', String(product.id));
-          return <Link key={product.id} className="card company-product-card" to={`?${target}`}>
+          if (product.alias !== null) target.set('alias', product.alias);
+          return <Link key={`${product.id}:${product.alias}`} className="card company-product-card" to={`?${target}`}>
             <div className="company-product-cover">
-              <ProductImage photo={product.photo} />
+              <ProductImage photo={product.photo} position={product.imagePosition} />
               <span className="company-product-stock">库存 {inventory(product)}</span>
             </div>
             <div className="company-product-body">
@@ -132,9 +134,9 @@ function LoadError({ error, onRetry }: { error: string; onRetry: () => void }) {
   return <p className="notice error" role="alert">{error} <button type="button" onClick={onRetry}>重试</button></p>;
 }
 
-function ProductImage({ photo }: { photo: Photo | null }) {
+function ProductImage({ photo, position = '50% 50%' }: { photo: Photo | null; position?: string }) {
   const [failed, setFailed] = useState<string>();
-  return photo && failed !== photo.url ? <img src={photo.url} alt={photo.name} loading="lazy" onError={() => setFailed(photo.url)} />
+  return photo && failed !== photo.url ? <img src={photo.url} alt={photo.name} style={{objectPosition: position, transformOrigin: position}} draggable={false} onContextMenu={event => event.preventDefault()} loading="lazy" onError={() => setFailed(photo.url)} />
     : <span className="company-product-placeholder"><ImageOff size={30} /> 暂无图片</span>;
 }
 
@@ -156,9 +158,9 @@ function ProductDetail({ product, canEdit, canApply, onApply }: { product: Detai
   ];
   return <article className="card company-product-detail">
     <div>
-      <div className="company-product-cover">{product.photos[index] ? <a href={product.photos[index].url} target="_blank" rel="noreferrer" aria-label="打开原图"><ProductImage photo={product.photos[index]} /></a> : <ProductImage photo={null} />}</div>
+      <div className="company-product-cover">{product.photos[index] ? <ProductImage photo={product.photos[index]} position={product.imagePosition} /> : <ProductImage photo={null} />}</div>
       {product.photos.length > 1 && <div className="company-product-thumbnails" aria-label="产品图片">
-        {product.photos.map((photo, position) => <button key={position} type="button" aria-label={`查看第 ${position + 1} 张图片`} aria-pressed={index === position} onClick={() => setIndex(position)}><ProductImage photo={photo} /></button>)}
+        {product.photos.map((photo, position) => <button key={position} type="button" aria-label={`查看第 ${position + 1} 张图片`} aria-pressed={index === position} onClick={() => setIndex(position)}><ProductImage photo={photo} position={product.imagePosition} /></button>)}
       </div>}
     </div>
     <div className="company-product-details">
