@@ -9,22 +9,29 @@ const shift = (day: string, n: number) => new Date(Date.parse(`${day}T00:00:00Z`
 const ppm = (v: number | null) => (v === null ? '—' : `${(v / 1_000_000).toFixed(2)}%`);
 
 /** 运营工作台“每日经营”：选一天看各店铺营业额、推广费、利润、利润率，并提醒这天还没有数据的店铺。 */
-export function DailyBusinessPanel() {
+export function DailyBusinessPanel({ refreshKey = 0 }: { refreshKey?: number } = {}) {
   const yesterday = shift(todayInChina(), -1);
   const [date, setDate] = useState(yesterday);
   const [d, setD] = useState<DailyBusiness | null>(null);
   const [error, setError] = useState('');
   const [showMissing, setShowMissing] = useState(false);
   useEffect(() => {
+    let active = true;
     setD(null);
-    workspaceApi.daily(date).then((x) => { setD(x); setError(''); }).catch((e) => setError(e instanceof ApiError ? e.message : '加载失败'));
-  }, [date]);
+    setError('');
+    workspaceApi.daily(date).then(x => { if (active) setD(x); }).catch(e => {
+      if (active) setError(e instanceof ApiError ? e.message : '加载失败');
+    });
+    return () => { active = false; };
+  }, [date, refreshKey]);
   const cell = (label: string, value: string) => <div className="ws-card normal"><span>{label}</span><strong>{value}</strong></div>;
   return (
     <section className="card ws-section" aria-label="每日经营">
       <div className="ws-head">
         <h2>每日经营</h2>
         <div className="toolbar-inline">
+          <button type="button" className="chip" aria-pressed={date === yesterday} onClick={() => setDate(yesterday)}>昨日</button>
+          <button type="button" className="chip" aria-pressed={date === todayInChina()} onClick={() => setDate(todayInChina())}>今日</button>
           <button type="button" className="secondary-button small" aria-label="前一天" onClick={() => setDate(shift(date, -1))}>‹</button>
           <input type="date" aria-label="经营日期" value={date} max={todayInChina()} onChange={(e) => e.target.value && setDate(e.target.value)} />
           <button type="button" className="secondary-button small" aria-label="后一天" disabled={date >= todayInChina()} onClick={() => setDate(shift(date, 1))}>›</button>

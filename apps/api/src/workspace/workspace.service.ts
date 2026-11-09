@@ -1,14 +1,16 @@
 import { writeNotification } from '../outbox/write-notification';
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
 import {
-  createChecker, deskFor, departmentPath, isTaskView, taskStage, todayInChina, WORKSPACE_MODULES,
+  createChecker, deskFor, departmentPath, isTaskView, taskStage, todayInChina, WORKSPACE_MODULES, workspaceTypeFromLegacyTemplate,
   marginPpm, type BossDashboard, type DailyBusiness, type BossPerson, type DeskCatalog, type DeskPosition, type PersonalTaskList, type PersonalTaskRow, type SummaryCard, type TaskView, type WorkspaceModuleKey,
 } from '@kudesi/shared';
 import { AuthUser } from '../common/auth.decorators';
 import { Department, Notification, Position, User, WorkItem } from '../entities';
 import { ResourcesService } from '../resources/resources.service';
+import { CryptoService } from '../common/crypto.service';
+import { readSourceRow } from '../migration/source-rows';
 import { WorkspaceModuleRegistry } from './module-registry';
 
 const COST_VIEW = 'product.cost.view';
@@ -23,6 +25,7 @@ export class WorkspaceService {
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly resources: ResourcesService,
     private readonly registry: WorkspaceModuleRegistry,
+    @Optional() private readonly crypto?: CryptoService,
   ) {}
 
   private can(user: AuthUser, key: string) { return createChecker(user.permissions)(key); }
@@ -55,7 +58,8 @@ export class WorkspaceService {
     const cat = await this.catalog(user);
     const position = cat.positions.find((p) => p.id === positionId);
     if (!position) throw new NotFoundException('没有这个岗位的工作台，或你无权查看');
-    const def = deskFor(position.workspaceType);
+    position.referenceProfile = await this.referenceProfile(user.companyId, position);
+    const def = deskFor(position.workspaceType, position.referenceProfile);
     const cards: SummaryCard[] = [];
     const em = this.dataSource.manager;
     const type = position.workspaceType;
@@ -76,6 +80,25 @@ export class WorkspaceService {
       else cards.push({ key: `module-${key}`, label: WORKSPACE_MODULES[key], value: null, hint: '暂无该模块', module: key });
     }
     return { position, title: `${position.name}工作台`, focus: def.focus, pending: def.pending ?? [], cards };
+  }
+
+  private async referenceProfile(companyId: number, position: DeskPosition) {
+    if (!this.crypto) return undefined;
+    const links: Array<{ source_company_id: number; source_key: string }> = await this.dataSource.query(
+      "SELECT source_company_id, source_key FROM legacy_import_links WHERE company_id = ? AND source_system = 'legacy-oa' AND target_type = 'position' AND target_id = ? LIMIT 2",
+      [companyId, position.id],
+    );
+    if (links.length !== 1) return undefined;
+    const [link] = links;
+    const id = /^position:(\d+)$/.exec(link.source_key)?.[1];
+    if (!id) return undefined;
+    const policy = await readSourceRow(this.dataSource.manager, this.crypto, {
+      companyId, sourceCompanyId: Number(link.source_company_id), table: 'legacy_position_workspace_policy', key: 'current',
+    });
+    const resolutions = policy?.resolutions;
+    if (!Array.isArray(resolutions)) return undefined;
+    const profile = resolutions.find(row => row.positionId === id)?.templateKey;
+    return typeof profile === 'string' && workspaceTypeFromLegacyTemplate(profile) === position.workspaceType ? profile : undefined;
   }
 
   // ================= 个人任务 =================

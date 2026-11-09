@@ -1,0 +1,31 @@
+.desk-reference { display: grid; gap: 14px; }
+.desk-reference > *, .desk-columns > *, .desk-side > * { min-width: 0; }
+.desk-heading { display: flex; align-items: center; gap: 12px; padding-block: 4px; }
+.desk-heading h1 { margin: 0; font-size: 23px; }
+.desk-heading p { margin: 3px 0 0; }
+.desk-heading > button { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 6px; }
+.desk-role-icon { display: grid; place-items: center; width: 48px; height: 48px; flex: none; border-radius: 12px; background: var(--accent-soft, #e3f2ef); color: var(--accent, #096c68); }
+.desk-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 32%); align-items: start; gap: 14px; }
+.desk-side, .desk-live-panels { display: grid; align-content: start; gap: 12px; min-width: 0; }
+.desk-reference .ws-section { margin: 0; }
+.desk-reference .ws-head h2 { display: inline-flex; align-items: center; gap: 6px; }
+.desk-reference > .ws-cards { margin: 0; }
+.desk-action-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 145px), 1fr)); gap: 8px; padding: 0 14px 12px; }
+.desk-action-list > :is(a, button) { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; min-height: 42px; padding: 7px 10px; text-align: left; text-decoration: none; color: var(--ink); border: 1px solid var(--border); background: var(--surface, #fff); border-radius: 8px; }
+.desk-action-list svg { flex: none; color: var(--accent, #096c68); }
+.desk-action-list > :is(a, button):hover { border-color: var(--accent, #096c68); }
+.desk-pending { margin: 0; list-style: none; padding: 0 14px 10px; }
+.desk-pending li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-block: 6px; }
+@media (max-width: 900px) { .desk-columns { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 520px) {
+  .desk-heading { flex-wrap: wrap; }
+  .desk-heading > button { margin-left: 0; }
+  .desk-heading h1 { font-size: 19px; }
+}
+.desk-flow-table td { vertical-align: middle; }
+.desk-flow-table td small { display: block; color: var(--muted); margin-top: 3px; }
+.desk-flow-table .link-button { text-align: left; overflow-wrap: anywhere; }
+.desk-flow-link { display: inline-flex; gap: 5px; align-items: center; white-space: nowrap; }
+.desk-reference .ws-flow-tools { padding: 0 12px 8px; }
+.desk-reference .ws-flow-tools input { width: min(100%, 230px); min-width: 0; }
+.desk-business { border-top: 3px solid var(--accent); }
