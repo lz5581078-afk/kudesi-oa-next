@@ -65,6 +65,12 @@ export function normalizeLicenseFields(raw: Record<string, unknown>) {
   return { fields, warnings };
 }
 
+const skuSpecPrompt = (names: string[]) => `你是电商商品规格助手。下面是若干“内部规格名称”，每行一个，格式“序号: 名称”。
+请从每个名称里读出：主商品的总重量 mainGrams、赠品的总重量 giftGrams，都换算成克（1斤=500克，1公斤=1千克=1000克）。
+规则：名称里明确写了赠品/送/赠的重量才填 giftGrams，否则为 null；名称里没有重量就填 null；不要猜，不要自己编。
+只返回 JSON：{"items":[{"index":0,"mainGrams":500,"giftGrams":null}]}，index 就是序号。
+${names.map((n, i) => `${i}: ${n}`).join('\n')}`;
+
 /** 营业执照识别：用管理员在“接口设置”里配置的视觉大模型，结果交给前端确认后再填入，不直接入库。 */
 @Injectable()
 export class OcrService {
@@ -122,6 +128,24 @@ export class OcrService {
     const filled = Object.values(simple).filter(Boolean).length + educationHistory.length + workHistory.length;
     if (filled === 0) throw new BadRequestException('没有识别出内容，请换一张更清晰的简历图片或改用手工填写');
     return { form, filled };
+  }
+
+  /** SKU 申请“AI 一键填写”：只让模型从规格名称里读出主商品/赠品的目标重量（克）；组合凑数由代码算。不入库。 */
+  async parseSkuSpecNames(user: AuthUser, names: string[]): Promise<Array<{ name: string; mainGrams: number | null; giftGrams: number | null }>> {
+    const can = createChecker(user.permissions);
+    if (!can('flow.apply.view')) throw new ForbiddenException('没有权限执行此操作');
+    const cfg = (await this.ai?.resolveVision(user.companyId, 'sku_spec_parse')) ?? (await this.ai?.resolveDeepseek(user.companyId)) ?? (await this.settings.getVision(user.companyId));
+    if (!cfg || !cfg.enabled) throw new BadRequestException('还没有启用 AI，请管理员先到“系统 → AI API 接口”添加并启用 DeepSeek（或在 AI 设置里为“规格名称拆解”选好模型）');
+    const list = names.map((n) => String(n ?? '').trim().slice(0, 100));
+    let reply: string;
+    try { reply = await this.visionFactory(cfg).recognizeText(skuSpecPrompt(list)); } catch { throw new BadRequestException('AI 调用失败，请稍后重试'); }
+    const parsed = extractJson(reply);
+    const rows = Array.isArray(parsed?.items) ? (parsed!.items as unknown[]) : [];
+    const grams = (v: unknown) => { const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() ? Number(v) : NaN; return Number.isFinite(n) && n > 0 && n <= 10_000_000 ? Math.round(n) : null; };
+    return list.map((name, i) => {
+      const row = rows.find((r) => r && typeof r === 'object' && Number((r as { index?: unknown }).index) === i) as { mainGrams?: unknown; giftGrams?: unknown } | undefined;
+      return { name, mainGrams: grams(row?.mainGrams), giftGrams: grams(row?.giftGrams) };
+    });
   }
 
   /** 快递价格表图片 → 待确认的价格行；不入库，确认后才逐行建“快递价格表”记录 */
