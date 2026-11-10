@@ -19,8 +19,9 @@ class ProductQuery {
 class ProductDetailQuery {
   @IsOptional() @IsString() @MaxLength(160) alias?: string;
 }
-class ProductAttributes {
+export class ProductAttributes {
   @IsBoolean() priceRestricted!: boolean;
+  @IsOptional() @IsInt() @Min(1) @Max(99999999999) minimumPriceCents?: number | null;
   @IsArray() @ArrayMaxSize(8) @IsString({ each: true }) @MaxLength(24, { each: true }) tags!: string[];
 }
 

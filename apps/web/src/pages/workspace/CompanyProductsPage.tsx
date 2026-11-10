@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Package, Search, Settings2 } from 'lucide-react';
-import { COMPANY_PRODUCTS } from '@kudesi/shared';
+import { COMPANY_PRODUCTS, yuanToPreciseCents } from '@kudesi/shared';
 import { api, ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { SkuApplicationCenter } from '../flow/SkuApplicationCenter';
@@ -11,7 +11,7 @@ import { FinanceCodeDirectory } from '../finance/jst/FinanceCodeDirectory';
 import '../finance/jst/baseCodeReference.css';
 
 type Photo = { url: string; name: string };
-type Attributes = { priceRestricted: boolean; tags: string[] };
+type Attributes = { priceRestricted: boolean; tags: string[]; minimumPriceCents?: number | null };
 type Product = Attributes & {
   id: number; name: string; alias: string | null; imagePosition: string; code: string; category: string; specification: string;
   stock: number | null; stockUnit: string; stockBalances: Array<{unit:string;qty:number}>; owners: string[];
@@ -135,9 +135,9 @@ function LoadError({ error, onRetry }: { error: string; onRetry: () => void }) {
   return <p className="notice error" role="alert">{error} <button type="button" onClick={onRetry}>重试</button></p>;
 }
 
-function ProductTags({ product }: { product: Pick<Product, 'priceRestricted' | 'tags' | 'owners'> }) {
+function ProductTags({ product }: { product: Pick<Product, 'priceRestricted' | 'tags' | 'owners' | 'minimumPriceCents'> }) {
   return <div className="company-product-tags">
-    {product.priceRestricted && <span className="pill warn">限价品</span>}
+    {product.priceRestricted && <span className="pill warn">限价品{product.minimumPriceCents != null && ` · 最低售价 ¥${(product.minimumPriceCents / 100).toFixed(2)}`}</span>}
     {product.tags.map(tag => <span key={tag} className="pill">{tag}</span>)}
     {product.owners.length > 0 && <span className="pill success">专属人 · {product.owners.join('、')}</span>}
   </div>;
@@ -175,6 +175,7 @@ function ProductDetail({ product, canEdit, canApply, onApply }: { product: Detai
 
 function ProductAttributes({ id, value, onCancel, onSave }: { id: number; value: Attributes; onCancel: () => void; onSave: (value: Attributes) => void }) {
   const [priceRestricted, setPriceRestricted] = useState(value.priceRestricted);
+  const [minimumPrice, setMinimumPrice] = useState(value.minimumPriceCents == null ? '' : (value.minimumPriceCents / 100).toFixed(2));
   const [input, setInput] = useState(value.tags.join('，'));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -183,10 +184,15 @@ function ProductAttributes({ id, value, onCancel, onSave }: { id: number; value:
     if (busy) return;
     const tags = [...new Set(input.split(/[,，]/).map(tag => tag.trim()).filter(Boolean))];
     if (tags.length > 8 || tags.some(tag => tag.length > 24)) { setError('最多设置 8 个标签，每个标签最多 24 字。'); return; }
+    let minimumPriceCents: number | null = null;
+    if (priceRestricted && minimumPrice.trim()) {
+      try { minimumPriceCents = yuanToPreciseCents(minimumPrice.trim(), 0); } catch { setError('最低销售价请输入最多两位小数的金额'); return; }
+      if (minimumPriceCents <= 0 || minimumPriceCents > 99999999999) { setError('最低销售价须大于0且不超过999999999.99元'); return; }
+    }
     setBusy(true);
     setError('');
     try {
-      onSave(await api<Attributes>(`${endpoint}/${id}/attributes`, { method: 'PATCH', body: { priceRestricted, tags } }));
+      onSave(await api<Attributes>(`${endpoint}/${id}/attributes`, { method: 'PATCH', body: { priceRestricted, tags, minimumPriceCents } }));
     } catch (error) {
       setError(error instanceof ApiError ? error.message : '保存失败，请重试。');
       setBusy(false);
@@ -194,6 +200,7 @@ function ProductAttributes({ id, value, onCancel, onSave }: { id: number; value:
   }
   return <form className="company-product-attributes" onSubmit={save}>
     <label><input type="checkbox" checked={priceRestricted} onChange={event => setPriceRestricted(event.target.checked)} /> 限价品</label>
+    {priceRestricted && <label>最低销售价（元）<input className="search-input" inputMode="decimal" value={minimumPrice} onChange={event => setMinimumPrice(event.target.value)} maxLength={16} placeholder="例如 29.90" /></label>}
     <label>产品标签 <input className="search-input" value={input} maxLength={220} placeholder="多个标签用逗号分隔" onChange={event => setInput(event.target.value)} /></label>
     {error && <p role="alert" className="notice error">{error}</p>}
     <div className="company-product-actions"><button type="submit" className="primary-button" disabled={busy}>保存属性</button><button type="button" className="secondary-button" disabled={busy} onClick={onCancel}>取消</button></div>

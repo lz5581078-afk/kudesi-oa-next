@@ -4,9 +4,10 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { api } from '../../api/client';
 import { CompanyProductsPage } from './CompanyProductsPage';
 vi.mock('../../api/client', () => ({ api: vi.fn(), ApiError: class extends Error {} }));
-vi.mock('../../auth/AuthContext', () => ({ useAuth: () => ({user:{id:1,companyId:1,permissions:{isCompanyAdmin:false}},can:()=>true}) }));
+const auth = vi.hoisted(() => ({ admin: false }));
+vi.mock('../../auth/AuthContext', () => ({ useAuth: () => ({user:{id:1,companyId:1,permissions:{isCompanyAdmin:auth.admin}},can:()=>true}) }));
 vi.mock('../flow/SkuApplicationCenter', () => ({SkuApplicationCenter:({initialQuery}:{initialQuery:string})=><div role="dialog">{initialQuery}</div>}));
-afterEach(()=>{cleanup();vi.resetAllMocks();});
+afterEach(()=>{cleanup();vi.resetAllMocks();auth.admin=false;});
 it('同一档案的马甲独立卡片，详情及申请保留马甲且不提供原图链接', async()=>{
   const common={id:1,code:'A',category:'种子',specification:'1 千克',stock:8,stockUnit:'千克',stockBalances:[{unit:'千克',qty:8}],owners:[],tags:[],priceRestricted:false};
   const photo={url:'https://example.invalid/original.jpg',name:'产品图片'};
@@ -28,4 +29,37 @@ it('同一档案的马甲独立卡片，详情及申请保留马甲且不提供�
   expect(screen.getByRole('img').style.transformOrigin).toBe('');
   fireEvent.click(screen.getByRole('button',{name:/申请 SKU/}));
   expect((await screen.findByRole('dialog')).textContent).toBe('马甲乙');
+});
+
+it('管理员填写最低售价，精确保存分，重新载入可编辑并取消限价', async()=>{
+  auth.admin=true;
+  let product={id:1,name:'测试产品',alias:null,code:'A',category:'种子',specification:'1袋',weightG:null,stockBalances:[],photos:[],owners:[],tags:[],priceRestricted:true,minimumPriceCents:null as number|null};
+  vi.mocked(api).mockImplementation(async(_path,options)=>{
+    if(options?.method==='PATCH') product={...product,...options.body as object};
+    return product as never;
+  });
+  const view=render(<MemoryRouter initialEntries={['/?product=1']}><CompanyProductsPage/></MemoryRouter>);
+  fireEvent.click(await screen.findByRole('button',{name:'设置产品属性'}));
+  fireEvent.change(screen.getByLabelText('最低销售价（元）'),{target:{value:'29.901'}});
+  fireEvent.click(screen.getByRole('button',{name:'保存属性'}));
+  expect((await screen.findByRole('alert')).textContent).toContain('最多两位小数');
+  fireEvent.change(screen.getByLabelText('最低销售价（元）'),{target:{value:'29.90'}});
+  fireEvent.click(screen.getByRole('button',{name:'保存属性'}));
+  await screen.findByText('限价品 · 最低售价 ¥29.90');
+  expect(api).toHaveBeenCalledWith('/workspace/company-products/1/attributes',{method:'PATCH',body:{priceRestricted:true,tags:[],minimumPriceCents:2990}});
+  view.unmount();
+  render(<MemoryRouter initialEntries={['/?product=1']}><CompanyProductsPage/></MemoryRouter>);
+  fireEvent.click(await screen.findByRole('button',{name:'设置产品属性'}));
+  expect((screen.getByLabelText('最低销售价（元）') as HTMLInputElement).value).toBe('29.90');
+  fireEvent.click(screen.getByLabelText('限价品'));
+  expect(screen.queryByLabelText('最低销售价（元）')).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'保存属性'}));
+  await screen.findByRole('button',{name:'设置产品属性'});
+  expect(product.minimumPriceCents).toBeNull();
+});
+it('查看人员在卡片看到最低售价但无编辑入口', async()=>{
+  vi.mocked(api).mockResolvedValue({items:[{id:1,name:'产品',category:'种子',stockBalances:[],owners:[],tags:[],priceRestricted:true,minimumPriceCents:1}],total:1,page:1,pageSize:24,categories:[],counts:{}} as never);
+  render(<MemoryRouter><CompanyProductsPage/></MemoryRouter>);
+  await screen.findByText('限价品 · 最低售价 ¥0.01');
+  expect(screen.queryByRole('button',{name:'设置产品属性'})).toBeNull();
 });

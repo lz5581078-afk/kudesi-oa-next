@@ -101,6 +101,15 @@ db('公司产品图册', () => {
     await service.setAttributes(admin, archive.id, { priceRestricted: true, tags: [' 新品 ', '新品'] });
     expect(await service.detail(viewer, archive.id)).toMatchObject({ priceRestricted: true, tags: ['新品'] });
     await expect(service.setAttributes(admin, otherSku.id, { priceRestricted: true, tags: [] })).rejects.toThrow('产品不存在');
+    await service.setAttributes(admin, archive.id, {priceRestricted:true,tags:[],minimumPriceCents:2990});
+    expect(await service.detail(viewer, archive.id, '苹果马甲二')).toMatchObject({minimumPriceCents:2990});
+    expect((await service.list(viewer,{keyword:'苹果'})).items.every(p=>p.minimumPriceCents===2990)).toBe(true);
+    await service.setAttributes(admin, archive.id, {priceRestricted:true,tags:['旧客户端']});
+    expect(await service.detail(viewer, archive.id)).toMatchObject({minimumPriceCents:2990});
+    for(const amount of [-1,0,1.5,100000000000]) await expect(service.setAttributes(admin,archive.id,{priceRestricted:true,tags:[],minimumPriceCents:amount})).rejects.toThrow('最低销售价');
+    await expect(service.setAttributes(viewer,archive.id,{priceRestricted:true,tags:[],minimumPriceCents:100})).rejects.toThrow('管理员');
+    await service.setAttributes(admin,archive.id,{priceRestricted:false,tags:[],minimumPriceCents:2990});
+    expect(await service.detail(viewer,archive.id)).toMatchObject({priceRestricted:false,minimumPriceCents:null});
     const manyNames = Array.from({length: 26}, (_, index) => `分页马甲${index}`);
     await ds.manager.update(ResourceRecord, archive.id, {data: {...(await ds.manager.findOneByOrFail(ResourceRecord, {id: archive.id})).data, rawFinishedNames: manyNames.join('\n')}});
     const first = await service.list(viewer, {keyword: '分页马甲'});
