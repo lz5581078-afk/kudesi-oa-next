@@ -1,3 +1,4 @@
+import { lastCompleteCosts, completeCost } from './cost-registration';
 import { COST_HISTORY_FIELDS, costHistoryValues } from './cost-history-values';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -55,20 +56,20 @@ export class DataToolsService {
   /** 补齐先预览，只包含缺少登记且当前资料完整的已验证SKU。 */
   async previewCostRegistration(user: AuthUser, em: EntityManager = this.dataSource.manager) {
     const { d, rows: current } = await this.cost.liveAllRows(user, em);
-    const existing = await em.createQueryBuilder(FinanceCostSnapshot, 's').select('s.bundleId', 'bundleId').distinct(true).where('s.companyId = :companyId', { companyId: user.companyId }).getRawMany<{ bundleId: number }>();
-    const present = new Set(existing.map(row => Number(row.bundleId)));
+    const present = await lastCompleteCosts(em, user.companyId, current.map(row => row.bundleId));
     const rows: Array<{ id: number; code: string; name: string; costCents: number; weightG: number }> = [];
     const issues: Array<{ id: number; code: string; issues: string[] }> = [];
     const versions: unknown[] = [];
     for (const row of current.filter(row => row.status === 'verified' && !present.has(row.bundleId)).sort((a,b) => a.bundleId - b.bundleId)) {
-      const problems: string[] = [];
+      const problems: string[] = [...row.issues];
+      if (!completeCost(row) && !problems.length) problems.push('成本、重量、运费或利润率不完整');
       if (row.preShipCostCents === null || row.preShipCostCents < 0) problems.push('缺少有效总成本');
       if (row.weightG === null || row.weightG <= 0) problems.push('缺少有效重量');
       const lines = d.lines.filter(line => line.data.bundleId === row.bundleId);
       const bundle = d.bundles.find(bundle => bundle.id === row.bundleId)!;
       const platform = await em.findOne(ResourceRecord, { where: { companyId: user.companyId, type: 'finance-platforms', id: Number(bundle.data.platformId) } });
       problems.push(...await bundleIssues(em, user.companyId, bundle.data, lines.map(line => line.data), platform?.status ?? 'missing'));
-      versions.push([row.bundleId, bundle.data, row.lines]);
+      versions.push([row.bundleId, bundle.data, row.lines, row.freightCents, row.marginPercent, row.minPriceCents]);
       if (problems.length) issues.push({ id: row.bundleId, code: row.code, issues: problems });
       else rows.push({ id: row.bundleId, code: row.code, name: row.name, costCents: row.preShipCostCents!, weightG: row.weightG! });
     }
@@ -77,7 +78,7 @@ export class DataToolsService {
   }
 
   /** 登记成本快照；补齐必须确认预览，已经存在的记录及单品设置不覆盖。 */
-  async registerCost(user: AuthUser, bundleId: number | undefined, reason: string, outer?: EntityManager, eventType: CostEvent = 'manual', missingOnly = false, confirmation?: { confirmed?: boolean; signature?: string }): Promise<{ recorded: number; unchanged: number }> {
+  async registerCost(user: AuthUser, bundleId: number | undefined, reason: string, outer?: EntityManager, eventType: CostEvent = 'manual', missingOnly = false, confirmation?: { confirmed?: boolean; signature?: string }): Promise<{ recorded: number; unchanged: number; invalid?: number }> {
     if (!outer) return this.dataSource.transaction(em => this.registerCost(user, bundleId, reason, em, eventType, missingOnly, confirmation));
     const em = outer;
     let ids: number[];
@@ -95,7 +96,7 @@ export class DataToolsService {
     } else ids = bundleId ? [bundleId] : locked.map(bundle => bundle.id);
     const result = await registerCostSnapshots(em, user.companyId, user.id, ids, reason, eventType);
     if (bundleId && result.missing) throw new NotFoundException('组合不存在');
-    return { recorded: result.recorded, unchanged: result.unchanged };
+    return { recorded: result.recorded, unchanged: result.unchanged, ...(result.invalid ? { invalid: result.invalid } : {}) };
   }
 
   async costHistory(user: AuthUser, q: { bundleId?: number; keyword?: string; page: number; pageSize: number }) {

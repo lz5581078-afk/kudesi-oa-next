@@ -1,3 +1,4 @@
+import { preserveSourceCosts, endCostBatch } from './cost-snapshot';
 import {beginSourceProductQuality,sourceQualitySavedRows,endSourceProductQuality,sourceProductQualityActive,sourceQualityValues} from './source-product-quality';
 import {deriveBaseCodeListFacts,type BaseCodeListFacts} from './base-code-list-facts';
 import {changedFinanceCodeFields,retainFinanceCodeIdentity,uploadedFinanceCode} from '@kudesi/shared';
@@ -952,6 +953,8 @@ export class ResourcesService implements RuleHost {
         if (clash && clash.id !== id) throw new ConflictException(`「${String(data[def.uniqueField])}」已存在，请先处理重复的编码`);
       }
     }
+    const costSettings = ['finance-margins', 'finance-freight-estimates'].includes(type) || type === 'finance-bundles' && ['manualFreight', 'marginOverridePercent', 'weightMode', 'manualWeightG', 'carrierName'].some(key => Object.hasOwn(patch, key));
+    if (costSettings) await preserveSourceCosts(em, user.companyId, user.id, type, record);
     const values={ data, title, uniqueKey, searchText: this.buildSearchText(def, data, title), updatedBy: user.id };
     Object.assign(record,values);
     if(currentRead){
@@ -962,6 +965,7 @@ export class ResourcesService implements RuleHost {
     }else await em.save(ResourceRecord, record);
     if (syncRefs && def.fields.some((f) => f.type === 'ref' && f.key in patch)) await this.syncLinks(em, user, def, record);
     await this.writeLog(em, user, def, id, 'update', before, record, note);
+    if (costSettings && !note?.startsWith('维护售价：')) await preserveSourceCosts(em, user.companyId, user.id, type, record);
   }
 
   /** 读一条记录里加密字段（证件号/卡号）的明文，只给规则在服务端内部用。 */
@@ -1432,7 +1436,7 @@ export class ResourcesService implements RuleHost {
       },
       save: (em, def, existing, values, options) => this.saveRecord(em, user, def, existing, def.key==='finance-products'&&sourceProductQualityActive(em,user)?sourceQualityValues(values):values, options),
       afterCollectionSaved:(em,parent,child,rows)=>sourceQualitySavedRows(em,parent,child,rows),
-      end:em=>{endSourceProductQuality(em);endProductReminder(em);},
+      end:em=>{endCostBatch(em);endSourceProductQuality(em);endProductReminder(em);},
       remove: (em, childType, childId, reason, objects) => this.removeRecord(em, user, childType, childId, reason, objects),
     }, cleanup);
     await this.files.deleteObjects(user.companyId, cleanup);

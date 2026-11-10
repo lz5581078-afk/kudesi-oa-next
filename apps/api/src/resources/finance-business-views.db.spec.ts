@@ -3,7 +3,7 @@ import 'reflect-metadata';
 import * as crypto from 'crypto';
 import { DataSource } from 'typeorm';
 import { AuthUser } from '../common/auth.decorators';
-import { buildDataSourceOptions } from '../database/data-source';
+import { buildDataSourceOptions, alignSessionTimeZone } from '../database/data-source';
 import { Company, User } from '../entities';
 import { buildServices } from '../test-support';
 import { FinanceDocumentsService } from './finance-documents.service';
@@ -22,6 +22,7 @@ d('财务查询页面（真实数据库）', () => {
   beforeAll(async () => {
     ds = new DataSource({ ...buildDataSourceOptions({ ...process.env, DB_NAME: process.env.TEST_DB_NAME ?? 'kudesi_oa_test' }), migrationsRun: true } as never);
     await ds.initialize();
+    await alignSessionTimeZone(ds);
     svc = buildServices(ds).resources;
     docs = new FinanceDocumentsService(ds);
     const mk = async (code: string) => {

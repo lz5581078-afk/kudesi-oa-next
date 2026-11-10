@@ -1,3 +1,4 @@
+import { SkuFinanceReviewService } from './sku-finance-review.service';
 /** SKU 申请汇总：汇总待办、批量办理、整单退回、个别规格退回并重新提交。RESOURCE_DB_TEST=1 TEST_DB_NAME=xxx npx jest --runInBand sku-batch */
 import 'reflect-metadata';
 import {ValidationPipe} from '@nestjs/common';
@@ -75,6 +76,10 @@ d('SKU 申请汇总（真实数据库）', () => {
     batch = new SkuBatchService(ds, flow, bundles);
     const c = await ds.manager.save(Company, ds.manager.create(Company, { code: `k${crypto.randomBytes(5).toString('hex')}`, name: 'SKU申请测试', status: 'active' }));
     admin = { id: await mkUser(c.id, 'admin', '管理员', { isCompanyAdmin: true }), companyId: c.id, name: '管理员', permissions: { isCompanyAdmin: true, allow: [], deny: [] } };
+    await ds.manager.insert(ResourceRecord, [
+      { companyId: c.id, type: 'finance-margins', uniqueKey: 'all', title: '测试默认利润率', status: 'active', searchText: '', data: { scopeKey: 'all', profitPercent: 0 } },
+      { companyId: c.id, type: 'finance-freight-estimates', uniqueKey: 'default', title: '测试完整运费', status: 'active', searchText: '', data: { parcelLimit: 30, rowsJson: JSON.stringify([{ start: 0, end: 30, method: 'provincial_majority_mean_plus_10_percent', manualAmount: 0 }]) } },
+    ]);
     ops = au(await mkUser(c.id, 'ops', '运营'), c.id, '运营', ['flow.apply.view']);
     wh = au(await mkUser(c.id, 'wh', '仓库'), c.id, '仓库');
     wh2 = au(await mkUser(c.id, 'wh2', '仓库二'), c.id, '仓库二');
@@ -264,7 +269,7 @@ d('SKU 申请汇总（真实数据库）', () => {
   });
 
   it('真实HTTP闭环：严格DTO建立/删到0/分页与空board/再添加，身份字段和错误header版本不能覆盖',async()=>{
-    const module=await Test.createTestingModule({controllers:[FlowController,SkuApplyController],providers:[{provide:FlowService,useValue:flow},{provide:SkuApplyService,useValue:sku},{provide:SkuBatchService,useValue:batch},{provide:APP_GUARD,useClass:PermissionsGuard}]}).compile(),app=module.createNestApplication();
+    const module=await Test.createTestingModule({controllers:[FlowController,SkuApplyController],providers:[{provide:FlowService,useValue:flow},{provide:SkuApplyService,useValue:sku},{provide:SkuBatchService,useValue:batch},{provide:SkuFinanceReviewService,useValue:{check:jest.fn()}},{provide:APP_GUARD,useClass:PermissionsGuard}]}).compile(),app=module.createNestApplication();
     app.use((req:{user?:AuthUser},_res:unknown,next:()=>void)=>{req.user=ops;next();});app.useGlobalPipes(new ValidationPipe({whitelist:true,forbidNonWhitelisted:true,transform:true}));await app.listen(0,'127.0.0.1');const url=await app.getUrl();
     const send=(path:string,method:string,body?:unknown)=>fetch(url+path,{method,headers:{'content-type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
     try{
@@ -639,7 +644,7 @@ d('SKU 申请汇总（真实数据库）', () => {
 
   it('真实HTTP仓库暂存DTO/来源库拒绝越公司字段及非办理人，成功只增revision不流转',async()=>{
     const definition=await ds.manager.findOneByOrFail(FlowDefinition,{companyId:ops.companyId,templateKey:'sku-batch-apply',status:'active'}),made=await flow.createApplicationDrafts(ops,{templateKey:'sku-batch-apply',definitionId:definition.id,confirmations:{referenceSearched:true},requestKey:key(),payloads:[payload([qspec('HTTP仓库保存',ids.pearBc,nextQty())])]});const id=made.runs[0].id;await flow.submitApplicationDraft(ops,id,made.runs[0].revision,key());const detail=await flow.detail(wh,id);let actor=wh;
-    const module=await Test.createTestingModule({controllers:[FlowController,SkuApplyController],providers:[{provide:FlowService,useValue:flow},{provide:SkuApplyService,useValue:sku},{provide:SkuBatchService,useValue:batch},{provide:APP_GUARD,useClass:PermissionsGuard}]}).compile(),app=module.createNestApplication();app.use((req:{user?:AuthUser},_res:unknown,next:()=>void)=>{req.user=actor;next();});app.useGlobalPipes(new ValidationPipe({whitelist:true,forbidNonWhitelisted:true,transform:true}));await app.listen(0,'127.0.0.1');const base=await app.getUrl(),body={revision:detail.revision,stepId:detail.activeStep!.id,form:{config:[{lines:[],notRequired:{}}],note:'HTTP真实暂存'}};
+    const module=await Test.createTestingModule({controllers:[FlowController,SkuApplyController],providers:[{provide:FlowService,useValue:flow},{provide:SkuApplyService,useValue:sku},{provide:SkuBatchService,useValue:batch},{provide:SkuFinanceReviewService,useValue:{check:jest.fn()}},{provide:APP_GUARD,useClass:PermissionsGuard}]}).compile(),app=module.createNestApplication();app.use((req:{user?:AuthUser},_res:unknown,next:()=>void)=>{req.user=actor;next();});app.useGlobalPipes(new ValidationPipe({whitelist:true,forbidNonWhitelisted:true,transform:true}));await app.listen(0,'127.0.0.1');const base=await app.getUrl(),body={revision:detail.revision,stepId:detail.activeStep!.id,form:{config:[{lines:[],notRequired:{}}],note:'HTTP真实暂存'}};
     try{const send=(path:string,method='GET',value?:unknown)=>fetch(base+path,{method,headers:{'content-type':'application/json'},...(value?{body:JSON.stringify(value)}:{})});expect((await send(`/flow/runs/${id}/step-draft`,'PUT',{...body,companyId:999})).status).toBe(400);actor=ops;expect((await send(`/flow/runs/${id}/step-draft`,'PUT',body)).status).toBe(403);expect((await send(`/flow/sku-apply/history-config?sourceLibrary=true&runId=${id}`)).status).toBe(403);actor=wh;expect((await send(`/flow/sku-apply/history-config?sourceLibrary=true&runId=${id}&companyId=999`)).status).toBe(400);const response=await send(`/flow/runs/${id}/step-draft`,'PUT',body);expect(response.status).toBe(200);const result=await response.json() as {revision:number;activeStep:{id:number};status:string};expect(result).toMatchObject({revision:detail.revision+1,status:'running',activeStep:{id:detail.activeStep!.id}});}finally{await app.close();}
   });
 
@@ -764,7 +769,7 @@ d('SKU 申请汇总（真实数据库）', () => {
 
   it('真实HTTP提交备注/确认白名单和500字边界，草稿专用stop拒绝普通入口及非本人并保留原因',async()=>{
     const definition=await ds.manager.findOneByOrFail(FlowDefinition,{companyId:ops.companyId,templateKey:'sku-batch-apply',status:'active'}),made=await flow.createApplicationDrafts(ops,{templateKey:'sku-batch-apply',definitionId:definition.id,confirmations:{referenceSearched:true},requestKey:key(),payloads:[payload([qspec('HTTP提交备注',ids.pearBc,nextQty())]),payload([{name:'HTTP草稿终止',main:[],gift:[]}])]});let actor=ops;
-    const module=await Test.createTestingModule({controllers:[FlowController,SkuApplyController],providers:[{provide:FlowService,useValue:flow},{provide:SkuApplyService,useValue:sku},{provide:SkuBatchService,useValue:batch},{provide:APP_GUARD,useClass:PermissionsGuard}]}).compile(),app=module.createNestApplication();app.use((req:{user?:AuthUser},_res:unknown,next:()=>void)=>{req.user=actor;next();});app.useGlobalPipes(new ValidationPipe({whitelist:true,forbidNonWhitelisted:true,transform:true}));await app.listen(0,'127.0.0.1');const url=await app.getUrl(),id=made.runs[0].id,revision=made.runs[0].revision,submit={revision,requestKey:key()};
+    const module=await Test.createTestingModule({controllers:[FlowController,SkuApplyController],providers:[{provide:FlowService,useValue:flow},{provide:SkuApplyService,useValue:sku},{provide:SkuBatchService,useValue:batch},{provide:SkuFinanceReviewService,useValue:{check:jest.fn()}},{provide:APP_GUARD,useClass:PermissionsGuard}]}).compile(),app=module.createNestApplication();app.use((req:{user?:AuthUser},_res:unknown,next:()=>void)=>{req.user=actor;next();});app.useGlobalPipes(new ValidationPipe({whitelist:true,forbidNonWhitelisted:true,transform:true}));await app.listen(0,'127.0.0.1');const url=await app.getUrl(),id=made.runs[0].id,revision=made.runs[0].revision,submit={revision,requestKey:key()};
     try{const send=(path:string,body:unknown)=>fetch(url+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const path=`/flow/runs/${id}/draft/submit`;
       expect((await send(path,{...submit,comment:'长'.repeat(501)})).status).toBe(400);expect((await send(path,{...submit,confirmation:{token:'a'.repeat(64),confirmed:true,reason:'长'.repeat(501)}})).status).toBe(400);expect((await send(path,{...submit,confirmation:{token:'a'.repeat(64),confirmed:true,reason:'原因',companyId:ops.companyId}})).status).toBe(400);expect((await send(path,{...submit,revision:revision+1})).status).toBe(409);
       expect((await send(path,{...submit,comment:'备'.repeat(500)})).status).toBe(201);const first=await ds.manager.findOneByOrFail(FlowStep,{companyId:ops.companyId,runId:id,stepKey:'apply',action:'submit'});expect(first.comment).toBe('备'.repeat(500));

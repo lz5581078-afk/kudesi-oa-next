@@ -43,6 +43,10 @@ suite('SKU全链路60规格矩阵（隔离MySQL、真实服务、无外部发送
   flow=new FlowService(ds,svc,new FinanceDocumentsService(ds),bundles,outbox,undefined,undefined,services.crypto);
   sku=new SkuApplyService(ds,flow,bundles);cost=new CostService(ds);debug=new PricingDebugService(cost);
   const company=await ds.manager.save(Company,ds.manager.create(Company,{code:'mx'+randomBytes(6).toString('hex'),name:'合成SKU60规格',status:'active'}));
+  await ds.manager.insert(ResourceRecord, [
+    { companyId: company.id, type: 'finance-margins', uniqueKey: 'all', title: '测试默认利润率', status: 'active', searchText: '', data: { scopeKey: 'all', profitPercent: 0 } },
+    { companyId: company.id, type: 'finance-freight-estimates', uniqueKey: 'default', title: '测试完整运费', status: 'active', searchText: '', data: { parcelLimit: 30, rowsJson: JSON.stringify([{ start: 0, end: 30, method: 'provincial_majority_mean_plus_10_percent', manualAmount: 0 }]) } },
+  ]);
   const actor=async(name:string,allow:string[]=[],admin=false):Promise<AuthUser>=>{const u=await ds.manager.save(User,ds.manager.create(User,{companyId:company.id,account:name,name,passwordHash:'x',status:'active',mustChangePassword:false,isCompanyAdmin:admin}));return{id:u.id,companyId:u.companyId,name,permissions:{isCompanyAdmin:admin,allow,deny:[]}};};
   boss=await actor('admin',[],true);ops=await actor('ops',['flow.apply.view','finance.pricing-debug.view']);wh=await actor('warehouse');fin=await actor('finance',['resource.finance-bundles.create','resource.finance-bundles.edit','product.cost.view','finance.bundle-sync.manage']);
   ids.brand=(await svc.create(boss,'finance-brands',{name:'测试牌',code:'CSP'})).id;

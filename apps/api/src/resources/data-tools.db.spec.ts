@@ -47,7 +47,7 @@ d('数据板块工具（真实数据库）', () => {
     const scen = await svc.create(boss, 'finance-scenarios', { code: 'supply_chain', name: '供应链', segment: 'GYL' });
     ids.scen = scen.id;
     const bcat = (await svc.create(boss, 'finance-categories', { archiveType: 'bundle', name: '组合类', code: 'ZHL' })).id;
-    ids.bundle = (await svc.create(boss, 'finance-bundles', { platformId: plat.id, scenarioId: scen.id, bundleCategoryId: bcat })).id;
+    ids.bundle = (await svc.create(boss, 'finance-bundles', { platformId: plat.id, scenarioId: scen.id, bundleCategoryId: bcat, manualFreight: 0, overrideReason: '测试包邮' })).id;
     await svc.create(boss, 'finance-bundle-lines', { bundleId: ids.bundle, role: 'main', baseCodeId: ids.bc, qty: 1 });
     await svc.create(boss, 'finance-margins', { profitPercent: 20, reason: '默认' });
   });

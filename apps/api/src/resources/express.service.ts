@@ -1,3 +1,4 @@
+import { preserveSourceCosts } from './cost-snapshot';
 import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
@@ -363,12 +364,14 @@ export class ExpressService {
   }
 
   private async persistSnapshot(em: EntityManager, user: AuthUser, limit: number) {
+    await preserveSourceCosts(em, user.companyId, user.id, 'finance-freight-estimates');
     const out = await this.computeEstimates(em, user.companyId, limit);
     const snap = await this.snapshot(em, user.companyId);
     const baseRows = out.rows.filter(row => !row.parcels);
     const data: Data = { label: '预估运费快照', scope: 'default', parcelLimit: limit, revision: this.snapshotRevision(snap) + 1, calculatedAt: new Date().toISOString(), rowsJson: JSON.stringify(baseRows) };
     if (snap) { snap.data = data; snap.updatedBy = user.id; await em.save(ResourceRecord, snap); }
     else await this.saveSystem(em, user, 'finance-freight-estimates', '预估运费快照', data, 'default');
+    await preserveSourceCosts(em, user.companyId, user.id, 'finance-freight-estimates');
   }
 
   /** Only an explicit recalculation changes automatic quotations and their provenance. */

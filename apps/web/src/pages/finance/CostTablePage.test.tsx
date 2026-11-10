@@ -32,6 +32,17 @@ const table = (canEdit: boolean, rows = [row()]): CostTableData => ({
 const renderPage = () => render(<MemoryRouter><CostTablePage /></MemoryRouter>);
 
 describe('当前SKU成本清单', () => {
+  it('异常行展示沿用结果和缺项，维护弹窗仍使用当前配置', async () => {
+    m.costTable.mockResolvedValue(table(true, [row({ costState: 'fallback', lastSuccessfulAt: '2026-11-10T08:00:00Z', issues: ['缺少运费预估'], pricingSettings: { carrierName: '当前快递', ownPercent: 25 } })]));
+    renderPage();
+    await screen.findByText('沿用上次有效成本');
+    expect(screen.getByText('缺少运费预估')).toBeTruthy();
+    expect(screen.getByText(/有效成本更新于/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '维护苹果礼盒售价' }));
+    expect(screen.getByDisplayValue('当前快递')).toBeTruthy();
+    expect(screen.getByDisplayValue('25')).toBeTruthy();
+  });
+
   it('分类目录显示数量和继承的利润率；列表有成本、使用快递、含快递成本；利润率保留 6 位小数', async () => {
     m.costTable.mockResolvedValue(table(true));
     renderPage();

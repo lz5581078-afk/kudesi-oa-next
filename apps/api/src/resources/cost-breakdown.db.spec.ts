@@ -151,6 +151,12 @@ d('成本组成验证快照（真实数据库）', () => {
     for(const base of await ds.manager.find(ResourceRecord,{where:{companyId:record.companyId,type:'finance-base-codes'}}))if(base.data.productId===productId&&base.data.canonicalId==null&&!['composed','external_import'].includes(String(base.data.origin))){const values={...base.data};delete values.cost;await ds.manager.save(ResourceRecord,{...base,data:values});}
   }
 
+  async function completeSources() {
+    for (const record of await ds.manager.find(ResourceRecord, { where: { companyId: actor.companyId, type: 'finance-bundles' } })) {
+      await ds.manager.save(ResourceRecord, { ...record, data: { ...record.data, manualFreight: 0, marginOverridePercent: 0, overrideReason: '隔离测试完整成本' } });
+    }
+  }
+
   async function fill(tools: DataToolsService, bundleId?: number) {
     const preview = await tools.previewCostRegistration(actor);
     return tools.registerCost(actor, bundleId, '补齐', undefined, 'workflow_publish', true, { confirmed: true, signature: preview.signature });
@@ -159,19 +165,20 @@ d('成本组成验证快照（真实数据库）', () => {
   it('当前来源缺项时表格保留上次登记值，验证报告仍保留未知；不登记虚假的空值变化', async () => {
     const { product, bundle } = await fixture();
     const tools = new DataToolsService(ds, cost);
+    await completeSources();
     await tools.registerCost(actor, bundle.id, '原有效登记');
     const count = await ds.manager.countBy(FinanceCostSnapshot, { companyId: actor.companyId });
     await removeCurrentValues(product.id);
-    const live = await cost.one(actor, bundle.id);
+    const live = (await cost.liveAllRows(actor)).rows.find(row => row.bundleId === bundle.id)!;
     expect(live.preShipCostCents).toBeNull(); expect(live.weightG).toBeNull();
     const row = (await cost.allRows(actor)).rows.find(row => row.bundleId === bundle.id)!;
     expect(row).toMatchObject({ preShipCostCents: 102, weightG: 500 });
     expect(row.breakdown?.cost).toMatchObject({ source: '验证快照', total: 102, matches: true });
-    expect(await tools.registerCost(actor, bundle.id, '来源缺项', undefined, 'source_values_update')).toMatchObject({ recorded: 0, unchanged: 1 });
+    expect(await tools.registerCost(actor, bundle.id, '来源缺项', undefined, 'source_values_update')).toMatchObject({ recorded: 0, invalid: 1 });
     expect(await ds.manager.countBy(FinanceCostSnapshot, { companyId: actor.companyId })).toBe(count);
   });
 
-  it('金额和重量分别找最后的有效登记，旧历史的空值不覆盖有效值', async () => {
+  it('历史只有零散金额和重量时不能拼接为有效成本', async () => {
     const { product, bundle } = await fixture();
     const history = (revision: number, preShipCostCents: number | null, weightG: number | null) => ds.manager.save(FinanceCostSnapshot, ds.manager.create(FinanceCostSnapshot, {
       companyId: actor.companyId, bundleId: bundle.id, code: String(bundle.data.code), name: bundle.title, revision, preShipCostCents, weightG,
@@ -180,15 +187,13 @@ d('成本组成验证快照（真实数据库）', () => {
     await history(1, 200, null); await history(2, null, 1500);
     await removeCurrentValues(product.id);
     const row = (await cost.allRows(actor)).rows[0];
-    expect(row).toMatchObject({ preShipCostCents: 200, weightG: 1500 });
-    expect(row.breakdown?.cost).toMatchObject({ total: 200, componentTotal: 102, difference: 98, matches: false });
-    expect(row.breakdown?.weight).toMatchObject({ total: 1500, componentTotal: 500, difference: 1000, matches: false });
+    expect(row).toMatchObject({ costState: 'incomplete', preShipCostCents: null, weightG: null, minPriceCents: null });
   });
 
-  it('尚无历史行时可用验证发布值作基线，但补齐操作不能替当前缺项资料登记', async () => {
+  it('只有验证事实但没有完整历史时不能替当前缺项资料登记', async () => {
     const { product, bundle } = await fixture();
     await removeCurrentValues(product.id);
-    expect((await cost.allRows(actor)).rows[0]).toMatchObject({ preShipCostCents: 102, weightG: 500 });
+    expect((await cost.allRows(actor)).rows[0]).toMatchObject({ costState: 'incomplete', preShipCostCents: null, weightG: null });
     const tools = new DataToolsService(ds, cost);
     const preview = await tools.previewCostRegistration(actor);
     expect(preview.rows).toHaveLength(0); expect(preview.issues).toHaveLength(1);
@@ -199,6 +204,7 @@ d('成本组成验证快照（真实数据库）', () => {
   it('补齐只处理未登记的已验证SKU，不重写已有记录、不登记待验证资料，重复调用无新增', async () => {
     const a = await fixture(), pending = await fixture(false), b = await fixture();
     const tools = new DataToolsService(ds, cost);
+    await completeSources();
     await tools.registerCost(actor, a.bundle.id, '已有登记');
     expect(await fill(tools)).toMatchObject({ recorded: 1 });
     expect(await ds.manager.countBy(FinanceCostSnapshot, { companyId: actor.companyId, bundleId: pending.bundle.id })).toBe(0);
@@ -210,6 +216,7 @@ d('成本组成验证快照（真实数据库）', () => {
 
   it('批量登记第二条失败时第一条也回滚，重试后每个SKU只登记一次', async () => {
     await fixture(); await fixture();
+    await completeSources();
     const original = EntityManager.prototype.insert;
     let count = 0;
     const fail = jest.spyOn(EntityManager.prototype, 'insert').mockImplementation(async function(this: EntityManager, target: any, value: any) {
@@ -238,6 +245,7 @@ d('成本组成验证快照（真实数据库）', () => {
 
   it('预览把不完整资料留在需核对清单，只补齐有效项', async () => {
     const good = await fixture(), bad = await fixture();
+    await completeSources();
     await removeCurrentValues(bad.product.id);
     const tools = new DataToolsService(ds, cost);
     const preview = await tools.previewCostRegistration(actor);
@@ -249,6 +257,7 @@ d('成本组成验证快照（真实数据库）', () => {
 
   it('同一预览并发确认只登记一次，后一个请求要求重新预览', async () => {
     const { bundle } = await fixture();
+    await completeSources();
     const tools = new DataToolsService(ds, cost);
     const preview = await tools.previewCostRegistration(actor);
     const results = await Promise.allSettled([1, 2].map(() => tools.registerCost(actor, undefined, '补齐', undefined, 'workflow_publish', true, { confirmed: true, signature: preview.signature })));
@@ -274,6 +283,7 @@ d('成本组成验证快照（真实数据库）', () => {
 
   it('验证发布与成本登记同一事务，登记失败不能留下已验证状态', async () => {
     const { bundle } = await fixture(false);
+    await completeSources();
     const tools = new BundleToolsService(ds, svc, new OutboxService(ds, svc));
     const report = await tools.report(actor, bundle.id);
     expect(report.issues).toEqual([]);
@@ -285,9 +295,11 @@ d('成本组成验证快照（真实数据库）', () => {
     try {
       const result = await tools.verify(actor, [{ id: bundle.id, signature: report.signature }], { confirmed: true, syncToJst: false });
       expect(result.verified).toBe(0);
+      expect(result.results[0].error).toContain('模拟登记失败');
       expect((await svc.get(actor, 'finance-bundles', bundle.id)).status).toBe('pending');
     } finally { fail.mockRestore(); }
     const result = await tools.verify(actor, [{ id: bundle.id, signature: report.signature }], { confirmed: true, syncToJst: false });
+    expect(result.results).toEqual([{ id: bundle.id, ok: true, queued: false }]);
     expect(result.verified).toBe(1);
     expect(await ds.manager.countBy(FinanceCostSnapshot, { companyId: actor.companyId, bundleId: bundle.id })).toBe(1);
   });

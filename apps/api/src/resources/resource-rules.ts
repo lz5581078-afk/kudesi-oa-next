@@ -1,3 +1,4 @@
+import { preserveSourceCosts, beginCostBatch, finishCostBatch } from './cost-snapshot';
 import type {ResourceFormInput} from '@kudesi/shared';
 import {beforeBomVersionDelete,detachBomOwner} from './bundle-bom-versions';
 import {beforePlatformDelete} from './platform-rules';
@@ -245,6 +246,7 @@ function syncLocations(data: Record<string, unknown>, existing: ResourceRecord |
 }
 
 export async function beforeSaveRule(type: string, ctx: BeforeSaveContext): Promise<void> {
+  await preserveSourceCosts(ctx.em, ctx.user.companyId, ctx.user.id, type, ctx.existing ?? { data: ctx.data });
   if(isCodeResource(type)&&Object.hasOwn(ctx.input??{},'verificationState'))throw new ForbiddenException('验证状态只能由服务端业务动作记录');
   if (COST_VERSION_TYPES.includes(type)) return beforeCostVersionSave(ctx,type);
   if (type === 'workforce') return workforceBeforeSave(ctx);
@@ -352,6 +354,7 @@ export interface AfterSaveContext {
 
 /** 删除记录之前（在“还被引用就不能删”的检查之前）：如删除位置时把各处对它的引用置空。 */
 export async function beforeDeleteRule(type: string, ctx: { em: EntityManager; host: RuleHost; user: AuthUser; record: ResourceRecord }): Promise<void> {
+  await preserveSourceCosts(ctx.em, ctx.user.companyId, ctx.user.id, type, ctx.record);
   if(type==='finance-bundle-bom-versions')await beforeBomVersionDelete(ctx.em,ctx.user,ctx.record);
   if(type==='finance-bundles')await detachBomOwner(ctx.host,ctx.em,ctx.user,ctx.record);
   if(type==='finance-platforms')await beforePlatformDelete(ctx.em,ctx.user.companyId,ctx.record);
@@ -369,6 +372,7 @@ export async function afterDeleteRule(type: string, ctx: { em: EntityManager; ho
   if (rule) await rule(ctx);
   await CERT_AFTER_DELETE[type]?.(ctx);
   await markCategorySyncDirty(ctx.em,ctx.user,type,ctx.record);
+  await preserveSourceCosts(ctx.em, ctx.user.companyId, ctx.user.id, type, ctx.record);
 }
 
 /** 每次保存（新建、修改、改状态）之后：用于同步别的记录，如组合行变化后刷新组合编码。 */
@@ -378,6 +382,7 @@ export async function afterSaveRule(type: string, ctx: AfterSaveContext): Promis
   await CERT_AFTER_SAVE[type]?.(ctx);
   if (type === 'workforce') await workforceAfterSave(ctx);
   await markCategorySyncDirty(ctx.em,ctx.user,type,ctx.record,ctx.existing);
+  await preserveSourceCosts(ctx.em, ctx.user.companyId, ctx.user.id, type, ctx.record);
 }
 
 /** 找到手机号档案，没有就建（外部使用）；返回档案 id。 */
@@ -507,10 +512,12 @@ export async function afterCreateRule(type: string, ctx: AfterCreateContext): Pr
 
 /** 可选整组阶段；默认资料没有附加动作，仍使用同一事务和资料规则。 */
 export async function beforeFormSaveRule(type: string, ctx: { em: EntityManager; host: RuleHost; user: AuthUser; existing: ResourceRecord | null;input?:ResourceFormInput }) {
+  await beginCostBatch(ctx.em, ctx.user.companyId, ctx.user.id, type, ctx.existing ?? undefined);
   await FINANCE_BEFORE_FORM_SAVE[type]?.(ctx);
 }
 export async function afterFormSaveRule(type: string, ctx: { em: EntityManager; host: RuleHost; user: AuthUser; record: ResourceRecord }) {
   await FINANCE_AFTER_FORM_SAVE[type]?.(ctx);
+  await finishCostBatch(ctx.em, ctx.user.companyId, ctx.user.id, type);
 }
 
 /** 未声明该业务规则的资源保持原状态流程。 */

@@ -24,6 +24,8 @@ export type DocBody = DocInput & { memo?: string };
 
 export interface CostLine extends CostBreakdownLine { qty: number }
 export interface CostRow {
+  costState?: 'current' | 'fallback' | 'incomplete'; lastSuccessfulAt?: string;
+  pricingSettings?: { carrierName: string; ownPercent: number | null };
   bundleId: number; code: string; name: string; status: string; categoryId: number | null; categoryName: string; preShipCostCents: number | null; weightG: number | null;
   freightCents: number | null; freightMethod: string | null; marginPercent: number | null; marginSource: string; marginOverride: boolean; inheritedMargin: { percent: number | null; source: string };
   carrierName: string; costIncludingFreightCents: number | null; revision: string; minPriceCents: number | null; issues: string[]; lines: CostLine[]; breakdown?: CostBreakdown;
