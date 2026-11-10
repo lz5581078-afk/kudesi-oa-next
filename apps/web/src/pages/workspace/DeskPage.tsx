@@ -43,6 +43,7 @@ export function DeskPage() {
   const type = position.workspaceType;
   const profile = position.referenceProfile;
   const operating = type === 'operations' && (!profile || ['operations', 'operations_manager'].includes(profile));
+  const aiDepartment = position.departmentPath.split('/').some(name => name.trim() === 'AI电商部门');
   const checkinType = type === 'live_anchor' || type === 'live_control' ? type : operating ? 'operations' : null;
   const showPersonalLive = !!checkinType && (position.assigned || isAdmin);
   const def = deskFor(type, profile);
@@ -51,7 +52,7 @@ export function DeskPage() {
     subtitle: [current.departmentPath, def.focus].filter(Boolean).join(' · '),
     links: deskLinks(def, isAdmin ? 'boss' : current.level, can, isAdmin),
     skuApplication: (current.assigned || isAdmin) && (operating || type === 'live_control') && can('flow.apply.view'),
-    companyProducts: operating,
+    companyProducts: operating || type === 'support' || aiDepartment,
     operations: operating && profile !== 'operations_manager',
     linksHint: def.focus,
     cards: desk.cards,
