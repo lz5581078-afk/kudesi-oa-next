@@ -28,7 +28,7 @@ d('SKU专项修复：回滚、并发及人工修改保护',()=>{
     await ds.query("UPDATE resource_records SET data=JSON_SET(JSON_REMOVE(data,'$.purchasePrice'),'$.totalCost',40.4,'$.migrationNotice','OEM成本记录来源为生产BOM，汇总时不作为额外采购价重复加入') WHERE company_id=? AND id=?",[c.id,p.id]);
     const originalBases=await s.findWhere(ds.manager,c.id,'finance-base-codes','productId',p.id);
     await ds.query("UPDATE resource_records SET data=JSON_SET(data,'$.cost',40.4) WHERE company_id=? AND id=?",[c.id,originalBases[0].id]);
-    const bundle=await ds.manager.save(ResourceRecord,ds.manager.create(ResourceRecord,{companyId:c.id,type:'finance-bundles',title:'测试组合',status:'reverify',data:{code:'ZH-OEM-TEST'}}));
+    const bundle=await ds.manager.save(ResourceRecord,ds.manager.create(ResourceRecord,{companyId:c.id,type:'finance-bundles',title:'测试组合',status:'reverify',data:{code:'ZH-OEM-TEST',manualFreight:0,marginOverridePercent:0,overrideReason:'测试完整成本'}}));
     await ds.manager.save(ResourceRecord,ds.manager.create(ResourceRecord,{companyId:c.id,type:'finance-bundle-lines',title:'测试构成',status:'active',data:{bundleId:bundle.id,baseCodeId:originalBases[0].id,role:'main',qty:2}}));
     const costs=new CostService(ds);expect((await costs.one(actor,bundle.id)).preShipCostCents).toBe(80.8);
     const source:LegacyArchive={company:{id:3,name:c.name},departments:[],positions:[],employees:[],employeePositions:[],positionPermissions:[],records:[{id:'old-oem',type:'finance-products',data:{supplyMode:'supplier_oem',purchasePrice:160}}],exclusions:[],loadFile:async()=>{throw Error('no files');}};

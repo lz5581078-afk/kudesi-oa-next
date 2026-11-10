@@ -49,7 +49,7 @@ import { afterBaseCodeLineDelete, afterBaseCodeLineSave, baseCodesUsingProduct, 
 import { composedFacts } from './base-code-support';
 import { asAdmin, afterFreightHistoryDelete, beforeFreightHistory, beforeProductCost, recordFreightHistory, beginFreightHistoryBatch, flushFreightHistory, refreshLatestCost, syncAutoCost, captureArchiveBomCostSnapshot, refreshDerivedArchiveCostRecords } from './product-costs';
 import { bundleIssues, hasChildren, normalizeLineExtras, pickLine, LINE_EXTRA_KEYS } from './bundle-checks';
-import { recordSourceChange } from './cost-snapshot';
+import { recordSourceChange, beginCostBatch, finishCostBatch, endCostBatch } from './cost-snapshot';
 import { assertLaborUsable, LABOR_AFTER_SAVE, LABOR_BEFORE_SAVE } from './labor-rules';
 
 /**
@@ -1423,9 +1423,13 @@ const deferred = new Set<number>();
 
 /** 先把所有构成行建好，最后一次性刷新编码和名称。 */
 export async function buildBundleLines(host: RuleHost, em: EntityManager, user: AuthUser, bundleId: number, build: () => Promise<void>): Promise<void> {
+  await beginCostBatch(em, user.companyId, user.id, 'finance-bundles', { id: bundleId });
   deferred.add(bundleId);
-  try { await build(); } finally { deferred.delete(bundleId); }
-  await refreshBundle(host, em, user, bundleId);
+  try {
+    try { await build(); } finally { deferred.delete(bundleId); }
+    await refreshBundle(host, em, user, bundleId);
+    await finishCostBatch(em, user.companyId, user.id, 'finance-bundles');
+  } catch (error) { endCostBatch(em); throw error; }
 }
 
 const UNIT_NAME: Record<string, string> = Object.fromEntries(UNIT_OPTIONS.map((u) => [u.value, u.label]));

@@ -107,7 +107,7 @@ function CurrentCostTableContent() {
                 {data.rows.map((r) => (
                   <tr key={r.bundleId}>
                     <td className="mono" data-label="SKU组合编码">{r.code}</td>
-                    <td data-label="SKU名称" title={r.issues.join('；') || undefined}>{r.name}</td>
+                    <td data-label="SKU名称" title={r.issues.join('；') || undefined}>{r.name}{r.costState && r.costState !== 'current' && <div className="notice warning" role="status"><strong>{r.costState === 'fallback' ? '沿用上次有效成本' : '待完善成本'}</strong><div>{r.issues.join('；')}</div>{r.lastSuccessfulAt && <div className="muted">有效成本更新于 {new Date(r.lastSuccessfulAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}</div>}</div>}</td>
                     <td className="num" data-label="成本"><button type="button" className="link-button" aria-label={`查看${r.name}成本组成`} onClick={() => setBreakdown({ row: r, kind: 'cost' })}>{costMoney(r.preShipCostCents)}</button></td>
                     <td className="num" data-label="预发货成本">{costMoney(r.preShipCostCents)}</td>
                     <td className="num" data-label="重量（kg）"><button type="button" className="link-button" aria-label={`查看${r.name}重量组成`} onClick={() => setBreakdown({ row: r, kind: 'weight' })}>{r.weightG === null ? '未设置' : Number((r.weightG / 1000).toFixed(6))}</button></td>

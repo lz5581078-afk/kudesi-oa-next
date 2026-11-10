@@ -1,5 +1,5 @@
 import type {BucketCostReference} from './cost-seed-buckets';
-import { registeredCostValues, costRegistrationFallback, type RegisteredCostValues } from './cost-registration';
+import { lastCompleteCosts, effectiveCost } from './cost-registration';
 import { calculateCostComponents, type CostLine } from './cost-components';
 export type { CostLine } from './cost-components';
 import { costBreakdown, readCostComposition, type CostBreakdown } from '@kudesi/shared';
@@ -27,6 +27,8 @@ const TYPES = ['finance-bundles', 'finance-bundle-lines', 'finance-base-code-lin
 const EXPRESS_TYPES = ['finance-express-carriers', 'finance-express-branches', 'finance-express-versions', 'finance-express-prices'];
 
 export interface CostRow {
+  costState?: 'current' | 'fallback' | 'incomplete'; lastSuccessfulAt?: string;
+  pricingSettings?: { carrierName: string; ownPercent: number | null };
   bundleId: number; code: string; name: string; status: string; categoryId: number | null; categoryName: string;
   preShipCostCents: number | null; weightG: number | null;
   freightCents: number | null; freightMethod: string | null;
@@ -62,7 +64,7 @@ export const bundleRevision = (b: Pick<ResourceRecord, 'status' | 'data'>) =>
   sha([b.status, b.data.carrierName ?? null, b.data.marginOverridePercent ?? null, b.data.manualFreight ?? null, b.data.weightMode ?? null, b.data.manualWeightG ?? null]);
 export const marginRevision = (m: Pick<ResourceRecord, 'data'> | undefined) => (m && num(m.data.profitPercent) !== null ? sha(['m', m.data.profitPercent]) : 'none');
 
-/** 成本表：每次现算，不存副本——商品成本、重量、利润率、运费任何一处变了，这里立刻跟着变。 */
+/** 完整计算生效；来源异常时整行沿用最后的有效登记。 */
 @Injectable()
 export class CostService {
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
@@ -119,12 +121,12 @@ export class CostService {
     return { percent: resolveMargin(chain.map((x) => x.v)), source: hit?.s ?? '未设置' };
   }
 
-  row(d: CostData, b: ResourceRecord, previous?: RegisteredCostValues): CostRow {
+  row(d: CostData, b: ResourceRecord): CostRow {
     const { lines, cost: currentCost, issues, weightG: automaticWeightG } = calculateCostComponents(d, b.id);
     const categoryId = num(b.data.codeDictionaryCategoryId) ?? num(b.data.bundleCategoryId);
-    const cost = currentCost ?? previous?.preShipCostCents ?? null;
+    const cost = currentCost;
     const currentWeightG = str(b.data.weightMode) === 'manual' ? num(b.data.manualWeightG) : automaticWeightG;
-    let weightG = currentWeightG !== null && currentWeightG > 0 ? currentWeightG : previous?.weightG ?? null;
+    let weightG = currentWeightG !== null && currentWeightG > 0 ? currentWeightG : null;
     if (currentWeightG === null || currentWeightG <= 0) issues.push('没有重量');
     if (weightG !== null && weightG <= 0) weightG = null;
 
@@ -214,12 +216,8 @@ export class CostService {
   /** 当前SKU成本登记表：与旧版定价调试保持实时联动，期间版本通过日期匹配接口读取。 */
   async allRows(user: AuthUser, em?: EntityManager) {
     const live = await this.liveAllRows(user, em);
-    const missing = live.rows.filter(row => COST_TABLE_STATUSES.includes(row.status) && (row.preShipCostCents === null || row.weightG === null));
-    if (!missing.length) return live;
-    const previous = await registeredCostValues(em ?? this.dataSource.manager, user.companyId, missing.map(row => row.bundleId));
-    const byId = new Map(live.d.bundles.map(bundle => [bundle.id, bundle]));
-    const ids = new Set(missing.map(row => row.bundleId));
-    return { d: live.d, rows: live.rows.map(row => ids.has(row.bundleId) ? this.row(live.d, byId.get(row.bundleId)!, costRegistrationFallback(previous.get(row.bundleId), byId.get(row.bundleId)!.data.snapshot)) : row) };
+    const previous = await lastCompleteCosts(em ?? this.dataSource.manager, user.companyId, live.rows.filter(row => COST_TABLE_STATUSES.includes(row.status)).map(row => row.bundleId));
+    return { d: live.d, rows: live.rows.map(row => COST_TABLE_STATUSES.includes(row.status) ? effectiveCost(row, previous.get(row.bundleId)) : row) };
   }
 
   /** 成本表的行：只含已验证（含需重新验证）的组合；按关键字、分类（含下级）筛选，最近修改的在前 */
@@ -244,7 +242,7 @@ export class CostService {
     const { all } = await this.tableRows(user, q);
     if (all.length > 20000) throw new BadRequestException('一次最多导出 20000 条，请先按分类或关键字筛选');
     const yuan = (c: number | null) => (c === null ? null : c / 100);
-    const rows = all.map((r) => [r.code, r.name, r.categoryName || '未分类', r.status === 'reverify' ? '需重新验证' : '已验证', yuan(r.preShipCostCents), r.weightG === null ? null : r.weightG / 1000, r.carrierName, yuan(r.freightCents), yuan(r.costIncludingFreightCents), r.marginPercent === null ? null : r.marginPercent / 100, yuan(r.minPriceCents), r.issues.join('；')]);
+    const rows = all.map((r) => [r.code, r.name, r.categoryName || '未分类', r.status === 'reverify' ? '需重新验证' : '已验证', yuan(r.preShipCostCents), r.weightG === null ? null : r.weightG / 1000, r.carrierName, yuan(r.freightCents), yuan(r.costIncludingFreightCents), r.marginPercent === null ? null : r.marginPercent / 100, yuan(r.minPriceCents), [r.costState === 'fallback' ? `沿用上次有效成本（${r.lastSuccessfulAt}）` : r.costState === 'incomplete' ? '待完善' : '', ...r.issues].filter(Boolean).join('；')]);
     const buffer = buildXlsx('SKU成本表', [
       { header: 'SKU组合编码', width: 34 }, { header: 'SKU名称', width: 42 }, { header: '组合分类', width: 24 }, { header: '状态', width: 12 },
       { header: '发货前成本', width: 14, format: 'money' }, { header: '重量(kg)', width: 12 }, { header: '使用快递', width: 16 }, { header: '预估运费', width: 12, format: 'money' },
@@ -279,8 +277,8 @@ export class CostService {
 
   /** 对外只读：已验证的组合及成本、运费、最低售价（给持有 API 密钥的外部程序） */
   async verifiedFeed(companyId: number) {
-    const d = await this.load(companyId);
-    return d.bundles.filter((b) => b.status === 'verified').map((b) => this.row(d, b))
+    const { rows } = await this.allRows({ companyId } as AuthUser);
+    return rows.filter((r) => r.status === 'verified')
       .map((r) => ({ bundleId: r.bundleId, code: r.code, name: r.name, categoryName: r.categoryName, weightG: r.weightG, preShipCostCents: r.preShipCostCents, freightCents: r.freightCents, marginPercent: r.marginPercent, minPriceCents: r.minPriceCents }));
   }
 
@@ -288,6 +286,7 @@ export class CostService {
     const d = await this.load(user.companyId, em);
     const b = d.bundles.find((x) => x.id === bundleId);
     if (!b || !COST_TABLE_STATUSES.includes(b.status)) throw new NotFoundException('成本表里没有这个组合（只列已验证的组合）');
-    return this.row(d, b);
+    const saved = await lastCompleteCosts(em ?? this.dataSource.manager, user.companyId, [bundleId]);
+    return effectiveCost(this.row(d, b), saved.get(bundleId));
   }
 }

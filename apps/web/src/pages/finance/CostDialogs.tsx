@@ -29,7 +29,7 @@ export function BreakdownDialog({ row, kind, onClose }: { row: CostRow; kind: 'c
     <div className="modal-backdrop finance-cost-breakdown-backdrop" role="presentation"><div className="modal card wide finance-cost-breakdown" role="dialog" aria-modal="true" aria-label={`${cost ? '成本' : '重量'}组成明细`}>
       <div className="modal-head between"><div><h2>{cost ? '成本组成' : '重量组成'}</h2><p className="muted">{row.code} · {row.name}</p></div><button type="button" className="icon-button" aria-label="关闭组成明细" onClick={onClose}>✕</button></div>
       <div className="modal-body">
-        <p className="muted">明细来源：{selected.source || '暂无快照'}</p>
+        <p className="muted">{row.costState === 'fallback' && '沿用上次有效成本；'}明细来源：{selected.source || '暂无快照'}</p>
         <div className="table-scroll"><table className="data-table">
           <thead><tr><th>类型</th><th>组成项目</th><th className="num">数量（系统规格）</th><th className="num">{cost ? '单位成本' : '单件重量'}</th><th className="num">{cost ? '成本小计' : '重量小计'}</th></tr></thead>
           <tbody>
@@ -58,8 +58,8 @@ export function PricingEditDialog({ target, categories, onClose, onSaved, onConf
   target: EditTarget; categories: CostCategory[]; onClose: () => void; onSaved: () => void; onConflict: () => void;
 }) {
   const sku = target.kind === 'sku' ? target.row : null;
-  const own = sku ? (sku.marginOverride ? sku.marginPercent : null) : target.kind === 'category' ? target.ownPercent : null;
-  const [carrier, setCarrier] = useState(sku?.carrierName ?? '');
+  const own = sku ? (sku.pricingSettings ? sku.pricingSettings.ownPercent : sku.marginOverride ? sku.marginPercent : null) : target.kind === 'category' ? target.ownPercent : null;
+  const [carrier, setCarrier] = useState(sku?.pricingSettings?.carrierName ?? sku?.carrierName ?? '');
   const [override, setOverride] = useState(own !== null);
   const [percent, setPercent] = useState(own === null ? '' : String(Number(own.toFixed(6))));
   const [reason, setReason] = useState('');

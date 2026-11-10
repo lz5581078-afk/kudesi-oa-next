@@ -371,7 +371,7 @@ d('财务资料（真实数据库）', () => {
     await svc.update(boss, 'finance-bundles', ids.bundle, { marginOverridePercent: null, overrideReason: '恢复' });
     // 没有手工运费：按快递价格表估算（5 个省，每省 10 元）
     await svc.update(boss, 'finance-bundles', ids.bundle, { manualFreight: null, overrideReason: '改按价格表' });
-    expect((await cost.one(boss, ids.bundle)).freightCents).toBeNull();
+    expect(await cost.one(boss, ids.bundle)).toMatchObject({ costState: 'fallback', freightCents: 800 });
     for (const [i, province] of ['北京', '上海', '广东', '浙江', '江苏'].entries()) {
       await svc.create(boss, 'finance-express-prices', { carrier: `快递${i}`, province, fixedPrice: 1000 });
     }

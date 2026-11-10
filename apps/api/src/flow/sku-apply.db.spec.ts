@@ -60,6 +60,10 @@ d('SKU 批量申请流程（真实数据库）', () => {
     sku = new SkuApplyService(ds, flow, bundles);
     const c = await ds.manager.save(Company, ds.manager.create(Company, { code: `k${crypto.randomBytes(5).toString('hex')}`, name: 'SKU申请测试', status: 'active' }));
     admin = { id: await mkUser(c.id, 'admin', '管理员', { isCompanyAdmin: true }), companyId: c.id, name: '管理员', permissions: { isCompanyAdmin: true, allow: [], deny: [] } };
+    await ds.manager.insert(ResourceRecord, [
+      { companyId: c.id, type: 'finance-margins', uniqueKey: 'all', title: '测试默认利润率', status: 'active', searchText: '', data: { scopeKey: 'all', profitPercent: 0 } },
+      { companyId: c.id, type: 'finance-freight-estimates', uniqueKey: 'default', title: '测试完整运费', status: 'active', searchText: '', data: { parcelLimit: 30, rowsJson: JSON.stringify([{ start: 0, end: 30, method: 'provincial_majority_mean_plus_10_percent', manualAmount: 0 }]) } },
+    ]);
     ops = au(await mkUser(c.id, 'ops', '运营'), c.id, '运营', ['flow.apply.view']);
     wh = au(await mkUser(c.id, 'wh', '仓库'), c.id, '仓库');
     fin = au(await mkUser(c.id, 'fin', '财务'), c.id, '财务', ['resource.finance-bundles.create', 'resource.finance-bundles.edit', 'finance.jst-sync.view', 'finance.bundle-sync.manage', 'product.cost.view']);
