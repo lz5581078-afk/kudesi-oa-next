@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { getResourceDef } from '@kudesi/shared';
 import { DataSource, In, IsNull } from 'typeorm';
@@ -103,17 +103,20 @@ export class CompanyProductsService {
     return {...item,weightG:typeof entry.row.data.weightG==='number'?entry.row.data.weightG:null};
   }
 
-  async setAttributes(user:AuthUser,id:number,values:{priceRestricted:boolean;tags:string[]}) {
+  async setAttributes(user:AuthUser,id:number,values:{priceRestricted:boolean;tags:string[];minimumPriceCents?:number|null}) {
     if(!user.permissions.isCompanyAdmin)throw new ForbiddenException('只有公司管理员可以设置产品属性');
+    if (values.minimumPriceCents != null && (!Number.isSafeInteger(values.minimumPriceCents) || values.minimumPriceCents < 1 || values.minimumPriceCents > 99999999999)) throw new BadRequestException('最低销售价必须大于0且最多两位小数');
     const { entries } = await this.catalog(user.companyId);
     if (!entries.some(entry => entry.row.id === id)) throw new NotFoundException('产品不存在');
     const tags=[...new Set(values.tags.map(tag=>tag.trim()).filter(tag=>tag&&tag!=='限价品'))];
-    await this.ds.transaction(async em=>{
+    const minimumPriceCents = await this.ds.transaction(async em=>{
       const row=await em.findOne(ResourceRecord,{where:{id,companyId:user.companyId,type:PRODUCT,archivedAt:IsNull(),status:states},lock:{mode:'pessimistic_write'}});
       if(!row||!visible(row))throw new NotFoundException('产品不存在');
-      await this.resources.patchData(em,user,PRODUCT,id,{catalogPriceRestricted:values.priceRestricted,catalogTags:tags},'设置公司产品属性',false,true);
+      const amount = values.priceRestricted ? (values.minimumPriceCents === undefined ? row.data.catalogMinimumPriceCents ?? null : values.minimumPriceCents) : null;
+      await this.resources.patchData(em,user,PRODUCT,id,{catalogPriceRestricted:values.priceRestricted,catalogTags:tags,catalogMinimumPriceCents:amount},'设置公司产品属性',false,true);
+      return typeof amount === 'number' ? amount : null;
     });
-    return {priceRestricted:values.priceRestricted,tags};
+    return {priceRestricted:values.priceRestricted,tags,minimumPriceCents};
   }
 
   private async summaries(companyId:number,entries:CatalogEntry[],categories:Array<{id:number;path:string}>,allPhotos=false) {
@@ -140,6 +143,7 @@ export class CompanyProductsService {
         stock:stockByUnit.length===1?Number(stockByUnit[0].qty):null,stockUnit:stockByUnit.length===1?stockByUnit[0].stockUnit:unit,
         stockBalances:stockByUnit.map(s=>({unit:s.stockUnit,qty:Number(s.qty)})),
         owners:[...new Set(grants.filter(g=>families.has(str(g.data.familyKey))).map(g=>str(g.data.ownerName)).filter(Boolean))],
+        minimumPriceCents:row.data.catalogPriceRestricted===true && typeof row.data.catalogMinimumPriceCents==='number' ? row.data.catalogMinimumPriceCents : null,
         priceRestricted:row.data.catalogPriceRestricted===true,tags:Array.isArray(row.data.catalogTags)?row.data.catalogTags.filter((v):v is string=>typeof v==='string'):[]};
     }));
   }
