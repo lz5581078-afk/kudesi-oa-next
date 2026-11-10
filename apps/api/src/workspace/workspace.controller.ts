@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
 import { COMPANY_PRODUCTS } from '@kudesi/shared';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, ValidateIf } from 'class-validator';
 import { AuthenticatedOnly, AuthUser, CurrentUser, RequirePermission } from '../common/auth.decorators';
 import { CompanyProductsService } from './company-products.service';
 import { WorkspaceService } from './workspace.service';
@@ -23,6 +23,12 @@ export class ProductAttributes {
   @IsBoolean() priceRestricted!: boolean;
   @IsOptional() @IsInt() @Min(1) @Max(99999999999) minimumPriceCents?: number | null;
   @IsArray() @ArrayMaxSize(8) @IsString({ each: true }) @MaxLength(24, { each: true }) tags!: string[];
+}
+
+export class ProductExclusiveDto {
+  @ValidateIf((_object,value)=>value!==null) @IsInt() @Min(1) ownerId!:number|null;
+  @IsOptional() @IsInt() @Min(1) @Max(3650) periodDays?:number;
+  @IsString() @MaxLength(500) reason!:string;
 }
 
 class DailyQuery { @IsOptional() @IsString() @MaxLength(10) date?: string }
@@ -63,6 +69,10 @@ export class WorkspaceController {
   productAttributes(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() values: ProductAttributes) {
     return this.products.setAttributes(user, id, values);
   }
+
+  @RequirePermission(COMPANY_PRODUCTS.permission)
+  @Patch('company-products/:id/exclusive')
+  productExclusive(@CurrentUser() user:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() values:ProductExclusiveDto){return this.products.setExclusive(user,id,values);}
 
   @AuthenticatedOnly()
   @Get('tasks')

@@ -1,0 +1,34 @@
+import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react';
+import {afterEach,it,expect,vi} from 'vitest';
+import {api} from '../../api/client';
+import {ProductExclusiveEditor} from './ProductExclusiveEditor';
+vi.mock('../../api/client',()=>({api:vi.fn(),ApiError:class extends Error{}}));
+afterEach(()=>{cleanup();vi.resetAllMocks();});
+it('搜索公司在职人员，选择后提交专属并返回姓名',async()=>{
+ const onSave=vi.fn();
+ vi.mocked(api).mockResolvedValueOnce([{id:1,name:'甲',departmentName:'运营',active:true},{id:2,name:'乙',departmentName:'客服',active:true},{id:3,name:'离职',active:false}]).mockResolvedValueOnce({owners:['乙']});
+ render(<ProductExclusiveEditor id={10} owners={['原负责人']} onSave={onSave} onCancel={()=>{}}/>);
+ await screen.findByRole('option',{name:'乙 · 客服 · #2'});
+ expect(screen.queryByRole('option',{name:/离职/})).toBeNull();
+ fireEvent.change(screen.getByLabelText('搜索成员'),{target:{value:'客服'}});
+ expect(screen.queryByRole('option',{name:'甲 · 运营 · #1'})).toBeNull();
+ fireEvent.change(screen.getByLabelText('专属人'),{target:{value:'2'}});
+ fireEvent.change(screen.getByLabelText('专属有效期（天）'),{target:{value:'30'}});
+ fireEvent.change(screen.getByLabelText('修改原因'),{target:{value:'重新分配'}});
+ fireEvent.click(screen.getByText('保存专属人'));
+ await waitFor(()=>expect(onSave).toHaveBeenCalledWith(['乙']));
+ expect(api).toHaveBeenCalledWith('/workspace/company-products/10/exclusive',{method:'PATCH',body:{ownerId:2,periodDays:30,reason:'重新分配'}});
+});
+it('解除专属需明确选择和原因；取消不写入',async()=>{
+ const onCancel=vi.fn();
+ vi.mocked(api).mockResolvedValue([]);
+ render(<ProductExclusiveEditor id={10} owners={[]} onSave={()=>{}} onCancel={onCancel}/>);
+ await waitFor(()=>expect((screen.getByText('保存专属人') as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.click(screen.getByText('保存专属人'));
+ expect((await screen.findByRole('alert')).textContent).toContain('请选择公司成员');
+ fireEvent.change(screen.getByLabelText('专属人'),{target:{value:'none'}});
+ fireEvent.click(screen.getByText('保存专属人'));
+ expect(screen.getByRole('alert').textContent).toContain('修改原因');
+ fireEvent.click(screen.getByText('取消'));
+ expect(onCancel).toHaveBeenCalledOnce();expect(api).toHaveBeenCalledTimes(1);
+});

@@ -6,6 +6,7 @@ import { api, ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { SkuApplicationCenter } from '../flow/SkuApplicationCenter';
 import './companyProducts.css';
+import { ProductExclusiveEditor } from './ProductExclusiveEditor';
 import { ProductImage } from './ProductImage';
 import { FinanceCodeDirectory } from '../finance/jst/FinanceCodeDirectory';
 import '../finance/jst/baseCodeReference.css';
@@ -147,6 +148,8 @@ function ProductDetail({ product, canEdit, canApply, onApply }: { product: Detai
   const [index, setIndex] = useState(0);
   const [attributes, setAttributes] = useState<Attributes>(product);
   const [editing, setEditing] = useState(false);
+  const [exclusiveEditing,setExclusiveEditing]=useState(false);
+  const [owners,setOwners]=useState(product.owners);
   const values = [
     ['商品档案编码', product.code], ['规格', product.specification],
     ['库存', inventory(product)], ['重量', product.weightG === null ? '暂无数据' : `${product.weightG.toLocaleString('zh-CN', { maximumFractionDigits: 6 })} 克`],
@@ -161,12 +164,14 @@ function ProductDetail({ product, canEdit, canApply, onApply }: { product: Detai
     <div className="company-product-details">
       <span className="muted">{product.category}</span>
       <h1>{product.name}</h1>
-      <ProductTags product={{ ...attributes, owners: product.owners }} />
+      <ProductTags product={{ ...attributes, owners }} />
       <dl>{values.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || '—'}</dd></div>)}</dl>
       <div className="company-product-actions">
         {canApply && <button type="button" className="primary-button" onClick={onApply}><Package size={16} /> 申请 SKU <ArrowRight size={16} /></button>}
-        {canEdit && !editing && <button type="button" className="secondary-button" onClick={() => setEditing(true)}><Settings2 size={16} /> 设置产品属性</button>}
+        {canEdit && !editing && !exclusiveEditing && <button type="button" className="secondary-button" onClick={() => setEditing(true)}><Settings2 size={16} /> 设置产品属性</button>}
+        {canEdit && !editing && !exclusiveEditing && <button type="button" className="secondary-button" onClick={()=>setExclusiveEditing(true)}>设置专属人</button>}
       </div>
+      {exclusiveEditing && <ProductExclusiveEditor id={product.id} owners={owners} onCancel={()=>setExclusiveEditing(false)} onSave={next=>{setOwners(next);setExclusiveEditing(false);}}/>}
       {editing && <ProductAttributes id={product.id} value={attributes} onCancel={() => setEditing(false)}
         onSave={value => { setAttributes(value); setEditing(false); }} />}
     </div>

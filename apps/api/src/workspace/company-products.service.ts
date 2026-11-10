@@ -1,12 +1,12 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { getResourceDef } from '@kudesi/shared';
 import { DataSource, In, IsNull } from 'typeorm';
 import { AuthUser } from '../common/auth.decorators';
-import { ResourceFile, ResourceRecord } from '../entities';
+import { FlowRun, ResourceFile, ResourceRecord, User } from '../entities';
 import { FilesService } from '../integrations/files.service';
 import { INVENTORY_UNIT_SQL } from '../resources/finance-inventory-units';
-import { activeGrants, familyMembers } from '../resources/product-exclusive';
+import { activeGrants, familyMembers, productBaseIds, EXCLUSIVE_KEY, EXCLUSIVE_TYPE, EXCLUSIVE_TEMPLATE, parsePeriodDays } from '../resources/product-exclusive';
 import { ResourcesService } from '../resources/resources.service';
 import { loadUnitLists, unitLabelFor } from '../resources/unit-options';
 
@@ -119,19 +119,64 @@ export class CompanyProductsService {
     return {priceRestricted:values.priceRestricted,tags,minimumPriceCents};
   }
 
+  async setExclusive(user:AuthUser,id:number,values:{ownerId:number|null;periodDays?:number;reason:string}) {
+    if(!user.permissions.isCompanyAdmin)throw new ForbiddenException('只有公司管理员可以设置专属人');
+    if(values.ownerId!==null&&(!Number.isSafeInteger(values.ownerId)||values.ownerId<1))throw new BadRequestException('请选择本公司在职成员');
+    const reason=values.reason.trim();
+    if(!reason || reason.length>500)throw new BadRequestException('请填写修改原因（最多500字）');
+    const days=values.ownerId===null?null:parsePeriodDays(values.periodDays);
+    return this.ds.transaction('READ COMMITTED',async em=>{
+      // 与审批通过共用公司锁；READ COMMITTED 防止等待锁后读取旧归属。
+      await em.query('SELECT id FROM companies WHERE id = ? FOR UPDATE',[user.companyId]);
+      const row=await em.findOne(ResourceRecord,{where:{id,companyId:user.companyId,type:PRODUCT,archivedAt:IsNull(),status:states}});
+      if(!row||!visible(row))throw new NotFoundException('产品不存在');
+      const owner=values.ownerId===null?null:await em.findOne(User,{where:{id:values.ownerId,companyId:user.companyId,status:'active'}});
+      if(values.ownerId!==null&&!owner)throw new BadRequestException('请选择本公司在职成员');
+      const [codes,lines,members,grants,runs]=await Promise.all([
+        em.findBy(ResourceRecord,{companyId:user.companyId,type:'finance-base-codes',archivedAt:IsNull()}),
+        em.findBy(ResourceRecord,{companyId:user.companyId,type:'finance-base-code-lines',archivedAt:IsNull()}),
+        familyMembers(em,user.companyId,true),activeGrants(em,user.companyId,true),
+        em.findBy(FlowRun,{companyId:user.companyId,templateKey:EXCLUSIVE_TEMPLATE,status:'running'}),
+      ]);
+      const baseIds=productBaseIds(id,codes,lines);
+      const families=new Set(baseIds.map(baseId=>members.get(baseId)?.familyKey).filter((f):f is string=>!!f));
+      const archiveGrants=await em.findBy(ResourceRecord,{companyId:user.companyId,type:EXCLUSIVE_TYPE});
+      for(const g of archiveGrants)if(Number(g.data.archiveProductId)===id)families.add(String(g.data.familyKey));
+      if(!families.size)families.add(`archive:${id}`);
+      if(runs.some(run=>families.has(members.get(Number(run.payload.baseCodeId))?.familyKey??'')))throw new ConflictException('该商品有正在审批的专属领取申请，请先处理申请再修改');
+      for(const grant of grants.filter(g=>families.has(String(g.data.familyKey)))) {
+        await this.resources.changeStatusRecord(em,user,EXCLUSIVE_TYPE,grant.id,'cancelled',`管理员手工调整：${reason}`);
+      }
+      if(owner)for(const familyKey of families){
+        const family=[...members.values()].filter(m=>m.familyKey===familyKey);
+        const now=new Date();
+        em.queryRunner!.data[EXCLUSIVE_KEY]={
+          label:`${row.title} · ${owner.name}`.slice(0,200),productName:row.title.slice(0,180),
+          ...(family.length?{baseCodeId:family[0].id}:{archiveProductId:id}),
+          ownerId:owner.id,ownerName:owner.name,approverId:user.id,approverName:user.name,
+          startsAt:now.toISOString(),endsAt:new Date(now.getTime()+days!*86400000).toISOString(),
+          familyKey,memberIds:family.map(m=>m.id),source:'manual',sourceProductId:id,manualReason:reason,
+        };
+        try{await this.resources.createRecord(em,user,EXCLUSIVE_TYPE,{},`管理员手工设置专属：${reason}`);}
+        finally{delete em.queryRunner!.data[EXCLUSIVE_KEY];}
+      }
+      return {owners:owner?[owner.name]:[]};
+    });
+  }
+
   private async summaries(companyId:number,entries:CatalogEntry[],categories:Array<{id:number;path:string}>,allPhotos=false) {
     if(!entries.length)return [];
     const em=this.ds.manager,productIds=[...new Set(entries.map(e=>e.row.id))];
-    const [units,stock,photos,bases,grants,members]=await Promise.all([
+    const [units,stock,photos,bases,grants,members,baseLines]=await Promise.all([
       loadUnitLists(em,companyId),
       em.query<Array<{productId:number;stockUnit:string;qty:string}>>(`SELECT e.account_id AS productId, ${INVENTORY_UNIT_SQL} AS stockUnit, SUM(e.qty) AS qty FROM finance_entries e WHERE e.company_id=? AND e.kind='inventory' AND e.account_id IN (?) AND e.qty IS NOT NULL GROUP BY e.account_id,stockUnit`,[companyId,productIds]),
       em.find(ResourceFile,{where:{companyId,resourceType:PRODUCT,fieldKey:'photos',resourceId:In(productIds)},order:{id:'ASC'}}),
       em.findBy(ResourceRecord,{companyId,type:'finance-base-codes',archivedAt:IsNull()}),activeGrants(em,companyId),familyMembers(em,companyId),
+      em.findBy(ResourceRecord,{companyId,type:'finance-base-code-lines',archivedAt:IsNull()}),
     ]);
-    const byBase=new Map(bases.map(b=>[b.id,b]));
     return Promise.all(entries.map(async({row,categoryId,name,alias,imagePosition})=>{
       const stockByUnit=stock.filter(s=>Number(s.productId)===row.id);
-      const baseIds=bases.filter(b=>Number(b.data.productId??byBase.get(Number(b.data.canonicalId))?.data.productId)===row.id).map(b=>b.id);
+      const baseIds=productBaseIds(row.id,bases,baseLines);
       const families=new Set(baseIds.map(id=>members.get(id)?.familyKey));
       const available=photos.filter(p=>p.resourceId===row.id&&p.mime.startsWith('image/'));
       const ordered=Array.isArray(row.data.photos)?row.data.photos.flatMap(id=>available.filter(p=>p.id===Number(id))):available;
@@ -142,7 +187,7 @@ export class CompanyProductsService {
         specification:[row.data.specQty,unit].filter(v=>v!==undefined&&v!=='').join(' '),photos:signed,
         stock:stockByUnit.length===1?Number(stockByUnit[0].qty):null,stockUnit:stockByUnit.length===1?stockByUnit[0].stockUnit:unit,
         stockBalances:stockByUnit.map(s=>({unit:s.stockUnit,qty:Number(s.qty)})),
-        owners:[...new Set(grants.filter(g=>families.has(str(g.data.familyKey))).map(g=>str(g.data.ownerName)).filter(Boolean))],
+        owners:[...new Set(grants.filter(g=>families.has(str(g.data.familyKey))||Number(g.data.archiveProductId)===row.id).map(g=>str(g.data.ownerName)).filter(Boolean))],
         minimumPriceCents:row.data.catalogPriceRestricted===true && typeof row.data.catalogMinimumPriceCents==='number' ? row.data.catalogMinimumPriceCents : null,
         priceRestricted:row.data.catalogPriceRestricted===true,tags:Array.isArray(row.data.catalogTags)?row.data.catalogTags.filter((v):v is string=>typeof v==='string'):[]};
     }));

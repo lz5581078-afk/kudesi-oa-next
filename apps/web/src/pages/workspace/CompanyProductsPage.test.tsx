@@ -23,6 +23,7 @@ it('同一档案的马甲独立卡片，详情及申请保留马甲且不提供�
   expect(pictures.every(image => !image.style.transform && !image.style.transformOrigin)).toBe(true);
   fireEvent.click(cards[1]);
   await screen.findByRole('heading',{name:'马甲乙'});
+  expect(screen.queryByRole('button',{name:'设置专属人'})).toBeNull();
   expect(api).toHaveBeenCalledWith(`/workspace/company-products/1?${new URLSearchParams({alias:'马甲乙'})}`);
   expect(screen.queryByRole('link',{name:'打开原图'})).toBeNull();
   expect(screen.getByRole('img').closest('a')).toBeNull();
@@ -39,7 +40,9 @@ it('管理员填写最低售价，精确保存分，重新载入可编辑并取�
     return product as never;
   });
   const view=render(<MemoryRouter initialEntries={['/?product=1']}><CompanyProductsPage/></MemoryRouter>);
-  fireEvent.click(await screen.findByRole('button',{name:'设置产品属性'}));
+  await screen.findByRole('button',{name:'设置产品属性'});
+  expect(screen.getByRole('button',{name:'设置专属人'})).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:'设置产品属性'}));
   fireEvent.change(screen.getByLabelText('最低销售价（元）'),{target:{value:'29.901'}});
   fireEvent.click(screen.getByRole('button',{name:'保存属性'}));
   expect((await screen.findByRole('alert')).textContent).toContain('最多两位小数');
@@ -49,7 +52,9 @@ it('管理员填写最低售价，精确保存分，重新载入可编辑并取�
   expect(api).toHaveBeenCalledWith('/workspace/company-products/1/attributes',{method:'PATCH',body:{priceRestricted:true,tags:[],minimumPriceCents:2990}});
   view.unmount();
   render(<MemoryRouter initialEntries={['/?product=1']}><CompanyProductsPage/></MemoryRouter>);
-  fireEvent.click(await screen.findByRole('button',{name:'设置产品属性'}));
+  await screen.findByRole('button',{name:'设置产品属性'});
+  expect(screen.getByRole('button',{name:'设置专属人'})).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:'设置产品属性'}));
   expect((screen.getByLabelText('最低销售价（元）') as HTMLInputElement).value).toBe('29.90');
   fireEvent.click(screen.getByLabelText('限价品'));
   expect(screen.queryByLabelText('最低销售价（元）')).toBeNull();
