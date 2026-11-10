@@ -3,9 +3,9 @@ import { randomBytes } from 'node:crypto';
 import { DataSource } from 'typeorm';
 import type { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
-import { Company, FinanceEntry, ResourceFile, ResourceRecord, User } from '../entities';
+import { Company, FlowRun, FinanceEntry, ResourceFile, ResourceRecord, User } from '../entities';
 import { FinanceDocumentsService } from '../resources/finance-documents.service';
-import { EXCLUSIVE_TYPE, familyMembers } from '../resources/product-exclusive';
+import { EXCLUSIVE_TYPE, familyMembers, activeGrants, assertFamilyFree, bundleOwnership } from '../resources/product-exclusive';
 import { buildServices } from '../test-support';
 import { CompanyProductsService } from './company-products.service';
 
@@ -46,7 +46,7 @@ db('公司产品图册', () => {
     const base = await rec('finance-base-codes', '苹果', { productId: archive.id, name: '苹果', codeDictionaryCategoryId: leaf.id });
     const alias = await rec('finance-base-codes', '苹果马甲', { canonicalId: base.id, name: '苹果马甲' });
     const members = await familyMembers(ds.manager, ours.id);
-    await rec(EXCLUSIVE_TYPE, '专属', { familyKey: members.get(alias.id)!.familyKey, ownerId: owner.id, ownerName: owner.name,
+    await rec(EXCLUSIVE_TYPE, '专属', { label:'苹果专属', familyKey: members.get(alias.id)!.familyKey, ownerId: owner.id, ownerName: owner.name,
       startsAt: '2000-01-01T00:00:00Z', endsAt: '2099-01-01T00:00:00Z' });
     const sku = await rec('finance-bundles', 'TEST-A', {
       bundleCategoryId: leaf.id, code: 'TEST-A', name: '合成苹果礼盒', jstPriceCents: 2570, weightMode: 'manual', manualWeightG: 2000,
@@ -110,6 +110,39 @@ db('公司产品图册', () => {
     await expect(service.setAttributes(viewer,archive.id,{priceRestricted:true,tags:[],minimumPriceCents:100})).rejects.toThrow('管理员');
     await service.setAttributes(admin,archive.id,{priceRestricted:false,tags:[],minimumPriceCents:2990});
     expect(await service.detail(viewer,archive.id)).toMatchObject({priceRestricted:false,minimumPriceCents:null});
+    const secondOwner=await ds.manager.save(User,{companyId:ours.id,account:randomBytes(8).toString('hex'),name:'新专属人',passwordHash:'fixture',status:'active',mustChangePassword:false});
+    const outside=await ds.manager.save(User,{companyId:theirs.id,account:randomBytes(8).toString('hex'),name:'外公司',passwordHash:'fixture',status:'active',mustChangePassword:false});
+    const values={ownerId:secondOwner.id,periodDays:30,reason:'管理员重新分配'};
+    await expect(service.setExclusive(viewer,archive.id,values)).rejects.toThrow('管理员');
+    await expect(service.setExclusive(admin,archive.id,{...values,ownerId:outside.id})).rejects.toThrow('本公司');
+    await expect(service.setExclusive({...admin,companyId:theirs.id},archive.id,values)).rejects.toThrow('产品不存在');
+    await expect(service.setExclusive(admin,archive.id,{...values,reason:' '})).rejects.toThrow('修改原因');
+    await expect(service.setExclusive(admin,archive.id,{...values,periodDays:0})).rejects.toThrow('专属期');
+    await ds.manager.update(User,secondOwner.id,{status:'disabled'});
+    await expect(service.setExclusive(admin,archive.id,values)).rejects.toThrow('本公司');
+    await ds.manager.update(User,secondOwner.id,{status:'active'});
+    await service.setExclusive(admin,archive.id,values);
+    expect((await service.detail(viewer,archive.id,'苹果马甲二')).owners).toEqual(['新专属人']);
+    await expect(assertFamilyFree(ds.manager,ours.id,base.id,null)).rejects.toThrow('已有有效专属');
+    const bundleLines=await ds.manager.findBy(ResourceRecord,{companyId:ours.id,type:'finance-bundle-lines'});
+    expect((await bundleOwnership(ds.manager,ours.id,bundleLines)).get(sku.id)?.[0].ownerName).toBe('新专属人');
+    expect((await ds.manager.findBy(ResourceRecord,{companyId:ours.id,type:EXCLUSIVE_TYPE,status:'cancelled'})).length).toBeGreaterThan(0);
+    // 两个管理员同时替换仍只留下一个有效归属。
+    await Promise.all([service.setExclusive(admin,archive.id,values),service.setExclusive(admin,archive.id,{...values,ownerId:owner.id})]);
+    const familyKey=(await familyMembers(ds.manager,ours.id)).get(base.id)!.familyKey;
+    expect((await activeGrants(ds.manager,ours.id)).filter(g=>g.data.familyKey===familyKey)).toHaveLength(1);
+    await service.setExclusive(admin,archive.id,{ownerId:null,reason:'解除'});
+    expect((await service.detail(viewer,archive.id)).owners).toEqual([]);
+    // 未建码档案可指定，后续建码和申请沿用该专属归属。
+    await service.setExclusive(admin,uncoded.id,values);
+    expect((await service.detail(viewer,uncoded.id)).owners).toEqual(['新专属人']);
+    const newBase=await rec('finance-base-codes','后建码',{productId:uncoded.id,name:'后建水果'});
+    await expect(assertFamilyFree(ds.manager,ours.id,newBase.id,null)).rejects.toThrow('已有有效专属');
+    await service.setExclusive(admin,uncoded.id,{ownerId:null,reason:'测试解除未建码归属'});
+    await expect(assertFamilyFree(ds.manager,ours.id,newBase.id,null)).resolves.toBeTruthy();
+    const run=await ds.manager.save(FlowRun,{companyId:ours.id,definitionId:1,templateKey:'product-exclusive',title:'测试申请',requesterId:owner.id,payload:{baseCodeId:base.id},stepsSnapshot:[],escalateUserIds:[],status:'running'});
+    await expect(service.setExclusive(admin,archive.id,values)).rejects.toThrow('正在审批');
+    await ds.manager.update(FlowRun,run.id,{status:'cancelled'});
     const manyNames = Array.from({length: 26}, (_, index) => `分页马甲${index}`);
     await ds.manager.update(ResourceRecord, archive.id, {data: {...(await ds.manager.findOneByOrFail(ResourceRecord, {id: archive.id})).data, rawFinishedNames: manyNames.join('\n')}});
     const first = await service.list(viewer, {keyword: '分页马甲'});

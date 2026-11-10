@@ -23,11 +23,12 @@ const normalize = (v: unknown) => str(v).normalize('NFKC').trim().replace(/\s+/g
 export interface FamilyMember { id: number; title: string; name: string; familyKey: string; canonicalId: number | null; status: string }
 
 /** 每个基础编码属于哪一族。别名（马甲）跟着真实编码走；已领取过的编码冻结在领取时的族里，之后资料改了也不换族。 */
-export async function familyMembers(em: EntityManager, companyId: number): Promise<Map<number, FamilyMember>> {
-  const [codes, products, grants] = await Promise.all([
+export async function familyMembers(em: EntityManager, companyId: number, currentRead = false): Promise<Map<number, FamilyMember>> {
+  const [codes, products, grants, lines] = await Promise.all([
     em.find(ResourceRecord, { where: { companyId, type: 'finance-base-codes' } }),
     em.find(ResourceRecord, { where: { companyId, type: 'finance-products' }, select: ['id', 'data', 'title'] }),
-    em.find(ResourceRecord, { where: { companyId, type: EXCLUSIVE_TYPE } }),
+    currentExclusiveRecords(em,companyId,undefined,currentRead),
+    em.find(ResourceRecord, { where: { companyId, type: 'finance-base-code-lines' } }),
   ]);
   const byId = new Map(codes.map((c) => [c.id, c]));
   const prod = new Map(products.map((p) => [p.id, p]));
@@ -42,6 +43,12 @@ export async function familyMembers(em: EntityManager, companyId: number): Promi
     const name = normalize(base.data.varietyName) || normalize(base.data.name) || normalize(p?.title);
     return crypto.createHash('sha256').update(JSON.stringify([str(category), str(brand), name])).digest('hex');
   };
+  // 未建基础编码时手工指定的档案，后续建码继续沿用同一归属。
+  for (const g of [...grants].sort((a,b)=>a.id-b.id)) {
+    const productId = Number(g.data.archiveProductId);
+    if (!productId) continue;
+    for (const id of productBaseIds(productId,codes,lines)) if (!frozen.has(id)) frozen.set(id,str(g.data.familyKey));
+  }
   const printed = new Map<number, string>();
   const byPrint = new Map<string, string>();
   for (const c of codes) {
@@ -58,11 +65,18 @@ export async function familyMembers(em: EntityManager, companyId: number): Promi
   return out;
 }
 
+async function currentExclusiveRecords(em:EntityManager,companyId:number,status?:string,currentRead=false):Promise<ResourceRecord[]> {
+  const query=em.createQueryBuilder(ResourceRecord,'grant').where('grant.companyId = :companyId AND grant.type = :type',{companyId,type:EXCLUSIVE_TYPE});
+  if(status)query.andWhere('grant.status = :status',{status});
+  if(currentRead&&em.queryRunner?.isTransactionActive)query.setLock('pessimistic_write');
+  return query.getMany();
+}
+
 const isLive = (g: ResourceRecord, now: string) => g.status === 'active' && str(g.data.startsAt) <= now && str(g.data.endsAt) > now;
 
-export async function activeGrants(em: EntityManager, companyId: number): Promise<ResourceRecord[]> {
+export async function activeGrants(em: EntityManager, companyId: number, currentRead = false): Promise<ResourceRecord[]> {
   const now = new Date().toISOString();
-  return (await em.find(ResourceRecord, { where: { companyId, type: EXCLUSIVE_TYPE, status: 'active' } })).filter((g) => isLive(g, now));
+  return (await currentExclusiveRecords(em,companyId,'active',currentRead)).filter(g=>isLive(g,now));
 }
 
 export interface BundleOwner { id: number; ownerId: number; ownerName: string; productName: string; startsAt: string; endsAt: string }
@@ -94,11 +108,12 @@ export async function bundleOwnership(em: EntityManager, companyId: number, line
 
 /** 申请前后都要查：这一族已有有效专属，或有别的在办申请，就不能再领。selfRunId 是本申请自己。 */
 export async function assertFamilyFree(em: EntityManager, companyId: number, baseCodeId: unknown, selfRunId: number | null): Promise<{ member: FamilyMember; members: FamilyMember[] }> {
-  const all = await familyMembers(em, companyId);
+  if(em.queryRunner?.isTransactionActive)await em.query('SELECT id FROM companies WHERE id = ? FOR UPDATE',[companyId]);
+  const all = await familyMembers(em, companyId, true);
   const member = all.get(Number(baseCodeId));
   if (!member) throw new BadRequestException('请选择有效的基础商品');
   if (['disabled', 'archived'].includes(member.status)) throw new BadRequestException(`基础商品「${member.title}」已停用或归档，不能领取`);
-  const grant = (await activeGrants(em, companyId)).find((g) => g.data.familyKey === member.familyKey);
+  const grant = (await activeGrants(em, companyId, true)).find((g) => g.data.familyKey === member.familyKey);
   if (grant) throw new BadRequestException('该基础商品已有有效专属归属，不能重复领取');
   const running = await em.find(FlowRun, { where: { companyId, templateKey: EXCLUSIVE_TEMPLATE, status: 'running' } });
   for (const r of running) {
@@ -153,7 +168,7 @@ export async function grantExclusive(em: EntityManager, create: (values: Data) =
   } finally { if (data) delete data[EXCLUSIVE_KEY]; }
 }
 
-/** 专属记录只能由流程生成；手工只能“取消”：本人放弃，或原审批人、管理员取消，必须写原因。 */
+/** 专属记录由流程或管理员受控入口生成；通用资料页只能“取消”：本人放弃，或原审批人、管理员取消，必须写原因。 */
 export async function beforeExclusive(ctx: BeforeSaveContext): Promise<void> {
   const { em, user, data, existing, status } = ctx;
   const sys = em.queryRunner?.data[EXCLUSIVE_KEY] as Data | undefined;
@@ -170,4 +185,13 @@ export async function beforeExclusive(ctx: BeforeSaveContext): Promise<void> {
   const mine = existing.data.ownerId === user.id || existing.data.approverId === user.id;
   if (!mine && !user.permissions.isCompanyAdmin) throw new ForbiddenException('只有专属人本人、原审批人或管理员可以取消专属');
   data.cancelledAt = new Date().toISOString();
+}
+
+/** 档案关联的基础编码：别名随本体；组合基础编码仅取主品，不把包材/赠品算入。 */
+export function productBaseIds(productId:number,codes:ResourceRecord[],lines:ResourceRecord[]):number[] {
+  const byId=new Map(codes.map(c=>[c.id,c]));
+  return codes.filter(c=>{
+    const base=byId.get(Number(c.data.canonicalId))??c;
+    return Number(base.data.productId)===productId || lines.some(l=>Number(l.data.baseCodeId)===base.id && l.data.role==='main' && Number(l.data.productId)===productId);
+  }).map(c=>c.id);
 }
