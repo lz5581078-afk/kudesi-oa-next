@@ -1,3 +1,4 @@
+import {SkuFinanceReview} from './SkuFinanceReview';
 import { useCallback, useEffect, useState } from 'react';
 import { FLOW_ACTION_LABEL, RUN_STATUS_LABEL, STEP_TYPE_LABEL, resourcePagePath } from '@kudesi/shared';
 import { ApiError } from '../../api/client';
@@ -109,6 +110,7 @@ export function RunDetail({ id, onClose, onChanged }: { id: number; onClose: () 
               </>
             ) : <LegacyFlowValues fields={run.fields} values={run.payload} labels={run.refLabels} files={run.files} />}
             {run.templateKey === PURCHASE_TEMPLATE_KEY && !editing && (run.fields.some(f => f.key === 'requestedArrivalAt') ? <PurchasePanel runId={run.id} refreshKey={run.revision} onChanged={reload} /> : <PurchaseCompatibilityPanel runId={run.id} refreshKey={run.revision} onChanged={reload} />)}
+            {run.templateKey === SKU_TEMPLATE && run.activeStep?.type==='finance' && run.me.canPass && <SkuFinanceReview runId={run.id} revision={run.revision}/>}
             {run.templateKey === SKU_TEMPLATE && !editing && <SkuPreview runId={run.id} refreshKey={run.revision} />}
             {(run.links.docNo || run.links.borrowRecordId || run.links.ledgerHistoryId) && (
               <p className="muted">

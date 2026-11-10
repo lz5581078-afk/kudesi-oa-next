@@ -1,3 +1,4 @@
+import {SkuFinanceReview} from './SkuFinanceReview';
 import {CheckCircle2,ClipboardList,ChevronRight,Package,FileCheck2,X} from 'lucide-react';
 import {SkuInspectionView} from './SkuInspectionView';
 import {useEffect,useMemo,useRef,useState} from 'react';
@@ -25,6 +26,7 @@ export function SkuStepEditor({id,legacy=false,onClose,onSaved,onLeaveReady}:{on
   <header><h2>{spec?.name??'规格'} · {stageName}</h2><button type="button" aria-label="关闭" onClick={leave}><X size={19}/></button></header>
   {error&&<p role="alert">{error}</p>}{!detail||!preview?<p>正在读取规格资料…</p>:<div className="sku-reference-editor-layout"><div className="sku-reference-editor-body">
    <label className="sku-reference-spec-label">内部规格名称<input disabled value={spec?.name??''}/></label>
+   {detail.activeStep?.type==='finance'&&detail.me.canPass&&preview.canCost&&<SkuFinanceReview runId={id} revision={detail.revision}/>}
    {detail.activeStep?.type==='finance'&&detail.inspection&&<SkuInspectionView inspection={detail.inspection}/>}
    <details className="sku-reference-upstream" open={!editable}><summary><ChevronRight className="sku-reference-disclosure" size={16}/><ClipboardList size={17}/>运营已提交资料<small>{spec?.lines.filter(line=>line.role==='main').length??0} 项主商品 · {spec?.lines.filter(line=>line.role==='gift').length??0} 项赠品</small></summary>
     <div className="sku-reference-derived-brand"><span>组合品牌 *</span><strong>{spec?.brandName||'未设置'}</strong><small>{(detail.payload.specs as SkuSpec[])[0]?.brandId?'本规格单独设置':detail.payload.brandId?'使用本申请统一品牌':'使用主商品品牌'}</small></div>

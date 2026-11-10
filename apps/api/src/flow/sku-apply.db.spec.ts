@@ -1,3 +1,4 @@
+import {SkuFinanceReviewService} from './sku-finance-review.service';
 /** SKU 批量申请流程（运营 → 仓库 → 财务）的真实数据库测试。RESOURCE_DB_TEST=1 TEST_DB_NAME=kudesi_oa_test_e npx jest sku-apply */
 import 'reflect-metadata';
 import * as crypto from 'crypto';
@@ -145,6 +146,16 @@ d('SKU 批量申请流程（真实数据库）', () => {
   it('财务通过：每个规格×平台生成组合编码并验证，记下来源申请单；通过后可加入聚水潭同步队列（只入队）', async () => {
     const run = await toReview([spec('甲', ids.appleBc), spec('乙', ids.mangoBc)]);
     expect(run.activeStep!.key).toBe('review');
+    const reviewer=new SkuFinanceReviewService(ds,flow,{resolveVision:async()=>null} as never,{getVision:async()=>null} as never);
+    const beforeReview=JSON.stringify(await flow.detail(fin,run.id)),beforeRecords=await ds.manager.count(ResourceRecord,{where:{companyId:fin.companyId}});
+    const advisory=await reviewer.check(fin,run.id);
+    expect(advisory.rows).toHaveLength(2);
+    expect(advisory.canPrice).toBe(false);
+    expect(advisory.rows.every(row=>row.sale===null)).toBe(true);
+    expect(JSON.stringify(await flow.detail(fin,run.id))).toBe(beforeReview);
+    expect(await ds.manager.count(ResourceRecord,{where:{companyId:fin.companyId}})).toBe(beforeRecords);
+    await expect(reviewer.check(ops,run.id)).rejects.toThrow();
+    await expect(reviewer.check(stranger,run.id)).rejects.toThrow();
     // 预览：能看到会生成的编码；成本只给有成本权限的人
     const prev = await sku.preview(fin, run.id);
     expect(prev.specs).toHaveLength(2);

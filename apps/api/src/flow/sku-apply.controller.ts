@@ -1,3 +1,4 @@
+import {SkuFinanceReviewService} from './sku-finance-review.service';
 import {SKU_BATCH_REF} from './sku-batch-reference';
 import {FlowConfirmationDto} from './flow-confirmation.dto';
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
@@ -65,7 +66,11 @@ class ReturnSpecsDto {
 /** SKU 批量申请的辅助接口。不另开菜单：申请从“申请中心”发起，预览显示在流程详情里。 */
 @Controller('flow/sku-apply')
 export class SkuApplyController {
-  constructor(private readonly sku: SkuApplyService, private readonly batches: SkuBatchService) {}
+  constructor(private readonly sku: SkuApplyService, private readonly batches: SkuBatchService, private readonly financeReview:SkuFinanceReviewService) {}
+
+  @AuthenticatedOnly()
+  @Get('runs/:id/finance-review')
+  review(@CurrentUser() user:AuthUser,@Param('id',ParseIntPipe) id:number){return this.financeReview.check(user,id);}
 
   @AuthenticatedOnly()
   @Get('options')

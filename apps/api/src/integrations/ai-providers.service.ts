@@ -8,6 +8,7 @@ import type { VisionConfig } from './vision.client';
 
 /** 内置识别功能用哪个服务商的哪个模型（旧系统 ai_company_settings 的两个 key）。 */
 export const AI_SCOPES = {
+  sku_finance_review: 'SKU财务核对',
   business_license_recognition: '营业执照识别',
   express_price_recognition: '快递价格表识别',
 } as const;
