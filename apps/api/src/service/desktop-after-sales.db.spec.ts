@@ -45,10 +45,23 @@ d('桌面售后（真实 MySQL）',()=>{
  });
  it('附件必须属于同公司同档案；上传更新版本，不覆盖跟进',async()=>{
   const buffer=Buffer.from([137,80,78,71,13,10,26,10,0]);const v=await svc.upload(a,id,{originalname:'测试.png',buffer,size:buffer.length});expect(v.files).toHaveLength(1);expect(v.progress).toBe('等待物流');expect((await svc.fileUrl(a,id,v.files[0].id)).url).toMatch(/^https:/);
+  const secondShot=await svc.upload(a,id,{originalname:'测试2.png',buffer,size:buffer.length});
+  expect(secondShot.pendingFileIds).toEqual(secondShot.files.map(file=>file.id));
+  const followed=await svc.follow(a,id,{version:secondShot.version,progress:'已核对截图',note:'已核对截图'});
+  expect(followed.events[0]).toMatchObject({kind:'follow',content:'已核对截图',fileIds:secondShot.files.map(file=>file.id)});
   await expect(svc.fileUrl(b,id,v.files[0].id)).rejects.toThrow(/不存在/);
   const second=await svc.import(a,store,{...snapshot(),afterSaleId:'85110002'});await expect(svc.fileUrl(a,second.id,v.files[0].id)).rejects.toThrow(/附件不存在/);
  });
- it('有售后建档时拒绝破坏性整库重迁',async()=>{await expect(cutoverTables(ds)).rejects.toThrow(/桌面售后已有/);});
+ it('售后建档与店铺登录资料并存时，整库重迁仍提示售后保护', async () => {
+  const workspaceKey = 'after-sales-cutover-guard';
+  await ds.query('INSERT INTO sm_legacy_session_workspaces (company_id, workspace_key, name, permission_key) VALUES (?, ?, ?, ?)',
+    [a.companyId, workspaceKey, '测试工作区', 'finance.session.view']);
+  try {
+    await expect(cutoverTables(ds)).rejects.toThrow(/桌面售后已有/);
+  } finally {
+    await ds.query('DELETE FROM sm_legacy_session_workspaces WHERE company_id=? AND workspace_key=?', [a.companyId, workspaceKey]);
+  }
+ });
  it('同时首次读取只产生一个档案，不串单',async()=>{
   const input={...snapshot(),afterSaleId:'85110003'};const [x,y]=await Promise.all([svc.import(a,store,input),svc.import(a,store,input)]);expect(x.id).toBe(y.id);const [r]=await ds.query('SELECT COUNT(*) AS n FROM desktop_after_sales WHERE company_id=? AND after_sale_id=?',[a.companyId,input.afterSaleId]);expect(Number(r.n)).toBe(1);
  });

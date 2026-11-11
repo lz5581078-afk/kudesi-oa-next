@@ -1,4 +1,32 @@
 {
+  "workspace": "/after-sales/workspace",
   "collector": "/after-sales/desktop-collector",
-  "shared": "/after-sales/shared/:id"
+  "shared": "/after-sales/shared/:id",
+  "launch": "kudesi-oa://after-sales",
+  "originalFields": [
+    "商品信息",
+    "原订单下单金额",
+    "实退金额",
+    "发货快递单号",
+    "平台售后详情",
+    "售后标签",
+    "原订单标签",
+    "售后分类",
+    "退货快递单号",
+    "仓库",
+    "售后问题类型",
+    "售后问题登记",
+    "供分销备注",
+    "聚工单",
+    "买家账号",
+    "原订单备注/旗帜",
+    "原订单线下备注",
+    "买家应补运费",
+    "卖家应退运费",
+    "卖家应补",
+    "处理结果",
+    "备注",
+    "拒绝原因",
+    "操作"
+  ]
 }

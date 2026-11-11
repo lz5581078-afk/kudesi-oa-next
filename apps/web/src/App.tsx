@@ -1,6 +1,7 @@
 import {DesktopAfterSalesCollector} from './pages/service/DesktopAfterSalesCollector';
 import {DesktopAfterSalesSharedPage} from './pages/service/DesktopAfterSalesSharedPage';
 import {DESKTOP_AFTER_SALES_ROUTES} from '@kudesi/shared';
+import { isAfterSalesWindow } from './pages/service/afterSalesWindow';
 import { DesktopAfterSalesPage } from './pages/service/DesktopAfterSalesPage';
 import { FeishuEnrollmentSetup } from './auth/FeishuEnrollmentSetup';
 import { FeishuBindCallback } from './auth/FeishuLogin';
@@ -180,6 +181,8 @@ export function App() {
   const { user, platformAdmin, loading, can } = useAuth();
   const location = useLocation();
 
+  const detached = isAfterSalesWindow(location.pathname, location.search) || (window.oaDesktop?.surface === 'after-sales' && location.pathname === DESKTOP_AFTER_SALES_ROUTES.workspace);
+
   if(location.pathname===DESKTOP_AFTER_SALES_ROUTES.collector)return <DesktopAfterSalesCollector/>;
 
   // 扫码入口免登录，公司及岗位由服务端令牌绑定。
@@ -200,7 +203,7 @@ export function App() {
   if (location.pathname === '/feishu-setup') return <FeishuEnrollmentSetup key={`${user.companyId}:${user.id}`} />;
   return (
     <Routes>
-      <Route element={<Shell />}>
+      <Route element={detached ? undefined : <Shell />}>
 
         <Route index element={<Navigate to="/workbench/desk" replace />} />
         <Route path={DESKTOP_AFTER_SALES_ROUTES.shared} element={<DesktopAfterSalesSharedPage/>}/>

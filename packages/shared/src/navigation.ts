@@ -11,9 +11,12 @@ import type { DeskPosition } from './workspace';
 import { RESOURCE_DEFS, RESOURCE_VIEWS } from './resources';
 
 export const DESKTOP_AFTER_SALES_ROUTES = {
+  workspace: '/after-sales/workspace',
   collector: '/after-sales/desktop-collector',
   shared: '/after-sales/shared/:id',
 } as const;
+export const DESKTOP_AFTER_SALES_LINK = 'kudesi-oa://after-sales';
+export const DESKTOP_AFTER_SALES_SOURCE_LINK = DESKTOP_AFTER_SALES_LINK + '/source';
 
 export const COMPANY_PRODUCTS = {
   path: '/features/company-products',
@@ -240,7 +243,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     label: '售后',
     pages: [
       { ...page('after-sales', 'table', '售后表格', true), group: '售后管理' },
-      { ...page('after-sales', 'workspace', '售后工作台', true), group: '售后管理' },
+      { ...page('after-sales', 'workspace', '实时售后处理', true), path: DESKTOP_AFTER_SALES_ROUTES.workspace, group: '售后管理' },
       { ...page('after-sales', 'appeals', '订单申诉', true), group: '售后管理' },
     ],
   },
@@ -453,7 +456,7 @@ export function groupPages(section: Pick<NavSection, 'label' | 'pages'>): PageGr
 
 /** 一级菜单只有一个页面时，点它直接进入，不用再弹二级菜单。 */
 export function directPage(section: Pick<NavSection, 'pages'>): NavPage | null {
-  return section.pages.length === 1 ? section.pages[0] : null;
+  return section.pages.length === 1 && section.pages[0].path !== DESKTOP_AFTER_SALES_ROUTES.workspace ? section.pages[0] : null;
 }
 
 export interface NavSearchHit { sectionId: string; sectionLabel: string; groupTitle: string; page: NavPage }

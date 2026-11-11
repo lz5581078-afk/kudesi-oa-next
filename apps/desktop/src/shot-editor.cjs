@@ -1,6 +1,6 @@
 /* Browser-only renderer, intentionally no Node. */
 const canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d'),tools=document.getElementById('tools');
-const picture=new Image();let selection=null,start=null,mode='rect',history=[],items=[];
+const picture=new Image();let selection=null,start=null,mode='rect',history=[],items=[],autoAttach=false,sending=false;
 const pos=e=>({x:e.clientX*canvas.width/innerWidth,y:e.clientY*canvas.height/innerHeight});
 const box=(a,b)=>({x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),w:Math.abs(a.x-b.x),h:Math.abs(a.y-b.y)});
 function drawItem(c,item){
@@ -16,14 +16,52 @@ function drawItem(c,item){
 }
 function paint(preview){ctx.clearRect(0,0,canvas.width,canvas.height);ctx.drawImage(picture,0,0);for(const item of items)drawItem(ctx,item);if(preview)drawItem(ctx,preview);
  const r=selection;ctx.fillStyle='#0008';if(r){ctx.fillRect(0,0,canvas.width,r.y);ctx.fillRect(0,r.y,r.x,r.h);ctx.fillRect(r.x+r.w,r.y,canvas.width-r.x-r.w,r.h);ctx.fillRect(0,r.y+r.h,canvas.width,canvas.height-r.y-r.h);ctx.strokeStyle='#30d2c0';ctx.lineWidth=2;ctx.strokeRect(r.x,r.y,r.w,r.h);}else ctx.fillRect(0,0,canvas.width,canvas.height);}
-window.captureEditor.onImage(({image,canAttach})=>{picture.onload=()=>{canvas.width=picture.width;canvas.height=picture.height;paint();};picture.src=image;document.getElementById('attach').hidden=!canAttach;});
+window.captureEditor.onImage(({image,canAttach,autoAttach:automatic})=>{
+ autoAttach=automatic===true;
+ if(autoAttach)document.getElementById('hint').textContent='拖动选取区域 · 松开后自动保存到售后 · Esc 取消';
+ picture.onload=()=>{canvas.width=picture.width;canvas.height=picture.height;paint();};picture.src=image;document.getElementById('attach').hidden=!canAttach;});
 canvas.onpointerdown=e=>{if(e.button!==0)return;start=pos(e);canvas.setPointerCapture(e.pointerId);if(selection&&mode==='text'){const text=document.getElementById('text').value;if(text){history.push([...items]);items.push({mode,a:start,color:document.getElementById('color').value,text});paint();}start=null;}};
 canvas.onpointermove=e=>{if(!start)return;const b=pos(e);if(!selection){paint();ctx.strokeStyle='#30d2c0';const r=box(start,b);ctx.strokeRect(r.x,r.y,r.w,r.h);}else paint({a:start,b,mode,color:document.getElementById('color').value});};
-canvas.onpointerup=e=>{if(!start)return;const b=pos(e);if(!selection){const r=box(start,b);if(r.w>5&&r.h>5){selection=r;tools.hidden=false;document.getElementById('hint').textContent='区域已选定，可标注、复制或保存';}}else{history.push([...items]);items.push({a:start,b,mode,color:document.getElementById('color').value});}start=null;paint();};
+canvas.onpointerup=e=>{
+ if(!start)return;
+ const b=pos(e);
+ if(!selection){
+  const r=box(start,b);
+  if(r.w>5&&r.h>5){
+   selection=r;
+   if(autoAttach){start=null;void finish('attach');return;}
+   tools.hidden=false;
+   document.getElementById('hint').textContent='区域已选定，可标注、复制或保存';
+  }
+ }else{history.push([...items]);items.push({a:start,b,mode,color:document.getElementById('color').value});}
+ start=null;
+ paint();
+};
 for(const button of document.querySelectorAll('[data-mode]'))button.onclick=()=>{mode=button.dataset.mode;for(const b of document.querySelectorAll('[data-mode]'))b.classList.toggle('active',b===button);};
 document.getElementById('undo').onclick=()=>{if(history.length){items=history.pop();paint();}};
 document.getElementById('crop').onclick=()=>{selection=null;items=[];history=[];tools.hidden=true;paint();};
-for(const button of document.querySelectorAll('[data-action]'))button.onclick=async()=>{
- try{let image;if(button.dataset.action!=='cancel'){if(!selection)return;const r=selection;selection=null;paint();const out=document.createElement('canvas');out.width=Math.round(r.w);out.height=Math.round(r.h);out.getContext('2d').drawImage(canvas,r.x,r.y,r.w,r.h,0,0,out.width,out.height);image=out.toDataURL('image/png');selection=r;paint();}await window.captureEditor.finish(button.dataset.action,image);}catch(e){document.getElementById('error').textContent=e.message;}
-};
+async function finish(action){
+ if(sending||(!selection&&action!=='cancel'))return;
+ sending=true;
+ try{
+  let image;
+  if(action!=='cancel'){
+   const r=selection;
+   selection=null;
+   paint();
+   const out=document.createElement('canvas');
+   out.width=Math.round(r.w);
+   out.height=Math.round(r.h);
+   out.getContext('2d').drawImage(canvas,r.x,r.y,r.w,r.h,0,0,out.width,out.height);
+   image=out.toDataURL('image/png');
+   selection=r;
+   paint();
+  }
+  await window.captureEditor.finish(action,image);
+ }catch(e){
+  tools.hidden=false;
+  document.getElementById('error').textContent=e.message;
+ }finally{sending=false;}
+}
+for(const button of document.querySelectorAll('[data-action]'))button.onclick=()=>void finish(button.dataset.action);
 document.onkeydown=e=>{if(e.key==='Escape')window.captureEditor.finish('cancel');if((e.ctrlKey||e.metaKey)&&e.key==='z')document.getElementById('undo').click();};

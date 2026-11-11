@@ -1,16 +1,16 @@
 import {Body,Controller,Get,Param,ParseIntPipe,Post,Query,UploadedFile,UseInterceptors} from '@nestjs/common';
 import {FileInterceptor} from '@nestjs/platform-express';
 import {Type} from 'class-transformer';
-import {ArrayMaxSize,IsArray,IsBoolean,IsDateString,IsDefined,IsIn,IsInt,IsObject,IsOptional,IsString,IsUUID,Matches,Max,MaxLength,Min,ValidateNested} from 'class-validator';
+import {ArrayMaxSize,IsArray,IsBoolean,IsDateString,IsDefined,IsIn,IsInt,IsObject,IsOptional,IsString,IsUUID,Matches,Max,MaxLength,Min,ValidateIf,ValidateNested} from 'class-validator';
 import {AuthenticatedOnly,AuthUser,CurrentUser,RequirePermission} from '../common/auth.decorators';
 import {MAX_UPLOAD_BYTES,type UploadedFile as Upload} from '../integrations/files.service';
 import {DesktopAfterSalesService} from './desktop-after-sales.service';
-import type {DesktopSaleSnapshot} from '@kudesi/shared';
+import {AFTER_SALES_COLUMNS,AFTER_SALES_MAX_FILTERS,AFTER_SALES_SORT_COLUMNS,DESKTOP_SALE_WORKSPACE_STATES,DESKTOP_SALE_CLICK_LABELS,type DesktopSaleClick,type DesktopSaleWorkspaceState,type AfterSalesColumnFilter,type DesktopSaleSnapshot} from '@kudesi/shared';
 import {DesktopAfterSalesCollectionService} from './desktop-after-sales-collection.service';
 import {DesktopAfterSalesCollaborationService} from './desktop-after-sales-collaboration.service';
 class SnapshotDto implements DesktopSaleSnapshot {
  @Matches(/^\d{4,40}$/) afterSaleId!:string;
- @Matches(/^\d{4,40}$/) internalOrderId!:string;
+ @ValidateIf((_,value:unknown)=>value!=='') @Matches(/^\d{4,40}$/) internalOrderId!:string;
  @IsString() @MaxLength(100) sourceCompany!:string;
  @IsDateString() capturedAt!:string;
  @IsObject() fields!:DesktopSaleSnapshot['fields'];
@@ -40,22 +40,42 @@ class FollowDto {
  @IsOptional() @IsDateString() nextAt?:string|null;
  @IsString() @MaxLength(4000) note!:string;
 }
+class CloseDto extends FollowDto { @IsString() @MaxLength(1000) reason!:string; }
+class ActivityDto { @IsIn(Object.keys(DESKTOP_SALE_CLICK_LABELS)) click!:DesktopSaleClick; }
+class VersionDto { @IsInt() @Min(1) version!:number; }
+class CloseTearDto extends VersionDto {
+ @IsString() @MaxLength(4000) note!:string;
+ @IsString() @MaxLength(1000) reason!:string;
+}
 class ListDto {
+ @IsOptional() @IsIn(DESKTOP_SALE_WORKSPACE_STATES) state?:DesktopSaleWorkspaceState;
  @IsOptional() @IsString() @MaxLength(80) keyword?:string;
  @IsOptional() @Type(()=>Number) @IsInt() @Min(1) page?:number;
- @IsOptional() @IsIn(['申请时间','售后单号','内部订单号','紧急度','负责人','下次跟进']) sort?:string;
+ @IsOptional() @IsIn(AFTER_SALES_SORT_COLUMNS) sort?:string;
  @IsOptional() @IsIn(['asc','desc']) direction?:string;
+}
+class ColumnFilterDto implements AfterSalesColumnFilter {
+ @IsIn(AFTER_SALES_COLUMNS) column!:AfterSalesColumnFilter['column'];
+ @IsString() @MaxLength(120) value!:string;
+}
+class SearchDto extends ListDto {
+ @IsArray() @ArrayMaxSize(AFTER_SALES_MAX_FILTERS) @ValidateNested({each:true}) @Type(()=>ColumnFilterDto) filters!:ColumnFilterDto[];
 }
 class EventsDto { @IsOptional() @Type(()=>Number) @IsInt() @Min(1) before?:number; }
 @Controller('desktop-after-sales')
 export class DesktopAfterSalesController {
  constructor(private readonly svc:DesktopAfterSalesService){}
  @Get('options') @RequirePermission('after-sales.workspace.view') options(@CurrentUser() u:AuthUser){return this.svc.options(u);}
- @Get() @RequirePermission('after-sales.workspace.view') list(@CurrentUser() u:AuthUser,@Query() q:ListDto){return this.svc.list(u,q.keyword,q.page,q.sort,q.direction);}
+ @Get() @RequirePermission('after-sales.workspace.view') list(@CurrentUser() u:AuthUser,@Query() q:ListDto){return this.svc.list(u,q.keyword,q.page,q.sort,q.direction,[],q.state);}
+ @Post('search') @RequirePermission('after-sales.workspace.view') search(@CurrentUser() u:AuthUser,@Body() q:SearchDto){return this.svc.list(u,q.keyword,q.page,q.sort,q.direction,q.filters,q.state);}
  @Get(':id') @RequirePermission('after-sales.workspace.view') detail(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number){return this.svc.detail(u,id);}
  @Get(':id/events') @RequirePermission('after-sales.workspace.view') history(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Query() q:EventsDto){return this.svc.detail(u,id,q.before);}
  @Post('import') @RequirePermission('after-sales.workspace.view') import(@CurrentUser() u:AuthUser,@Body() b:ImportDto){return this.svc.import(u,b.storeId,b.snapshot);}
+ @Post(':id/source') @RequirePermission('after-sales.workspace.view') refreshSource(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() b:SnapshotDto){return this.svc.refreshSource(u,id,b);}
  @Post(':id/follow') @RequirePermission('after-sales.workspace.view') follow(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() b:FollowDto){return this.svc.follow(u,id,b);}
+ @Post(':id/activity') @RequirePermission('after-sales.workspace.view') activity(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() b:ActivityDto){return this.svc.recordActivity(u,id,b.click);}
+ @Post(':id/tear') @RequirePermission('after-sales.workspace.view') tear(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() b:VersionDto){return this.svc.tear(u,id,b.version);}
+ @Post(':id/close') @RequirePermission('after-sales.workspace.view') close(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() b:CloseDto){return this.svc.close(u,id,b);}
  @Post(':id/metadata') @RequirePermission('after-sales.workspace.view') metadata(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() b:MetadataDto){return this.svc.metadata(u,id,b);}
  @Post(':id/files') @RequirePermission('after-sales.workspace.view') @UseInterceptors(FileInterceptor('file',{limits:{fileSize:MAX_UPLOAD_BYTES,files:1}})) upload(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@UploadedFile() file:Upload|undefined){return this.svc.upload(u,id,file);}
  @Get(':id/files/:fileId/url') @RequirePermission('after-sales.workspace.view') url(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Param('fileId',ParseIntPipe) fileId:number){return this.svc.fileUrl(u,id,fileId);}
@@ -67,6 +87,8 @@ export class DesktopAfterSalesSharedController{
  constructor(private readonly svc:DesktopAfterSalesService,private readonly collaboration:DesktopAfterSalesCollaborationService){}
  @Get(':id') @AuthenticatedOnly() async detail(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number){await this.svc.assertAccess(u,id);return this.svc.detail(u,id);}
  @Get(':id/events') @AuthenticatedOnly() async history(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Query() q:EventsDto){await this.svc.assertAccess(u,id);return this.svc.detail(u,id,q.before);}
+ @Post(':id/activity') @AuthenticatedOnly() activity(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() b:ActivityDto){return this.svc.recordActivity(u,id,b.click);}
+ @Post(':id/close-tear') @AuthenticatedOnly() closeTear(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() b:CloseTearDto){return this.svc.closeTear(u,id,b);}
  @Post(':id/records') @AuthenticatedOnly() record(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() b:RecordDto){return this.svc.record(u,id,b.content);}
  @Post(':id/metadata') @AuthenticatedOnly() async metadata(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() b:MetadataDto){await this.svc.assertAccess(u,id,true);return this.svc.metadata(u,id,b);}
  @Post(':id/share') @AuthenticatedOnly() share(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() b:ShareDto){return this.collaboration.share(u,id,b.recipients,b.message,b.canWrite);}
@@ -79,6 +101,7 @@ class SourceDto{
  @IsInt() @Min(30) @Max(300) intervalSeconds!:number;
 }
 class ClaimDto{ @IsUUID() clientId!:string; }
+class JoinDto{ @IsString() @MaxLength(100) sourceCompany!:string; }
 class LeaseDto{ @IsUUID() token!:string; }
 class BatchDto extends LeaseDto{
  @IsArray() @ArrayMaxSize(500) @ValidateNested({each:true}) @Type(()=>SnapshotDto) records!:SnapshotDto[];
@@ -94,8 +117,10 @@ export class DesktopAfterSalesCollectionController{
  constructor(private readonly svc:DesktopAfterSalesCollectionService){}
  @Get() @RequirePermission('after-sales.workspace.view') list(@CurrentUser() u:AuthUser){return this.svc.list(u);}
  @Post() @RequirePermission('after-sales.workspace.view') configure(@CurrentUser() u:AuthUser,@Body() b:SourceDto){return this.svc.configure(u,b);}
+ @Post('join') @RequirePermission('after-sales.workspace.view') join(@CurrentUser() u:AuthUser,@Body() b:JoinDto){return this.svc.join(u,b.sourceCompany);}
  @Post(':id/claim') @RequirePermission('after-sales.workspace.view') claim(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() b:ClaimDto){return this.svc.claim(u,id,b.clientId);}
  @Post(':id/heartbeat') @RequirePermission('after-sales.workspace.view') heartbeat(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() b:LeaseDto){return this.svc.heartbeat(u,id,b.token);}
+ @Post(':id/yield') @RequirePermission('after-sales.workspace.view') yield(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() b:LeaseDto){return this.svc.yield(u,id,b.token);}
  @Post(':id/commit') @RequirePermission('after-sales.workspace.view') commit(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() b:BatchDto){return this.svc.commit(u,id,b);}
  @Post(':id/fail') @RequirePermission('after-sales.workspace.view') fail(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() b:FailDto){return this.svc.fail(u,id,b.token,b.message);}
  @Post(':id/local') @RequirePermission('after-sales.workspace.view') local(@CurrentUser() u:AuthUser,@Param('id',ParseIntPipe) id:number,@Body() b:LocalBatchDto){return this.svc.local(u,id,b.records);}

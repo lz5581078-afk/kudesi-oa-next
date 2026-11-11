@@ -24,3 +24,32 @@ it('读取失败必须上报失败，不会把本轮标为成功',async()=>{
  await waitFor(()=>expect(mock).toHaveBeenCalledWith('/desktop-after-sales-collection/1/fail',expect.objectContaining({body:expect.objectContaining({message:'聚水潭登录失效'})})));
  expect(mock.mock.calls.some(([p])=>p.endsWith('/commit'))).toBe(false);
 });
+it.each([
+ {enabled:false,clientId:'test-client'},
+ {enabled:true,paused:false,clientId:'test-client',sourceCompany:'演示公司',companyId:1},
+])('服务器没有来源时，使用已验证的聚水潭会话登记并开始采集（本机已绑定：$enabled）',async collection=>{
+ const desktop=window.oaDesktop!;
+ vi.mocked(desktop.preferences).mockResolvedValueOnce({shortcut:'',registered:true,collection});
+ desktop.joinCollection=vi.fn().mockResolvedValue(true);
+ desktop.jushuitanStatus=vi.fn().mockResolvedValue({state:'authenticated',sourceCompany:'演示公司'});
+ vi.mocked(desktop.prepareLatest!).mockResolvedValue({sourceCompany:'演示公司'});
+ vi.mocked(desktop.latest!).mockResolvedValue({records:[],page:1,pageSize:50,total:51,hasNext:true,sourceCompany:'演示公司',kind:'current'});
+ mock.mockImplementation(async p=>p.endsWith('/join')?{id:1,enabled:true}:p.endsWith('/claim')?{...lease,firstPageOnly:true}:[]);
+ render(<DesktopAfterSalesCollector/>);
+ await waitFor(()=>expect(mock).toHaveBeenCalledWith('/desktop-after-sales-collection/1/commit',{body:{token:lease.token,page:1,records:[],completed:true}}));
+ expect(desktop.joinCollection).toHaveBeenCalledWith({companyId:1,sourceCompany:'演示公司'});
+ expect(desktop.latest).toHaveBeenCalledOnce();
+});
+it('本机单笔回查抢占时交还采集轮次，不标记失败或提交结果',async()=>{
+ vi.mocked(window.oaDesktop!.latest!).mockRejectedValue(new Error('正在查询单笔售后，已让出本机后台采集'));
+ render(<DesktopAfterSalesCollector/>);
+ await waitFor(()=>expect(mock).toHaveBeenCalledWith('/desktop-after-sales-collection/1/yield',{body:{token:lease.token}}));
+ expect(mock.mock.calls.some(([p])=>p.endsWith('/fail')||p.endsWith('/commit'))).toBe(false);
+});
+it('原系统登录过期时不会领取采集',async()=>{
+ const desktop=window.oaDesktop!;
+ desktop.jushuitanStatus=vi.fn().mockResolvedValue({state:'login_required'});
+ render(<DesktopAfterSalesCollector/>);
+ await waitFor(()=>expect(desktop.jushuitanStatus).toHaveBeenCalledOnce());
+ expect(mock).not.toHaveBeenCalled();
+});
