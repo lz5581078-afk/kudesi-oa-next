@@ -1,8 +1,8 @@
 {
   "name": "@kudesi/desktop",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "private": true,
-  "description": "酷得斯 OA 桌面客户端",
+  "description": "小白OA系统桌面客户端",
   "author": "Kudesi",
   "main": "src/main.cjs",
   "scripts": {
@@ -24,7 +24,7 @@
   },
   "build": {
     "appId": "com.kudesi.oa.desktop",
-    "productName": "酷得斯OA",
+    "productName": "小白OA系统",
     "asar": true,
     "directories": {
       "output": "release"
@@ -39,7 +39,7 @@
       "target": [
         "nsis"
       ],
-      "artifactName": "KudesiOA-Setup-${version}-${arch}.${ext}"
+      "artifactName": "XiaobaiOA-Setup-${version}-${arch}.${ext}"
     },
     "mac": {
       "category": "public.app-category.business",

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { WorkspaceLink } from './WorkspaceLink';
-import { groupPages, searchNav, isNavPathCurrent, type VisibleSection } from '@kudesi/shared';
+import { DESKTOP_AFTER_SALES_ROUTES, groupPages, searchNav, isNavPathCurrent, type VisibleSection } from '@kudesi/shared';
 import { SearchIcon } from './NavIcons';
+import { AFTER_SALES_DESKTOP_URL } from '../pages/service/afterSalesWindow';
 
 /**
  * 二级菜单面板：点左侧图标栏（或手机底栏）弹出。
@@ -78,6 +79,7 @@ export function ModulePanel(props: {
                           <span className="mp-link-label">{p.label}</span>
                           {p.description && <small className="mp-link-desc">{p.description}</small>}
                         </WorkspaceLink>
+                        {p.path === DESKTOP_AFTER_SALES_ROUTES.workspace && <a className="mp-link" href={AFTER_SALES_DESKTOP_URL} target="_blank" rel="noopener">下载客户端</a>}
                       </li>
                     ))}
                   </ul>

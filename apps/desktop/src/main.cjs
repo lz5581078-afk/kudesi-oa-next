@@ -1,4 +1,5 @@
 'use strict';
+const APP_NAME = '小白OA系统';
 const { app, BrowserWindow, WebContentsView, session, ipcMain, globalShortcut, desktopCapturer, screen, nativeImage, dialog, Menu, Tray, shell } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -220,12 +221,12 @@ function showWindow(target) {
 function createOaWindow(surface,route) {
   const isWorkspace=surface==='after-sales';
   const target=new BrowserWindow({
-    title:isWorkspace?'实时售后处理':'酷得斯 OA',
+    title:isWorkspace?'实时售后处理':APP_NAME,
     show:false,width:isWorkspace?1440:1560,height:980,minWidth:isWorkspace?900:1080,minHeight:700,
     icon,backgroundColor:'#f4f7fa',webPreferences:rendererPreferences(surface),
   });
   startingOaWindows.add(target);
-  if(isWorkspace)target.on('page-title-updated',e=>e.preventDefault());
+  target.on('page-title-updated',e=>e.preventDefault());
   const contents=target.webContents;
   registerWindowsRefresh(contents, ignoreCache => refreshOaWindow(target, route, ignoreCache));
   const guardOaNavigation = event => {
@@ -481,7 +482,7 @@ async function createWindow() {
   if(process.platform==='win32'){
     Menu.setApplicationMenu(null);
   }else{
-    Menu.setApplicationMenu(Menu.buildFromTemplate([{label:'酷得斯OA',submenu:[{label:'实时售后处理',click:()=>openAfterSales()},{label:'刷新当前窗口',click:()=>{
+    Menu.setApplicationMenu(Menu.buildFromTemplate([{label:APP_NAME,submenu:[{label:'实时售后处理',click:()=>openAfterSales()},{label:'刷新当前窗口',click:()=>{
       const target=BrowserWindow.getFocusedWindow();
       if(target && (target===win || target===workspace)) refreshOaWindow(target, target===win ? '/' : desktopRoutes.workspace);
     }},{label:'截图',click:()=>capture().catch(showError)},{role:'quit'}]},{label:'编辑',submenu:[{role:'undo'},{role:'redo'},{role:'copy'},{role:'paste'},{role:'selectAll'}]},{label:'视图',submenu:[{role:'resetZoom'},{role:'zoomIn'},{role:'zoomOut'},{role:'togglefullscreen'}]}]));
@@ -524,7 +525,7 @@ async function createWindow() {
   if(!localAcceptance())void collector.loadURL(origin+desktopRoutes.collector)
     .catch(error=>console.error('后台售后采集页未能加载',error.code));
   tray = new Tray(nativeImage.createFromPath(icon).resize({width:20,height:20}));
-  tray.setToolTip('酷得斯 OA'); tray.setContextMenu(Menu.buildFromTemplate([{label:'打开 OA',click:openMain},{label:'实时售后处理',click:openAfterSales},{label:'截图',click:()=>capture().catch(showError)},{type:'separator'},{label:'退出',click:()=>app.quit()}]));
+  tray.setToolTip(APP_NAME); tray.setContextMenu(Menu.buildFromTemplate([{label:'打开 OA',click:openMain},{label:'实时售后处理',click:openAfterSales},{label:'截图',click:()=>capture().catch(showError)},{type:'separator'},{label:'退出',click:()=>app.quit()}]));
   tray.on('double-click',openMain);
   try { const config=JSON.parse(await fs.readFile(path.join(app.getPath('userData'),'shortcut.json'),'utf8')); accelerator=config.accelerator; } catch { /* first launch */ }
   registerShortcut(accelerator);
@@ -560,7 +561,7 @@ function hideSource(){
   localHost.contentView.addChildView(view);
   view.setBounds({x:0,y:0,width:1440,height:1000});
 }
-function showError(e) { dialog.showErrorBox('酷得斯 OA', e.message || '操作失败，请重试'); }
+function showError(e) { dialog.showErrorBox(APP_NAME, e.message || '操作失败，请重试'); }
 function registerShortcut(value) {
   if(!replaceShortcut(globalShortcut,accelerator,value,()=>capture().catch(showError)))return false;
   accelerator=value;return true;

@@ -27,18 +27,18 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $setup = (Get-ChildItem 'apps/desktop/release/KudesiOA-Setup-*-x64.exe' | Select-Object -First 1).FullName
-          $p = Start-Process -FilePath $setup -ArgumentList '/S' -Wait -PassThru
+          $setup = (Get-ChildItem 'apps/desktop/release/XiaobaiOA-Setup-*-x64.exe' | Select-Object -First 1).FullName
+          $installed = Join-Path $env:RUNNER_TEMP 'xiaobai-oa-install'
+          $p = Start-Process -FilePath $setup -ArgumentList "/S /D=$installed" -Wait -PassThru -WindowStyle Hidden
           if ($p.ExitCode -ne 0) { throw "Installer failed: $($p.ExitCode)" }
-          $installed = Join-Path $env:LOCALAPPDATA 'Programs/KudesiOA'
           if (-not (Test-Path (Join-Path $installed 'KudesiOA.exe'))) { throw 'Installed application missing' }
           $uninstaller = Get-ChildItem -LiteralPath $installed -Filter 'Uninstall*.exe' | Select-Object -First 1
           if (-not $uninstaller) { throw 'Uninstaller missing' }
-          $p = Start-Process -FilePath $uninstaller.FullName -ArgumentList '/S' -Wait -PassThru
+          $p = Start-Process -FilePath $uninstaller.FullName -ArgumentList '/S' -Wait -PassThru -WindowStyle Hidden
           if ($p.ExitCode -ne 0) { throw "Uninstaller failed: $($p.ExitCode)" }
       - uses: actions/upload-artifact@v4
         with:
-          name: KudesiOA-Windows-x64
+          name: XiaobaiOA-Windows-x64
           path: apps/desktop/release/*.exe
           if-no-files-found: error
           retention-days: 30
