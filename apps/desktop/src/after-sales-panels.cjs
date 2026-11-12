@@ -1,10 +1,11 @@
 'use strict';
 
-// This function runs inside the current, permitted after-sales list frame.
+// This function runs inside a permitted after-sales list frame.
 async function readAfterSalesPanel(afterSaleId, kind, options = {}) {
   const logistics = {
-    trigger: '查看物流', title: /^(查看物流|物流信息|物流详情|物流轨迹|快递查询|快递跟踪|物流[（(]快递[）)]跟踪信息)$/,
-    headers: /^(时间|物流时间|更新时间|物流信息|物流详情|物流状态|状态|地点|描述|详情|内容|物流轨迹|查询结果)$/,
+    trigger: /^(查看物流|查看物流信息|查看物流轨迹|物流查询|快递查询|快递跟踪)$/,
+    title: /^(查看物流|物流信息|物流详情|物流轨迹|快递查询|快递跟踪|物流[（(]快递[）)]跟踪信息)$/,
+    headers: /^(时间|物流时间|更新时间|发生时间|物流信息|物流详情|物流状态|快递状态|状态|地点|描述|轨迹描述|物流描述|详情|内容|物流轨迹|查询结果)$/,
     waybill: true,
   };
   const panels = {
@@ -31,9 +32,10 @@ async function readAfterSalesPanel(afterSaleId, kind, options = {}) {
   const read = el => String(el?.innerText ?? '').trim();
   const visible = el => !!el?.getClientRects().length && getComputedStyle(el).visibility !== 'hidden' &&
     !el.closest('[hidden], [aria-hidden="true"]');
-  const headersOf = table => [...(table.tHead?.querySelectorAll('th,td') ?? [])].map(cell =>
-    visible(cell) ? read(cell).replace(/\s*[/／]\s*/g, '/').split('\n')[0]
-      .replace(/^商品信息\s*展示设置.*$/, '商品信息').replace(/^原订单快递单号$/, '发货快递单号') : '');
+  const heading = cell => read(cell).replace(/\s*[/／]\s*/g, '/').split('\n')[0]
+    .replace(/^商品信息\s*展示设置.*$/, '商品信息').replace(/^原订单快递单号$/, '发货快递单号')
+    .replace(/^退回快递单号(?:[（(]运单号[）)])?$/, '退货快递单号');
+  const headersOf = table => [...(table.tHead?.querySelectorAll('th,td') ?? [])].map(cell => visible(cell) ? heading(cell) : '');
   const bodyRows = table => [...table.tBodies].flatMap(body => [...body.rows]);
   function findHeadings(table, match) {
     const own = headersOf(table);
@@ -63,43 +65,74 @@ async function readAfterSalesPanel(afterSaleId, kind, options = {}) {
     }catch{return '';}
   };
   let trigger,sourceWaybill='';
-  for (const table of document.querySelectorAll('table')) {
-    if (!visible(table) || table.closest(panelSelector)) continue;
-    const headers = findHeadings(table, columns => columns.includes('售后单号') && columns.includes(config.column));
+  function findTrigger(headers,rows) {
     const idIndex = headers.indexOf('售后单号'), actionIndex = headers.indexOf(config.column);
-    if (idIndex < 0 || actionIndex < 0) continue;
-    for (const row of bodyRows(table)) {
-      const cells = [...row.children].filter(cell => ['TH', 'TD'].includes(cell.tagName));
+    if (idIndex < 0 || actionIndex < 0) return;
+    for (const row of rows) {
+      const cells = [...row.children];
       if (!visible(row) || cells.length !== headers.length) continue;
       const id = read(cells[idIndex]).match(/^(?:售后单号\s*[:：]?\s*)?(\d{4,40})$/)?.[1];
       if (id !== afterSaleId) continue;
       if (config.selector) {
         const candidates = [...cells[actionIndex].querySelectorAll(config.selector)].filter(visible);
         if (candidates.length === 1) trigger = candidates[0];
-        if (trigger) break;
+        if (trigger) return;
         continue;
       }
       const candidates = [...cells[actionIndex].querySelectorAll('button,a,[role="button"],span')]
         .filter(element => visible(element) && [read(element), element.getAttribute('aria-label'), element.getAttribute('title')]
           .some(label => label && (typeof config.trigger === 'string' ? label === config.trigger : config.trigger.test(label))));
-      trigger = candidates.find(el => el.matches('button,a,[role="button"]')) || candidates.at(-1);
-      // Confirmed rows expose the waybill itself as a link-style button.
-      if (!trigger && config.waybill) {
-        const waybills = [...cells[actionIndex].querySelectorAll('button,a,[role="button"]')]
-          .filter(el => visible(el) && waybillPattern.test(read(el)));
-        if (waybills.length === 1) trigger = waybills[0];
+      const labelled = candidates.find(el => el.matches('button,a,[role="button"]')) || candidates.at(-1);
+      if (config.waybill) {
+        const cell=cells[actionIndex];
+        const links=[...cell.querySelectorAll('button,a,[role="button"],span[onclick]')]
+          .filter(el=>visible(el)&&waybillPattern.test(read(el)));
+        const inputs=[...cell.querySelectorAll('input:not([type="password"],[type="hidden"])')].filter(visible).map(el=>el.value.trim());
+        const numbers=new Set([...read(cell).split(/\s+/),...inputs,...links.map(read)]
+          .filter(value=>waybillPattern.test(value)).map(value=>value.toUpperCase()));
+        const expected=options.waybill?.toUpperCase();
+        const number=expected||(numbers.size===1?[...numbers][0]:'');
+        const exact=number&&links.find(link=>read(link).toUpperCase()===number);
+        // Only use a generic tracking button when its cell identifies a single waybill.
+        trigger=exact||((expected?numbers.size===1&&numbers.has(expected):numbers.size<=1)?labelled:undefined);
+        if(trigger)sourceWaybill=number;
+      }else{
+        trigger=labelled;
       }
-      if(trigger&&config.waybill){
-        const number=read(trigger);
-        const candidates=read(cells[actionIndex]).split(/\s+/).filter(value=>waybillPattern.test(value));
-        sourceWaybill=waybillPattern.test(number)?number:candidates.length===1?candidates[0]:'';
-      }
-      if (trigger) break;
+      if (trigger) return;
     }
+  }
+  for (const table of document.querySelectorAll('table')) {
+    if (!visible(table) || table.closest(panelSelector)) continue;
+    const headers = findHeadings(table, columns => columns.includes('售后单号') && columns.includes(config.column));
+    findTrigger(headers,bodyRows(table));
     if (trigger) break;
+  }
+  if (!trigger&&config.waybill) {
+    const headerRows=new Set([...document.querySelectorAll('._jt_cell_head')].map(cell=>cell.parentElement));
+    for(const head of headerRows){
+      const headers=[...head.children].map(heading);
+      if(!headers.includes('售后单号')||!headers.includes(config.column))continue;
+      let scope=head.parentElement;
+      for(let depth=0;scope&&!scope.querySelector('._jt_row')&&depth<4;depth++)scope=scope.parentElement;
+      if(scope)findTrigger(headers,scope.querySelectorAll('._jt_row'));
+      if(trigger)break;
+    }
   }
   if (!trigger) return {error: '原售后列表未显示这笔单据的明细入口', missingTrigger: true};
 
+  const trackingDate = /^(?:19|20)\d{2}[-\/.年]\d{1,2}[-\/.月]\d{1,2}(?:\D|$)/;
+  const trackingTimeLabel = /^(时间|物流时间|更新时间|发生时间)$/;
+  const formatLine = values => values.map(([label,value]) =>
+    label+'：'+value.replace(/\r?\n/g,'\n\t').replaceAll(' · ',' ·\u00a0')).join(' · ');
+  function trackingTableLine(row) {
+    // Some providers omit the status column or insert summary rows.
+    const [time,...values]=[...row.cells].filter(visible).map(read);
+    if(!trackingDate.test(time)||values.length<1||values.length>2)return [];
+    const [status,description]=values.length===1?['',values[0]]:values;
+    if(!status&&!description)return [];
+    return [formatLine([['时间',time],['状态',status],['物流描述',description]].filter(([,value])=>value))];
+  }
   function tableLines(panel) {
     const lines = [];
     for (const table of panel.querySelectorAll('table')) {
@@ -107,14 +140,18 @@ async function readAfterSalesPanel(afterSaleId, kind, options = {}) {
       const headings = findHeadings(table, columns => columns.filter(label => config.headers.test(label)).length >= 2);
       const permitted = headings.map((label, index) => ({label, index}))
         .filter(({label}) => config.headers.test(label));
-      if (permitted.length < 2) continue;
+      if (permitted.length < 2 && !config.waybill) continue;
+      const time = config.waybill && permitted.find(({label}) => trackingTimeLabel.test(label));
       const footer = kind==='goods'?[...(table.tFoot?.rows??[])].filter(row=>/^(总计|合计)$/.test(read(row.cells[0]))):[];
       const valuesByRow = [...bodyRows(table),...footer].filter(visible).flatMap(row => {
         const cells = footer.includes(row)?[...row.cells].flatMap(cell=>[cell,...Array(cell.colSpan-1).fill(null)]):[...row.children];
-        if (cells.length !== headings.length) return [];
-        const values = permitted.filter(({index}) => visible(cells[index])).map(({label, index}) => [label, read(cells[index])]);
+        if (permitted.length < 2 || cells.length !== headings.length) return config.waybill ? trackingTableLine(row) : [];
+        if (time && !trackingDate.test(read(cells[time.index]))) return [];
+        const values = permitted.filter(({index}) => visible(cells[index])).map(({label, index}) => [
+          config.waybill?({发生时间:'时间',快递状态:'状态',轨迹描述:'物流描述'})[label]??label:label, read(cells[index]),
+        ]);
         // Indent wrapped source cells so their labels cannot start another table row.
-        return values.some(([, value]) => value) ? [values.map(([label, value]) => label + '：' + value.replace(/\r?\n/g,'\n\t').replaceAll(' · ',' ·\u00a0')).join(' · ')] : [];
+        return values.some(([, value]) => value) ? [formatLine(values)] : [];
       });
       lines.push(...valuesByRow);
     }
@@ -127,23 +164,10 @@ async function readAfterSalesPanel(afterSaleId, kind, options = {}) {
     return [...text.matchAll(new RegExp('(?:^|\\s)(' + labels + ')\\s*[:：]?\\s*([¥￥]?\\s*-?\\d[\\d,]*(?:\\.\\d+)?)', 'g'))]
       .map(([, label, value]) => label + '：' + value.trim());
   }
-  function trackingTableLines(panel) {
-    // The current tracking modal renders these three columns without table headings.
-    const entries = [...panel.querySelectorAll('.art-table-body table')].filter(visible)
-      .flatMap(bodyRows).filter(visible)
-      .map(row => [...row.cells].filter(visible).map(read))
-      .filter(values => values.some(Boolean));
-    if (!entries.every(([time, status, description, ...rest]) =>
-      !rest.length && /^(?:19|20)\d{2}[-\/年]\d{1,2}[-\/月]\d{1,2}/.test(time) &&
-      description !== undefined && (status || description))) return [];
-    return entries.map(([time, status, description]) =>
-      [['时间', time], ['状态', status], ['物流描述', description]]
-        .filter(([, value]) => value).map(([label, value]) => label + '：' + value).join(' · '));
-  }
   trigger.scrollIntoView?.({block:'nearest',inline:'center'});
   if(config.hover)trigger.dispatchEvent(new MouseEvent('mouseover',{bubbles:true}));
   if(kind!=='orderAmount')trigger.click();
-  let opened,providerTab;
+  let opened,providerTab,emptyLogistics;
   try {
     const deadline = Date.now() + 8000;
     while (Date.now() < deadline) {
@@ -182,8 +206,16 @@ async function readAfterSalesPanel(afterSaleId, kind, options = {}) {
             const providerUrl=providerAddress(embedded,sourceWaybill);
             return providerUrl?{providerUrl}:{error:'快递100未提供当前运单可用的查询页'};
           }
+        }else if(config.waybill){
+          const activeTab=panel.querySelector('[role="tab"][aria-selected="true"][aria-controls]');
+          const system=(activeTab&&document.getElementById(activeTab.getAttribute('aria-controls')))||
+            panel.querySelector('.ant-tabs-tabpane-active');
+          if(system&&panel.contains(system)&&visible(system))contentRoot=system;
         }
-        if ([...contentRoot.querySelectorAll('.ant-spin-spinning,[aria-busy="true"]')].some(visible)) continue;
+        if ([...contentRoot.querySelectorAll('.ant-spin-spinning,[aria-busy="true"]')].some(visible)) {
+          emptyLogistics=undefined;
+          continue;
+        }
         if (kind === 'orderAmount' || kind === 'refusal') {
           const body=panel.querySelector(kind==='orderAmount'?'.ant-popover-inner-content':'.ant-modal-body');
           const content=read(body).replace(/[\u0000-\u0008]/g, '');
@@ -193,8 +225,7 @@ async function readAfterSalesPanel(afterSaleId, kind, options = {}) {
         }
         const lines = kind === 'refund' ? refundLines(panel) : tableLines(contentRoot);
         if (config.waybill && !lines.length) {
-          if (/^物流[（(]快递[）)]跟踪信息$/.test(title)) lines.push(...trackingTableLines(contentRoot));
-          if (!lines.length) lines.push(...[...contentRoot.querySelectorAll('.ant-timeline-item-content')].filter(visible).map(read).filter(Boolean));
+          lines.push(...[...contentRoot.querySelectorAll('.ant-timeline-item-content')].filter(visible).map(read).filter(Boolean));
           if (!lines.length) {
             lines.push(...[...read(contentRoot).matchAll(/^\s*(查询结果|物流状态|状态)[：:]\s*([^\n]+)/gm)]
               .map(([, label, value]) => label + '：' + value.trim()));
@@ -206,16 +237,19 @@ async function readAfterSalesPanel(afterSaleId, kind, options = {}) {
             .map(([, label, value]) => label + '：' + value.trim()));
         }
         if (lines.length) {
-          const content = lines.join('\n').replace(/[\u0000-\u0008]/g, '');
+          const prefix=config.waybill&&sourceWaybill?'快递单号：'+sourceWaybill+'\n':'';
+          const content = prefix+lines.join('\n').replace(/[\u0000-\u0008]/g, '');
           if (content.length > 12000) return {error: '这笔售后明细过长，请在聚水潭查看完整记录'};
-          return {content:config.waybill&&/^[A-Z0-9-]{6,40}$/i.test(read(trigger))?'快递单号：'+read(trigger)+'\n'+content:content};
+          return {content};
         }
-        if ([...contentRoot.querySelectorAll('.ant-empty-description,.ant-table-placeholder')].some(visible)||
-            (providerTab&&/暂无(?:物流|数据)|未查询到|无法查询|查询失败/.test(read(contentRoot)))) return {empty:true};
+        const empty=[...contentRoot.querySelectorAll('.ant-empty-description,.ant-table-placeholder,.art-table-empty')].some(visible)||
+          (config.waybill&&/暂无(?:物流|数据)|未查询到/.test(read(contentRoot)));
+        if (empty&&!config.waybill) return {empty:true};
+        if(config.waybill)emptyLogistics=empty?panel:undefined;
       }
       await new Promise(resolve => setTimeout(resolve, 150));
     }
-    return kind==='refusal'&&opened?{empty:true}:{error: '聚水潭明细尚未加载或结构无法识别'};
+    return (kind==='refusal'&&opened)||(emptyLogistics&&visiblePanel(emptyLogistics))?{empty:true}:{error: '聚水潭明细尚未加载或结构无法识别'};
   } finally {
     const close = opened?.querySelector('button[aria-label="Close"],button[aria-label="关闭"],button.ant-modal-close,button.ant-drawer-close');
     if (!options.keepOpen&&visible(close)) close.click();

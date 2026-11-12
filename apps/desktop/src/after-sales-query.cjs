@@ -9,6 +9,7 @@ const {readAfterSalesPanel}=require('./after-sales-panels.cjs');
 const PANEL_ROW_REUSE_MS=15_000;
 const REFUND_DISMISS_MS=350;
 const panelFields={goods:'售后商品明细',refund:'实退金额明细',logs:'售后日志',tracking:'退货物流明细',shipping:'发货物流明细',platform:'平台售后记录',orderAmount:'原订单下单金额明细',refusal:'拒绝原因明细'};
+const isTrackingWaybill=value=>typeof value==='string'&&/^(?=[A-Z0-9-]{6,40}$)[A-Z-]*\d[A-Z0-9-]*$/i.test(value);
 const addedFields=['解决方案','供应商售后单状态','供应商退款状态','修改时间','付款时间','退货金额','买家应补运费','拒绝原因',
  '平台卖家退货地址','退货物流状态','售后商品明细','实退金额明细','退货物流明细','发货物流明细','平台售后记录','原订单旗帜','售后标签样式','原订单标签样式','售后问题附件','供分销备注附件','原列表可编辑字段'];
 function legacySnapshot(record){
@@ -310,8 +311,8 @@ function createReader(contents,ensure,watch,observeRecordings){
   const compatible=query.sourceColumns===true?archiveRecords:archiveRecords.map(legacySnapshot);
   const result=latest?latestPage(compatible,query.from,query.until,state.hasNext):{records:compatible,hasNext:state.hasNext};
   if(latest&&result.hasNext)latestCursor={key,frame:f,page:query.page,ids:new Set(rows.keys())};
-  if(!latest&&query.kind==='current'&&query.field==='afterSaleId'&&query.value&&records.length===1){
-   panelRow={frame:f,record:archiveRecords[0],expiresAt:Date.now()+PANEL_ROW_REUSE_MS,requestProof};
+  if(!latest&&(query.kind==='current'||panelLookup)&&query.field==='afterSaleId'&&query.value&&records.length===1){
+   panelRow={frame:f,record:archiveRecords[0],kind:query.kind,expiresAt:Date.now()+PANEL_ROW_REUSE_MS,requestProof};
   }
   return {...result,total:state.total,page:state.page,pageSize:state.pageSize,sourceCompany:query.sourceCompany,kind:query.kind};
  }
@@ -322,8 +323,10 @@ function createReader(contents,ensure,watch,observeRecordings){
  }
  async function panel(input){
   if(!input||!Object.hasOwn(panelFields,input.kind)||typeof input.afterSaleId!=='string'||!/^\d{4,40}$/.test(input.afterSaleId))throw new Error('售后明细参数无效');
-  const {afterSaleId,sourceCompany,kind,queryProvider}=input;
-  if(queryProvider!==undefined&&(typeof queryProvider!=='boolean'||!['tracking','shipping'].includes(kind)))
+  const {afterSaleId,sourceCompany,kind,queryProvider,waybill}=input;
+  const logistics=kind==='tracking'||kind==='shipping';
+  if(queryProvider!==undefined&&(typeof queryProvider!=='boolean'||!logistics)||
+     waybill!==undefined&&(!logistics||!isTrackingWaybill(waybill)))
    throw new Error('物流查询参数无效');
   const read=async frame=>{
    const refund=kind==='refund';
@@ -332,29 +335,34 @@ function createReader(contents,ensure,watch,observeRecordings){
     const remaining=refundDismissal.until-Date.now();
     if(remaining>0)await pause(remaining);
    }
-   const options=queryProvider?',{"queryProvider":true}':'';
-   const result=await frame.executeJavaScript(`(${readAfterSalesPanel.toString()})(${JSON.stringify(afterSaleId)},${JSON.stringify(kind)}${options})`,true);
+   const options={queryProvider,waybill};
+   const result=await frame.executeJavaScript(`(${readAfterSalesPanel.toString()})(${JSON.stringify(afterSaleId)},${JSON.stringify(kind)},${JSON.stringify(options)})`,true);
    if(refund&&!result.error)refundDismissal={frame,until:Date.now()+REFUND_DISMISS_MS};
    return result;
   };
   let row=panelRow;
   let result;
-  if(!input.forceLookup&&row?.record.afterSaleId===afterSaleId&&row.record.sourceCompany===sourceCompany&&row.expiresAt>Date.now()){
+  if(!input.forceLookup&&row?.record.afterSaleId===afterSaleId&&row.record.sourceCompany===sourceCompany&&
+     (row.kind==='current'||logistics)&&row.expiresAt>Date.now()){
    assertCompany(await ensure(false),sourceCompany);
    let stillActive=false;
    try{stillActive=allowedJst(row.frame.url)&&await activeFrame(row.frame);}catch{/* A replaced frame needs a fresh lookup. */}
    if(stillActive)result=await read(row.frame);
   }
   if(!result||result.missingTrigger){
-   await queryPage({kind:'current',field:'afterSaleId',value:afterSaleId,sourceCompany},false,undefined,true);
-   row=panelRow;
-   if(!row)throw new Error('这笔售后不在聚水潭当前列表');
-   result=await read(row.frame);
-   const transport=watch?.state();
-   if(transport&&(transport.started!==row.requestProof||transport.pending||transport.failed)){
-    throw new Error('读取明细期间聚水潭列表已更新，请重新查询');
+   for(const list of logistics?['current','history']:['current']){
+    await queryPage({kind:list,field:'afterSaleId',value:afterSaleId,sourceCompany},false,undefined,true);
+    if(!panelRow)continue;
+    row=panelRow;
+    result=await read(row.frame);
+    const transport=watch?.state();
+    if(transport&&(transport.started!==row.requestProof||transport.pending||transport.failed)){
+     throw new Error('读取明细期间聚水潭列表已更新，请重新查询');
+    }
+    if(!result.missingTrigger)break;
    }
   }
+  if(!result)throw new Error(logistics?'聚水潭当前和历史售后未找到这笔单据':'这笔售后不在聚水潭当前列表');
   if(result.error)throw new Error(result.error);
   assertCompany(await ensure(false),sourceCompany);
   if(result.empty)return null;
@@ -429,4 +437,4 @@ function createReader(contents,ensure,watch,observeRecordings){
   query:(q,latest=false,shouldContinue)=>enqueue(()=>queryPage(q,latest,shouldContinue)),
   panel:input=>enqueue(()=>panel(input)),order,sale,classicRecording};
 }
-module.exports={validateQuery,domQuery,createReader,latestPage,activeFrame,legacySnapshot};
+module.exports={validateQuery,domQuery,createReader,latestPage,activeFrame,legacySnapshot,isTrackingWaybill};

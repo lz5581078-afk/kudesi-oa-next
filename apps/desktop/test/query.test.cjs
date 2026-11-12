@@ -9,7 +9,7 @@ test('latest collection rejects historical tasks, arbitrary inputs and unbounded
  assert.equal(validateQuery({...base,from:'2026-11-04T00:00:00Z',until:'2026-11-04T01:00:00Z'},true).page,1);
  assert.equal(validateQuery({...base,kind:'history',value:'85110001'}).kind,'history');
 });
-function dom(html){const d=new JSDOM(html,{runScripts:'outside-only'});Object.defineProperty(d.window.HTMLElement.prototype,'innerText',{get(){return this.textContent;}});d.window.HTMLElement.prototype.getClientRects=()=>[{}];return d;}
+function dom(html,url){const d=new JSDOM(html,{runScripts:'outside-only',url});Object.defineProperty(d.window.HTMLElement.prototype,'innerText',{get(){return this.textContent;}});d.window.HTMLElement.prototype.getClientRects=()=>[{}];return d;}
 test('a disposed ERP frame does not hide the current after-sales list',async()=>{
  const {createReader}=require('../src/after-sales-query.cjs');
  const gone={get url(){throw new Error('Render frame was disposed');}};
@@ -89,6 +89,47 @@ test('same sale panels reuse the verified row until a fresh lookup is requested'
   await reader.panel({...input,kind:'refund',forceLookup:true});
   assert.equal(searches,2);
  }finally{d.window.close();}
+});
+test('logistics looks up the exact archived case when the current list has no matching row',async()=>{
+ const {createReader}=require('../src/after-sales-query.cjs');
+ const {createListRequestTracker}=require('../src/request-watch.cjs');
+ const watch=createListRequestTracker(),requestUrl='https://innerapi.scm121.com/api/inner/after-sale/page/list';
+ const sale='85110003',waybill='JD123456789';
+ const current=dom('<input placeholder="售后单号"><button>搜索</button><table><thead><tr><th>售后单号</th><th>内部订单号</th></tr></thead></table><div>共0条</div>','https://erp321.com/epaas');
+ const history=dom(`<div><div><div class="_jt_cell_head">售后单号</div><div class="_jt_cell_head">内部订单号</div><div class="_jt_cell_head">原订单快递单号</div></div>
+  <div class="_jt_row"><div>${sale}</div><div>44110003</div><div><button>${waybill}</button></div></div></div><div>共1条</div>
+  <section role="dialog" aria-label="物流轨迹" hidden><button class="ant-modal-close">关闭</button>
+   <table><tbody><tr><td>2026-11-06 10:00</td><td>已发往目的地</td></tr></tbody></table></section>`,
+  'https://erp321.com/app/service/aftersale/aftersale.aspx');
+ const filter=dom('<input title="售后单号">','https://erp321.com/app/service/aftersale/aftersale_filter.aspx');
+ const frame=(d,parent=null)=>({url:d.window.location.href,parent,executeJavaScript:async script=>d.window.eval(script)});
+ const main=frame(current),legacy=frame(history,main),search=frame(filter,legacy);
+ main.framesInSubtree=[main,legacy,search];
+ legacy.framesInSubtree=[legacy,search];
+ const reads=[];
+ current.window.document.querySelector('button').onclick=()=>{
+  reads.push(['current',current.window.document.querySelector('input').value]);
+  watch.start(1,requestUrl,'POST','fetch');
+  watch.finish(1,false);
+ };
+ filter.window.document.querySelector('input').onkeydown=event=>{
+  if(event.key!=='Enter')return;
+  reads.push(['history',event.target.value]);
+  watch.start(2,search.url,'POST','xhr');
+  watch.finish(2,false);
+ };
+ const doc=history.window.document,modal=doc.querySelector('section');
+ history.window.HTMLElement.prototype.getClientRects=function(){return this.closest('[hidden]')?[]:[{}];};
+ doc.querySelector('._jt_row button').onclick=()=>{reads.push(['waybill',waybill]);modal.hidden=false;};
+ modal.querySelector('.ant-modal-close').onclick=()=>{modal.hidden=true;};
+ const reader=createReader({mainFrame:main},async()=>({state:'authenticated',sourceCompany:base.sourceCompany}),watch);
+ try{
+  const result=await reader.panel({afterSaleId:sale,kind:'shipping',sourceCompany:base.sourceCompany,waybill});
+  assert.deepEqual(reads,[['current',sale],['history',sale],['waybill',waybill]]);
+  assert.equal(result.afterSaleId,sale);
+  assert.equal(result.internalOrderId,'44110003');
+  assert.match(result.fields['发货物流明细'],/已发往目的地/);
+ }finally{for(const d of [current,history,filter])d.window.close();}
 });
 test('first panel read waits for the exact row after a reset and rejects a refresh during the popup read',async()=>{
  const {createReader}=require('../src/after-sales-query.cjs');

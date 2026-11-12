@@ -1,14 +1,15 @@
 'use strict';
 const APP_NAME = '小白OA系统';
-const { app, BrowserWindow, WebContentsView, session, ipcMain, globalShortcut, desktopCapturer, screen, nativeImage, dialog, Menu, Tray, shell } = require('electron');
+const { app, BrowserWindow, WebContentsView, session, ipcMain, globalShortcut, desktopCapturer, screen, nativeImage, dialog, Menu, Tray, shell, safeStorage } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const {randomUUID}=require('node:crypto');
-const {createReader,activeFrame,legacySnapshot}=require('./after-sales-query.cjs');
+const {createReader,activeFrame,legacySnapshot,isTrackingWaybill}=require('./after-sales-query.cjs');
 const {inspectJushuitanSession}=require('./jushuitan-session.cjs');
 const desktopRoutes=require('../build/navigation.json');
 const {createRequestWatch}=require('./request-watch.cjs');
 const fs = require('node:fs/promises');
+const { createRememberedLogin } = require('./remembered-login.cjs');
 const {writePngClipboard}=require('./native.cjs');
 const { allowedJst, oaOrigin, allowedOaNavigation, feishuClientLink, isAfterSalesLaunch, isAfterSalesSourceLaunch, trustedSender, boundsOf, pngBytes, replaceShortcut } = require('./security.cjs');
 const { extractVisible, mergeFrames, openVisibleOrder } = require('./extractor.cjs');
@@ -657,6 +658,14 @@ async function capture(autoAttach=false) {
   shot.captureTarget=target;
   await shot.loadFile(path.join(__dirname,'shot.html'));
 }
+const rememberedLogin = createRememberedLogin(safeStorage, () => app.getPath('userData'));
+ipcMain.handle('oa:remember-login', (event, command, value) => {
+  if (process.platform !== 'win32' || !trustedSender(event, win, origin)) {
+    throw new Error('无权限访问本机登录信息');
+  }
+  return rememberedLogin(origin, command, value);
+});
+
 ipcMain.handle('oa:desktop',async(event,command,value)=>{
   if(command==='retry'){
     const target=[win,workspace].find(candidate=>candidate&&!candidate.isDestroyed()&&event.sender===candidate.webContents);
@@ -761,12 +770,14 @@ ipcMain.handle('oa:desktop',async(event,command,value)=>{
     }
     case 'openOriginalSourcePanel': {
       if(!foreground||!value||!['goods','refund','logs','tracking','shipping','platform','orderAmount','refusal'].includes(value.kind)||typeof value.afterSaleId!=='string'||!/^\d{4,40}$/.test(value.afterSaleId)||typeof value.sourceCompany!=='string'||!value.sourceCompany.trim()||value.sourceCompany.length>100||value.queryProvider!==undefined&&typeof value.queryProvider!=='boolean')throw new Error('原明细参数无效');
-      const {afterSaleId,sourceCompany,kind,queryProvider}=value;
+      const {afterSaleId,sourceCompany,kind,queryProvider,waybill}=value;
+      const logistics=kind==='tracking'||kind==='shipping';
+      if(waybill!==undefined&&(!logistics||!isTrackingWaybill(waybill)))throw new Error('物流查询参数无效');
       return runForeground(()=>withOriginalSource(reader=>reader.sale({afterSaleId,sourceCompany},async frame=>{
-        const result=await frame.executeJavaScript(`(${readAfterSalesPanel.toString()})(${JSON.stringify(afterSaleId)},${JSON.stringify(kind)},${JSON.stringify({keepOpen:true,queryProvider:!!queryProvider})})`,true);
+        const result=await frame.executeJavaScript(`(${readAfterSalesPanel.toString()})(${JSON.stringify(afterSaleId)},${JSON.stringify(kind)},${JSON.stringify({keepOpen:true,queryProvider:!!queryProvider,waybill})})`,true);
         if(result.error)throw new Error(result.error);
         return result.opened===true;
-      })));
+      },{includeHistory:logistics})));
     }
     case 'readSourcePanel': {
       if(!foreground)throw new Error('请在实时售后窗口读取明细');

@@ -2,7 +2,12 @@ const { contextBridge, ipcRenderer } = require('electron');
 const surface=process.argv.find(arg=>arg.startsWith('--oa-desktop-surface='))?.split('=')[1];
 const invoke = (command, value) => ipcRenderer.invoke('oa:desktop', command, value);
 contextBridge.exposeInMainWorld('oaDesktop', Object.freeze({
-  version: '0.2.3', surface,
+  version: '0.2.7', surface,
+  ...(process.platform === 'win32' && surface === 'main' ? {
+    readRememberedLogin: () => ipcRenderer.invoke('oa:remember-login', 'read'),
+    saveRememberedLogin: value => ipcRenderer.invoke('oa:remember-login', 'save', value),
+    forgetRememberedLogin: () => ipcRenderer.invoke('oa:remember-login', 'forget'),
+  } : {}),
   openAfterSales: () => invoke('openAfterSales'), retry: () => invoke('retry'),
   openSourceWindow: () => invoke('openSourceWindow'),
   jushuitanStatus: () => invoke('jushuitanStatus'),

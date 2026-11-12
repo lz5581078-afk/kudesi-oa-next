@@ -506,6 +506,72 @@ test('快递100只读已选标签的结果，不串入系统物流记录',async(
  window.close();
 });
 
+test('发货物流按售后单号和运单定位，并保留有无状态列的轨迹',async()=>{
+ const {readAfterSalesPanel}=require('../src/after-sales-panels.cjs');
+ const {window}=new JSDOM(`<table><thead><tr><th>售后单号</th><th>发货快递单号</th></tr></thead>
+  <tbody>
+   <tr><td>85110002</td><td><button id="other">YT123456789</button></td></tr>
+   <tr><td>85110001</td><td><button id="first">SF123456789</button> <button id="match">YT123456789</button></td></tr>
+  </tbody></table>
+  <section role="dialog" aria-label="物流（快递）跟踪信息" hidden>
+   <button class="ant-modal-close">关闭</button>
+   <table><thead><tr><th>发生时间</th><th>快递状态</th><th>轨迹描述</th></tr></thead><tbody>
+    <tr><td>2026-11-06 13:00:00</td><td>已签收</td><td>仓库签收</td></tr>
+    <tr><td>2026/11/6 10:00</td><td>送往仓库</td></tr>
+    <tr><td colspan="3">共有两条轨迹</td></tr>
+    <tr hidden><td>2026-11-05 15:00</td><td>隐藏状态</td><td>隐藏描述</td></tr>
+   </tbody></table>
+  </section>`,{runScripts:'outside-only'});
+ const doc=window.document,modal=doc.querySelector('section'),clicked=[];
+ Object.defineProperty(window.HTMLElement.prototype,'innerText',{get(){return this.textContent;}});
+ window.HTMLElement.prototype.getClientRects=function(){return this.closest('[hidden]')?[]:[{}];};
+ for(const id of ['first','match','other'])doc.getElementById(id).onclick=()=>{clicked.push(id);modal.hidden=false;};
+ modal.querySelector('.ant-modal-close').onclick=()=>{modal.hidden=true;};
+ const read=window.eval(`(${readAfterSalesPanel.toString()})`);
+ try{
+  const result=await read('85110001','shipping',{waybill:'YT123456789'});
+  assert.deepEqual(clicked,['match']);
+  assert.equal(result.content,[
+   '快递单号：YT123456789',
+   '时间：2026-11-06 13:00:00 · 状态：已签收 · 物流描述：仓库签收',
+   '时间：2026/11/6 10:00 · 物流描述：送往仓库',
+  ].join('\n'));
+  assert.equal((await read('85110001','shipping',{waybill:'YT987654321'})).missingTrigger,true);
+  assert.deepEqual(clicked,['match']);
+  assert.equal(modal.hidden,true);
+ }finally{window.close();}
+});
+
+test('退货物流等待旧版列表弹窗中的异步轨迹，确认无数据时结束读取',async()=>{
+ const {readAfterSalesPanel}=require('../src/after-sales-panels.cjs');
+ const {window}=new JSDOM(`<div><div><div class="_jt_cell_head">售后单号</div><div class="_jt_cell_head">退回快递单号(运单号)</div></div>
+  <div class="_jt_row"><div>85110001</div><div><input value="ZTO123456789"><button id="open">查看物流</button></div></div>
+  </div><section role="dialog" aria-label="物流详情" hidden><button class="ant-modal-close">关闭</button><div id="result"></div></section>`,
+  {runScripts:'outside-only'});
+ const doc=window.document,modal=doc.querySelector('section'),body=doc.getElementById('result');
+ Object.defineProperty(window.HTMLElement.prototype,'innerText',{get(){return this.textContent;}});
+ window.HTMLElement.prototype.getClientRects=function(){return this.closest('[hidden]')?[]:[{}];};
+ let hasTracks=true;
+ doc.getElementById('open').onclick=()=>{
+  modal.hidden=false;
+  body.innerHTML='<div class="art-table-empty">暂无物流</div>';
+  if(hasTracks)window.setTimeout(()=>{
+   body.innerHTML='<table><tbody><tr><td>查询说明</td></tr><tr><td>2026-11-06 12:31</td><td>退回件已揽收</td></tr></tbody></table>';
+  },30);
+ };
+ modal.querySelector('.ant-modal-close').onclick=()=>{modal.hidden=true;};
+ const read=window.eval(`(${readAfterSalesPanel.toString()})`);
+ try{
+  const result=await read('85110001','tracking',{waybill:'ZTO123456789'});
+  assert.equal(result.content,'快递单号：ZTO123456789\n时间：2026-11-06 12:31 · 物流描述：退回件已揽收');
+  hasTracks=false;
+  let now=0;
+  window.Date.now=()=>now+=4000;
+  assert.equal((await read('85110001','tracking',{waybill:'ZTO123456789'})).empty,true);
+  assert.equal(modal.hidden,true);
+ }finally{window.close();}
+});
+
 test('优惠只读取当前订单支付表或本次打开的明细，保留同名优惠各行',async()=>{
  const {readJushuitanOrderDiscount}=require('../src/jushuitan-order-discount.cjs');
  const dom=new JSDOM(`<table id="revenue_statistics"><tr><td><span id="show_revenue_statistics_item">查看优惠明细</span></td></tr>
