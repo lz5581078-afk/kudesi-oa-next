@@ -4,7 +4,7 @@ import * as crypto from 'crypto';
 import { DataSource } from 'typeorm';
 import { AuthUser } from '../common/auth.decorators';
 import { buildDataSourceOptions } from '../database/data-source';
-import { Company, User } from '../entities';
+import { Company, ResourceRecord, User } from '../entities';
 import { buildServices } from '../test-support';
 import { CatalogApiService } from './catalog-api.service';
 import { CostService } from './cost.service';
@@ -112,5 +112,18 @@ d('商品与成本目录接口（真实数据库）', () => {
     expect(lc.tree.length).toBeGreaterThan(0);
     // 未验证的（橙子）不在旧接口里
     expect(feed.total).toBe(2);
+  });
+  it('客服旧接口显式包含待重验SKU，真实状态和公司归属保持不变', async () => {
+    const id = bundleIds[1];
+    await ds.manager.update(ResourceRecord, { id, companyId: boss.companyId }, { status: 'reverify' });
+    try {
+      expect((await catalog.legacyFeed(boss.companyId, {})).rows.map((r) => r.id)).not.toContain(id);
+      const feed = await catalog.legacyFeed(boss.companyId, { includeReverify: 'true' });
+      expect(feed.rows.map((r) => r.id)).toEqual(bundleIds.slice(0, 2));
+      expect(feed.rows.find((r) => r.id === id)?.verification.status).toBe('reverify');
+      expect((await ds.manager.findOneByOrFail(ResourceRecord, { id, companyId: boss.companyId })).status).toBe('reverify');
+    } finally {
+      await ds.manager.update(ResourceRecord, { id, companyId: boss.companyId }, { status: 'verified' });
+    }
   });
 });
