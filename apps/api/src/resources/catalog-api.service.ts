@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { DataSource, In } from 'typeorm';
 import { AuthUser } from '../common/auth.decorators';
 import { ResourceRecord } from '../entities';
 import { CostService } from './cost.service';
@@ -12,6 +12,7 @@ const categoryLabel = (c?: ResourceRecord) => c?.data.archiveType === 'bundle' ?
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 export interface CatalogQuery { afterId?: number; limit?: number; code?: string }
+export interface LegacyFeedQuery { afterId?: number; limit?: number; includeReverify?: 'true' | 'false' }
 
 /**
  * 给持有 company_catalog_read 密钥的外部程序读的商品与成本目录（只读）。
@@ -136,9 +137,13 @@ export class CatalogApiService {
 
   // ---------- 旧 /verified-feed 的兼容读取：旧字段名和形状（外部程序不用改代码）----------
 
-  private async legacyRecords(companyId: number) {
-    const rows = await this.verifiedRows(companyId);
-    const meta = new Map((await this.ds.manager.find(ResourceRecord, { where: { companyId, type: 'finance-bundles', status: 'verified' } })).map((b) => [b.id, b]));
+  private async legacyRecords(companyId: number, q: LegacyFeedQuery = {}) {
+    // Customer-service identity data is independent of cost completeness and
+    // review reminders. Preserve the real review status; never certify it here.
+    const statuses = q.includeReverify === 'true' ? ['verified', 'reverify'] : ['verified'];
+    const { rows: current } = await this.cost.allRows(this.sys(companyId));
+    const rows = current.filter((r) => statuses.includes(r.status));
+    const meta = new Map((await this.ds.manager.find(ResourceRecord, { where: { companyId, type: 'finance-bundles', status: In(statuses) } })).map((b) => [b.id, b]));
     const comps = await this.components(companyId);
     const cats = await this.ds.manager.find(ResourceRecord, { where: { companyId, type: 'finance-categories' } });
     const byCat = new Map(cats.map((c) => [c.id, c]));
@@ -155,28 +160,28 @@ export class CatalogApiService {
         id: r.bundleId, code: r.code, name: r.name, categoryId: r.categoryId,
         category: c ? { id: c.id, code: str(c.data.code), name: categoryLabel(c), parentId: num(c.data.parentId), pathIds: chain, pathNames: chain.map((x) => categoryLabel(byCat.get(x))) } : null,
         mainProductName: mains.map((m) => m.name).filter(Boolean).join('+'), mainProducts: mains,
-        verification: { status: 'verified', count: Math.max(1, countById.get(r.bundleId) ?? 1), verifiedAt: str(b?.data.verifiedAt) || null, signature: sigOf(str(b?.data.snapshot)) },
+        verification: { status: r.status, count: Math.max(1, countById.get(r.bundleId) ?? 1), verifiedAt: str(b?.data.verifiedAt) || null, signature: sigOf(str(b?.data.snapshot)) },
         details: { profile: this.profile(b, r), components },
       };
     });
   }
 
   /** 旧：GET /verified-feed?afterId=&limit= → { rows, nextCursor, total } */
-  async legacyFeed(companyId: number, q: { afterId?: number; limit?: number }) {
-    const all = await this.legacyRecords(companyId);
+  async legacyFeed(companyId: number, q: LegacyFeedQuery) {
+    const all = await this.legacyRecords(companyId, q);
     const limit = Math.min(100, Math.max(1, q.limit ?? 100));
     const remaining = all.filter((r) => r.id > (q.afterId ?? 0));
     const page = remaining.slice(0, limit);
     return { rows: page, nextCursor: remaining.length > limit ? page[page.length - 1].id : null, total: all.length };
   }
 
-  async legacyAll(companyId: number) {
-    const all = await this.legacyRecords(companyId);
+  async legacyAll(companyId: number, q: LegacyFeedQuery = {}) {
+    const all = await this.legacyRecords(companyId, q);
     return { rows: all, nextCursor: null, total: all.length };
   }
 
-  async legacyByCode(companyId: number, code: string) {
-    return (await this.legacyRecords(companyId)).find((r) => r.code === code) ?? null;
+  async legacyByCode(companyId: number, code: string, q: LegacyFeedQuery = {}) {
+    return (await this.legacyRecords(companyId, q)).find((r) => r.code === code) ?? null;
   }
 
   /** 旧：GET /verified-feed/categories → { rows, tree, total }（旧系统是整个组合分类字典，不只是用到的） */

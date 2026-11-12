@@ -146,6 +146,7 @@ export class ExternalFeedController {
 class LegacyFeedDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) afterId?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;
+  @IsOptional() @IsIn(['true', 'false']) includeReverify?: 'true' | 'false';
 }
 
 /**
@@ -162,7 +163,7 @@ export class LegacyVerifiedFeedController {
 
   @Public()
   @Get('all')
-  async all(@Headers('x-api-key') key: string | undefined) { return this.catalog.legacyAll(await this.tools.authenticateKey(key)); }
+  async all(@Headers('x-api-key') key: string | undefined, @Query() q: LegacyFeedDto) { return this.catalog.legacyAll(await this.tools.authenticateKey(key), q); }
 
   @Public()
   @Get()
@@ -170,10 +171,10 @@ export class LegacyVerifiedFeedController {
 
   @Public()
   @Get(':code')
-  async one(@Headers('x-api-key') key: string | undefined, @Param('code') code: string) {
+  async one(@Headers('x-api-key') key: string | undefined, @Param('code') code: string, @Query() q: LegacyFeedDto) {
     if (!code.trim() || code.length > 160) throw new BadRequestException('组合品编码无效');
-    const found = await this.catalog.legacyByCode(await this.tools.authenticateKey(key), code.trim());
-    if (!found) throw new NotFoundException('未找到当前已验证的组合品编码');
+    const found = await this.catalog.legacyByCode(await this.tools.authenticateKey(key), code.trim(), q);
+    if (!found) throw new NotFoundException('未找到当前可读取的组合品编码');
     return found;
   }
 }
