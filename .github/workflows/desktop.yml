@@ -6,6 +6,11 @@ on:
   push:
     branches: [feat/oa-desktop-aftersales]
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish this verified installer to its existing draft release
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -42,3 +47,27 @@ jobs:
           path: apps/desktop/release/*.exe
           if-no-files-found: error
           retention-days: 30
+
+  publish:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    needs: windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: XiaobaiOA-Windows-x64
+          path: installer
+      - name: Publish the tested installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          version=$(node -p "require('./apps/desktop/package.json').version")
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          tag="oa-desktop-v$version"
+          test "$(gh release view "$tag" --json isDraft --jq .isDraft)" = true
+          gh release upload "$tag" "installer/XiaobaiOA-Setup-$version-x64.exe" --clobber
+          gh release edit "$tag" --draft=false --target "$GITHUB_SHA"
