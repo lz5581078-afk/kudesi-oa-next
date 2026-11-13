@@ -10,6 +10,7 @@ const dest=path.resolve(collectorRoot,'src','oa-aftersales');
 for(const file of [
   'server/oa-aftersales.cjs','build/navigation.json','src/security.cjs','src/after-sales-query.cjs',
   'src/extractor.cjs','src/after-sales-panels.cjs','src/jushuitan-session.cjs','src/jushuitan-recording-status.cjs','src/request-watch.cjs',
+  'src/goods-images.cjs','src/jushuitan-recording-response.cjs','src/jushuitan-recording-player.cjs',
 ]){
   const output=path.join(dest,file);
   mkdirSync(path.dirname(output),{recursive:true});

@@ -1,6 +1,6 @@
 'use strict';
 // Runs in each permitted frame, without Node, cookies, storage or network access.
-function extractVisible(order,readRecordingStatus) {
+function extractVisible(order,readRecordingStatus,readImage) {
   const labels = ['订单时间','申请时间','线上类型','商品信息','线上状态','售后单状态','货物状态','原订单下单金额','线上申请金额','实退金额','售后标签','原订单标签','售后分类','退货快递单号','快递拦截状态','解决方案','拦截失败原因','快递拦截时间','收货仓','仓库','线上订单号','线上售后单号','售后问题类型','售后问题登记','店铺','买家留言','卖家备注','支付金额','售后日志','订单操作日志','订单状态','买家账号','下单时间','发货时间','支付时间','支付方式','收货人','手机号','收货地址','快递公司','快递单号','物流状态','商品明细','商品总数量','商品总成交金额','优惠抵扣金额','运费','应付总金额','实际已付','供分销备注','聚工单','异常状态','确认时间','原订单状态','订单状态快照','发货快递单号','原订单采购金额','申请退货数量','原订单发货仓库','原订单备注/旗帜','原订单线下备注','原订单业务员','实际收货金额','实退数量','创建人','修改人','平台售后详情','仲裁状态','备注','业务类型','退货签收时间','商家实退','线上商品应退金额','线上退运费','商品应退金额','优惠/差额','卖家应补','卖家应退运费','换货金额','买家应补','买家退款账号','卖家退款账号','退款原因','处理结果','退款状态','售后异常','供销外部处理状态','供销退款状态','分销商','已提交分销商','买家图片凭证','原订单类型','原订单赠品','最后修改日期','登记时间','超时时间','自动化推送状态','原始线上单号','外部交易单号','供应商售后单状态','供应商退款状态','修改时间','付款时间','退货金额','买家应补运费','拒绝原因','平台卖家退货地址','退货物流状态','售后商品明细','实退金额明细','退货物流明细','发货物流明细','平台售后记录','原订单旗帜','售后标签样式','原订单标签样式','售后问题附件','供分销备注附件','原列表可编辑字段'];
   const clean = v => String(v || '').replace(/[\u0000-\u0008]/g,'').trim().slice(0,12000);
   const visible = el => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
@@ -113,6 +113,12 @@ function extractVisible(order,readRecordingStatus) {
     return fields;
   };
   const rows = [];
+  const productImages=(headers,cells)=>{
+    const cell=cells[headers.indexOf('商品信息')];
+    if(!readImage||!cell||!visible(cell))return {};
+    const goodsImages=[...cell.querySelectorAll('img')].filter(visibleControl).slice(0,2).map(readImage);
+    return goodsImages.some(Boolean)?{goodsImages}:{};
+  };
   for (const table of document.querySelectorAll('table')) {
     if (!visible(table)) continue;
     let headers = [...table.querySelectorAll('thead th, thead td')].map(heading);
@@ -132,7 +138,7 @@ function extractVisible(order,readRecordingStatus) {
       const id = values['售后单号']?.match(/\d{4,40}/)?.[0];
       if (!id) continue;
       const recordingStatus = readRecordingStatus?.(tr,headers);
-      rows.push({ afterSaleId: id, internalOrderId: values['内部订单号']?.match(/\d{4,40}/)?.[0] || '', fields: Object.fromEntries(labels.filter(k => Object.hasOwn(values,k)).map(k => [k,values[k]])), ...(recordingStatus?{recordingStatus}:{}) });
+      rows.push({ afterSaleId: id, internalOrderId: values['内部订单号']?.match(/\d{4,40}/)?.[0] || '', fields: Object.fromEntries(labels.filter(k => Object.hasOwn(values,k)).map(k => [k,values[k]])), ...productImages(headers,cells), ...(recordingStatus?{recordingStatus}:{}) });
     }
   }
   // Archived after-sales use the original JT div grid, not the modern HTML table.
@@ -148,7 +154,7 @@ function extractVisible(order,readRecordingStatus) {
       const id=values['售后单号']?.match(/\d{4,40}/)?.[0],order=values['内部订单号']?.match(/\d{4,40}/)?.[0];
       if(id){
         const recordingStatus=readRecordingStatus?.(row,headers);
-        rows.push({afterSaleId:id,internalOrderId:order||'',fields:Object.fromEntries(labels.filter(k=>Object.hasOwn(values,k)).map(k=>[k,values[k]])),...(recordingStatus?{recordingStatus}:{})});
+        rows.push({afterSaleId:id,internalOrderId:order||'',fields:Object.fromEntries(labels.filter(k=>Object.hasOwn(values,k)).map(k=>[k,values[k]])),...productImages(headers,cells),...(recordingStatus?{recordingStatus}:{})});
       }
     }
   }
@@ -211,7 +217,9 @@ function mergeFrames(frames) {
   for (const f of frames) for (const r of f.rows) {
     const prior = rows.get(r.afterSaleId);
     if (prior?.internalOrderId && r.internalOrderId && prior.internalOrderId !== r.internalOrderId) continue;
-    rows.set(r.afterSaleId,{...r,internalOrderId:r.internalOrderId||prior?.internalOrderId||'',fields:{...prior?.fields,...r.fields},sourceCompany:company,capturedAt:new Date().toISOString()});
+    const priorImages=prior?.goodsImages&&(r.fields['商品信息']===undefined||r.fields['商品信息']===prior.fields['商品信息'])
+      ? {goodsImages:prior.goodsImages}:{};
+    rows.set(r.afterSaleId,{...priorImages,...r,internalOrderId:r.internalOrderId||prior?.internalOrderId||'',fields:{...prior?.fields,...r.fields},sourceCompany:company,capturedAt:new Date().toISOString()});
   }
   for (const f of frames) for (const d of f.detail) {
     const r = rows.get(d.afterSaleId);

@@ -1,7 +1,10 @@
 // CI runner only: validates the real Electron clipboard API with a generated image.
 const {app,clipboard,nativeImage}=require('electron');
-const {writePngClipboard}=require('../src/native.cjs');
+const {writePngClipboard,writeTextClipboard}=require('../src/native.cjs');
 app.whenReady().then(async()=>{
+ await writeTextClipboard('851148665');
+ if(await clipboard.readText()!=='851148665')throw new Error('Clipboard text mismatch');
+ console.log('Native clipboard text round-trip passed');
  const image=nativeImage.createFromPath(require('node:path').join(__dirname,'../build/icon.png'));
  await writePngClipboard(image.toPNG());
  const items=await clipboard.read();const item=items.find(i=>i.types.includes('image/png'));

@@ -55,6 +55,16 @@ test('native bounds clamp to content viewport and reject non-finite values',()=>
  assert.throws(()=>boundsOf({x:NaN,y:0,width:1,height:1},[800,600]));assert.throws(()=>pngBytes('data:text/html;base64,AAAA'));
 });
 function runDom(html,url,order){const dom=new JSDOM(html,{url,runScripts:'outside-only'});Object.defineProperty(dom.window.HTMLElement.prototype,'innerText',{get(){return this.textContent;}});dom.window.HTMLElement.prototype.getClientRects=function(){return this.hidden?[]:[{}];};return dom.window.eval(`(${extractVisible.toString()})(${JSON.stringify(order)})`);}
+test('quick-filter fields preserve current status, historical snapshot and online type separately',()=>{
+ const result=runDom(`<table><thead><tr><th>售后单号</th><th>内部订单号</th><th>线上类型</th><th>售后分类</th><th>线上状态</th><th>原订单状态</th><th>订单状态快照</th></tr></thead>
+ <tbody><tr><td>85110001</td><td>4400001</td><td>仅退款</td><td><select><option selected>普通退货</option></select></td><td>等待卖家同意</td><td>已发货</td><td>已付款待审核</td></tr></tbody></table>`,'https://innerorder.scm121.com/afterSales');
+ const fields=result.rows[0].fields;
+ assert.equal(fields['线上类型'],'仅退款');
+ assert.equal(fields['售后分类'],'普通退货');
+ assert.equal(fields['线上状态'],'等待卖家同意');
+ assert.equal(fields['原订单状态'],'已发货');
+ assert.equal(fields['订单状态快照'],'已付款待审核');
+});
 test('ERP login state distinguishes a real shell, login form, and unavailable page',()=>{
  const {inspectJushuitanSession}=require('../src/jushuitan-session.cjs');
  const inspect=(html,url='https://www.erp321.com/epaas')=>{

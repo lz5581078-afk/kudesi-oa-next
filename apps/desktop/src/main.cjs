@@ -10,7 +10,7 @@ const desktopRoutes=require('../build/navigation.json');
 const {createRequestWatch}=require('./request-watch.cjs');
 const fs = require('node:fs/promises');
 const { createRememberedLogin } = require('./remembered-login.cjs');
-const {writePngClipboard}=require('./native.cjs');
+const {writePngClipboard,writeTextClipboard}=require('./native.cjs');
 const { allowedJst, oaOrigin, allowedOaNavigation, feishuClientLink, isAfterSalesLaunch, isAfterSalesSourceLaunch, trustedSender, boundsOf, pngBytes, replaceShortcut } = require('./security.cjs');
 const { extractVisible, mergeFrames, openVisibleOrder } = require('./extractor.cjs');
 const {readJushuitanDocument}=require('./jushuitan-document.cjs');
@@ -572,7 +572,7 @@ async function read(order) {
   for (const contents of [view.webContents,...[...popups].filter(p=>!p.isDestroyed()&&!p.oaBackground&&p.oaReadGeneration===readGeneration).map(p=>p.webContents)]) {
     for (const frame of contents.mainFrame.framesInSubtree) {
       if(!allowedJst(frame.url)||!await activeFrame(frame)) continue;
-      try { frames.push(await frame.executeJavaScript(`(${extractVisible.toString()})(${order?JSON.stringify(order):''})`)); } catch { /* detached or not yet ready */ }
+      try { frames.push(await frame.executeJavaScript(`(${extractVisible.toString()})(${order?JSON.stringify(order):'null'},null,${readPublicGoodsImage.toString()})`)); } catch { /* detached or not yet ready */ }
     }
   }
   if(!order)return mergeFrames(frames).map(legacySnapshot);
@@ -685,10 +685,11 @@ ipcMain.handle('oa:desktop',async(event,command,value)=>{
   const foreground=trustedSender(event,workspace,origin)&&new URL(event.senderFrame.url).pathname===desktopRoutes.workspace;
   const mainWorkspace=trustedSender(event,win,origin)&&new URL(event.senderFrame.url).pathname===desktopRoutes.workspace;
   const background=trustedSender(event,collector,origin)&&new URL(event.senderFrame.url).pathname===desktopRoutes.collector;
-  if(!foreground&&!background&&!(mainWorkspace&&['jushuitanStatus','openSourceWindow','query'].includes(command)))throw new Error('无权限调用桌面功能');
+  if(!foreground&&!background&&!(mainWorkspace&&['jushuitanStatus','openSourceWindow','query','copyText'].includes(command)))throw new Error('无权限调用桌面功能');
   if(background&&!['preferences','prepareLatest','joinCollection','latest','jushuitanStatus'].includes(command))throw new Error('后台采集不可操作原单或桌面');
   if(command==='latest'&&!background)throw new Error('最新协同轮次只能由后台采集器执行');
   switch(command) {
+    case 'copyText': return writeTextClipboard(value);
     case 'mount': {
       const factor=workspace.webContents.getZoomFactor();
       const scaled=value&&Object.fromEntries(Object.entries(value).map(([key,entry])=>[key,typeof entry==='number'?entry*factor:entry]));
