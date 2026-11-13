@@ -1,6 +1,6 @@
 {
   "name": "@kudesi/desktop",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "private": true,
   "description": "小白OA系统桌面客户端",
   "author": "Kudesi",
@@ -16,11 +16,11 @@
     "prestart": "node scripts/navigation.cjs"
   },
   "devDependencies": {
+    "@types/node": "^22.10.0",
     "electron": "45.2.2",
     "electron-builder": "26.18.0",
-    "typescript": "^5.6.3",
-    "@types/node": "^22.10.0",
-    "jsdom": "^25.0.1"
+    "jsdom": "^25.0.1",
+    "typescript": "^5.6.3"
   },
   "build": {
     "appId": "com.kudesi.oa.desktop",
@@ -39,7 +39,11 @@
       "target": [
         "nsis"
       ],
-      "artifactName": "XiaobaiOA-Setup-${version}-${arch}.${ext}"
+      "artifactName": "XiaobaiOA-Setup-${arch}.${ext}",
+      "publish": {
+        "provider": "generic",
+        "url": "https://github.com/lz5581078-afk/kudesi-oa-next/releases/latest/download/"
+      }
     },
     "mac": {
       "category": "public.app-category.business",
@@ -57,5 +61,8 @@
       "nsis": "1.2.1"
     },
     "executableName": "KudesiOA"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.11"
   }
 }

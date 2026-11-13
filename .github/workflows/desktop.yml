@@ -32,7 +32,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $setup = (Get-ChildItem 'apps/desktop/release/XiaobaiOA-Setup-*-x64.exe' | Select-Object -First 1).FullName
+          $setup = (Resolve-Path 'apps/desktop/release/XiaobaiOA-Setup-x64.exe').Path
           $installed = Join-Path $env:RUNNER_TEMP 'xiaobai-oa-install'
           $p = Start-Process -FilePath $setup -ArgumentList "/S /D=$installed" -Wait -PassThru -WindowStyle Hidden
           if ($p.ExitCode -ne 0) { throw "Installer failed: $($p.ExitCode)" }
@@ -44,7 +44,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: XiaobaiOA-Windows-x64
-          path: apps/desktop/release/*.exe
+          path: |
+            apps/desktop/release/XiaobaiOA-Setup-x64.exe
+            apps/desktop/release/latest.yml
           if-no-files-found: error
           retention-days: 30
 
@@ -69,5 +71,6 @@ jobs:
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           tag="oa-desktop-v$version"
           test "$(gh release view "$tag" --json isDraft --jq .isDraft)" = true
-          gh release upload "$tag" "installer/XiaobaiOA-Setup-$version-x64.exe" --clobber
-          gh release edit "$tag" --draft=false --target "$GITHUB_SHA"
+          grep -qx "version: $version" installer/latest.yml
+          gh release upload "$tag" installer/XiaobaiOA-Setup-x64.exe installer/latest.yml --clobber
+          gh release edit "$tag" --draft=false --latest --target "$GITHUB_SHA"

@@ -15,7 +15,7 @@ Windows x64 安装包；Electron 外壳内嵌原聚水潭网页，OA 提供独�
 - 自动建档允许暂未关联 OA 店铺；发起正式流程前必须核对并关联本公司有效店铺。`after-sales.workspace.view` 访问范围及价格、成本权限仍由服务端校验。
 - 默认截图快捷键 Windows `Ctrl+Shift+S`、macOS `Cmd+Shift+S`，支持区域选择、标注、遮挡、复制、保存及绑定售后附图。
 
-网页适配器只读取白名单业务字段，不读取 Cookie、密码和浏览器存储，不保存含令牌链接。登录失效或源页面改版会停止本轮，不能显示为同步正常。关主窗口会留在托盘继续采集，明确退出客户端、电脑休眠或断网后需其他在线客户端接续。
+网页适配器只读取白名单业务字段，不读取 Cookie、密码和浏览器存储，不保存含令牌链接。登录失效或源页面改版会停止本轮，不能显示为同步正常。主窗口右上角关闭需确认退出，退出后由其他在线客户端接续采集。
 
 ## 开发与打包
 
@@ -27,7 +27,7 @@ npm run dev:desktop
 npm run desktop:win
 ```
 
-安装包在 `apps/desktop/release/KudesiOA-Setup-0.2.0-x64.exe`。使用 electron-builder 的 NSIS 1.2.1 工具包，可在 Apple Silicon Mac 交叉生成 Windows 安装包；Windows 安装目录和可执行文件统一为 `KudesiOA`（显示名称保留酷得斯 OA），CI 另测安装与卸载及真实 Electron 剪贴板。
+安装包在 `apps/desktop/release/XiaobaiOA-Setup-x64.exe`。使用 electron-builder 的 NSIS 1.2.1 工具包，可在 Apple Silicon Mac 交叉生成 Windows 安装包；Windows 安装目录和可执行文件统一为 `KudesiOA`，CI 验证安装、卸载及真实 Electron 剪贴板。
 
 开发时仅接受 `OA_DESKTOP_URL` 指定的本地 Vite 来源 `http://localhost:5173`、`http://127.0.0.1:5173`、`http://127.0.0.1:5186`。安装版固定 `https://lc.kudesi.com`，不能用环境变量改到其他网站。旧版项目只复用已授权的酷得斯图标资产，不复用旧客户端代码。
 
@@ -41,7 +41,8 @@ npm run desktop:win
 - 同一公司、聚水潭公司、售后单号重复导入更新原档案；原始快照变化不会覆盖 OA 进度和负责人。店铺/内部订单不符时拒绝覆盖。
 - 跟进使用版本冲突检测；截图绑定捕获时的售后。上传凭证不会清空草稿，也不能悄悄绕过其他人的进度更新。
 - **必须先发布 OA 配套页面、接口和迁移，安装版才能在正式 OA 使用新工作台。** 此开发任务不自动部署生产。
-- 当前包为未签名测试版，未配置代码签名和自动更新。
+- Windows 安装版每次启动先检查更新，发现新版后自动下载、校验并重启安装。账号菜单的「检查更新」使用相同流程。0.2.9 及更早版本需先覆盖安装支持自动更新的版本。
+- 桌面发布流水线同时验证、发布 NSIS 安装包与 `latest.yml`。更新沿用公开的桌面发布仓库和安装包校验值；安装包目前未配置 Windows 代码签名。
 
 ## 0.1 已验证与边界
 

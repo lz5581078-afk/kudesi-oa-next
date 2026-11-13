@@ -10,6 +10,7 @@ const desktopRoutes=require('../build/navigation.json');
 const {createRequestWatch}=require('./request-watch.cjs');
 const fs = require('node:fs/promises');
 const { createRememberedLogin } = require('./remembered-login.cjs');
+const {createUpdateCheck, createExitConfirmation}=require('./desktop-update.cjs');
 const {writePngClipboard,writeTextClipboard}=require('./native.cjs');
 const { allowedJst, oaOrigin, allowedOaNavigation, feishuClientLink, isAfterSalesLaunch, isAfterSalesSourceLaunch, trustedSender, boundsOf, pngBytes, replaceShortcut } = require('./security.cjs');
 const { extractVisible, mergeFrames, openVisibleOrder } = require('./extractor.cjs');
@@ -185,6 +186,54 @@ function guardJst(contents,background=false,visibleSource) {
   });
 }
 const statusPage = path.join(__dirname,'oa-status.html');
+const updateSupported=app.isPackaged&&process.platform==='win32';
+const showMessage=(parent,options)=>parent&&!parent.isDestroyed()
+  ?dialog.showMessageBox(parent,options):dialog.showMessageBox(options);
+const confirmExit=createExitConfirmation({isQuitting:()=>quitting,showMessage,onExit:()=>app.quit(),onError:showError});
+let updateWindow;
+let checkForUpdates;
+
+async function openUpdateProgress(parent){
+  const target=new BrowserWindow({
+    title:'小白OA系统更新',width:440,height:185,useContentSize:true,
+    parent,modal:!!parent,show:false,closable:false,minimizable:false,maximizable:false,resizable:false,
+    autoHideMenuBar:true,icon,backgroundColor:'#f8faf9',
+    webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false},
+  });
+  updateWindow=target;
+  target.removeMenu();
+  target.webContents.setWindowOpenHandler(()=>({action:'deny'}));
+  target.webContents.on('will-navigate',event=>event.preventDefault());
+  target.on('closed',()=>{if(updateWindow===target)updateWindow=undefined;});
+  await target.loadFile(path.join(__dirname,'oa-update.html')).catch(error=>{target.destroy();throw error;});
+  target.show();
+  return {
+    window:target,
+    update(message,percent){
+      if(target.isDestroyed())return;
+      const value=Number.isFinite(percent)?Math.max(0,Math.min(100,Math.round(percent))):null;
+      target.setProgressBar(value===null?2:value/100);
+      const label=value===null?message:`${message} · ${value}%`;
+      void target.webContents.executeJavaScript(`
+        document.querySelector('#status').textContent=${JSON.stringify(label)};
+        const progress=document.querySelector('#progress');
+        if(${value===null})progress.removeAttribute('value');
+        else progress.value=${value};
+      `).catch(()=>{});
+    },
+    close(){if(!target.isDestroyed())target.destroy();},
+  };
+}
+
+async function startDesktop(){
+  if(updateSupported){
+    const {autoUpdater}=require('electron-updater');
+    checkForUpdates=createUpdateCheck({updater:autoUpdater,openProgress:openUpdateProgress,showMessage,onExit:()=>app.quit()});
+    if(!await checkForUpdates())return;
+  }
+  await createWindow();
+}
+
 const startingOaWindows = new WeakSet();
 function refreshOaWindow(target, route, ignoreCache = false) {
   const contents = target.webContents;
@@ -199,7 +248,9 @@ function localAcceptance(){
 }
 function rendererPreferences(surface) {
   return {preload:path.join(__dirname,'preload.cjs'),sandbox:true,contextIsolation:true,nodeIntegration:false,
-    additionalArguments:[`--oa-desktop-surface=${surface}`,...(surface==='after-sales'&&localAcceptance()?['--oa-after-sales-acceptance']:[])]};
+    additionalArguments:[`--oa-desktop-surface=${surface}`,`--oa-desktop-version=${app.getVersion()}`,
+      ...(surface==='main'&&updateSupported?['--oa-desktop-update']:[]),
+      ...(surface==='after-sales'&&localAcceptance()?['--oa-after-sales-acceptance']:[])]};
 }
 function showWindow(target) {
   if(startingOaWindows.has(target))return;
@@ -217,6 +268,7 @@ function createOaWindow(surface,route) {
   startingOaWindows.add(target);
   target.on('page-title-updated',e=>e.preventDefault());
   const contents=target.webContents;
+  contents.on('will-prevent-unload',event=>{if(quitting)event.preventDefault();});
   registerWindowsRefresh(contents, ignoreCache => refreshOaWindow(target, route, ignoreCache));
   const guardOaNavigation = event => {
     if(isWorkspace&&event.isMainFrame===false){
@@ -270,13 +322,21 @@ function openAfterSales() {
   return true;
 }
 function openMain() {
+  if(updateWindow&&!updateWindow.isDestroyed()){showWindow(updateWindow);return;}
   if(win&&!win.isDestroyed()){showWindow(win);return;}
   const target=createOaWindow('main','/');
   win=target;
-  target.on('close',e=>{if(!quitting && tray){e.preventDefault();target.hide();}});
+  target.on('close',event=>{
+    if(quitting)return;
+    event.preventDefault();
+    if(updateWindow&&!updateWindow.isDestroyed()){showWindow(updateWindow);return;}
+    void confirmExit(target);
+  });
   target.on('closed',()=>{if(win===target)win=null;});
 }
 function handleLaunch(args=[]) {
+  if(quitting)return;
+  if(updateWindow&&!updateWindow.isDestroyed())showWindow(updateWindow);
   if(args.some(isAfterSalesSourceLaunch)){
     if(readyToOpen)openSourceWindow();
     else pendingSource=true;
@@ -519,7 +579,10 @@ async function createWindow() {
   if(!localAcceptance())void collector.loadURL(origin+desktopRoutes.collector)
     .catch(error=>console.error('后台售后采集页未能加载',error.code));
   tray = new Tray(nativeImage.createFromPath(icon).resize({width:20,height:20}));
-  tray.setToolTip(APP_NAME); tray.setContextMenu(Menu.buildFromTemplate([{label:'打开 OA',click:openMain},{label:'实时售后处理',click:openAfterSales},{label:'截图',click:()=>capture().catch(showError)},{type:'separator'},{label:'退出',click:()=>app.quit()}]));
+  tray.setToolTip(APP_NAME); tray.setContextMenu(Menu.buildFromTemplate([{label:'打开 OA',click:openMain},{label:'实时售后处理',click:openAfterSales},{label:'截图',click:()=>capture().catch(showError)},{type:'separator'},{label:'退出',click:()=>{
+    if(updateWindow&&!updateWindow.isDestroyed()){showWindow(updateWindow);return;}
+    void confirmExit(win??workspace);
+  }}]));
   tray.on('double-click',openMain);
   try { const config=JSON.parse(await fs.readFile(path.join(app.getPath('userData'),'shortcut.json'),'utf8')); accelerator=config.accelerator; } catch { /* first launch */ }
   registerShortcut(accelerator);
@@ -660,6 +723,11 @@ ipcMain.handle('oa:remember-login', (event, command, value) => {
 });
 
 ipcMain.handle('oa:desktop',async(event,command,value)=>{
+  if(command==='checkForUpdates'){
+    if(!checkForUpdates||!trustedSender(event,win,origin))throw new Error('无权限检查客户端更新');
+    await checkForUpdates(win);
+    return;
+  }
   if(command==='retry'){
     const target=[win,workspace].find(candidate=>candidate&&!candidate.isDestroyed()&&event.sender===candidate.webContents);
     if(!target||event.senderFrame!==target.webContents.mainFrame||
@@ -920,10 +988,19 @@ if(!app.requestSingleInstanceLock())app.quit();else{
     const scheme=new URL(desktopRoutes.launch).protocol.slice(0,-1);
     if(!app.isDefaultProtocolClient(scheme))app.setAsDefaultProtocolClient(scheme);
   }
-  app.whenReady().then(createWindow).catch(showError);
+  app.whenReady().then(startDesktop).catch(error=>{showError(error);app.quit();});
 }
-app.on('before-quit',()=>{quitting=true;sourceNavigationPending=false;});
+app.on('window-all-closed',()=>{
+  // The update window closes before the OA windows are created.
+  if(readyToOpen)app.quit();
+});
+app.on('before-quit',()=>{
+  quitting=true;
+  sourceNavigationPending=false;
+  if(updateWindow&&!updateWindow.isDestroyed())updateWindow.destroy();
+});
 app.on('will-quit',()=>{
+  tray?.destroy();
   globalShortcut.unregisterAll();
   for(const source of [view,latestView])if(source&&!source.webContents.isDestroyed())source.webContents.close();
 });
