@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('oaDesktop', Object.freeze({
   openSourceWindow: () => invoke('openSourceWindow'),
   jushuitanStatus: () => invoke('jushuitanStatus'),
   ...(surface === 'after-sales' ? {
+    cancelRead: () => invoke('cancelRead'),
     openSourceAfterSales: () => invoke('openSourceAfterSales'),
     openOriginalSale: input => invoke('openOriginalSale', input),
     openOriginalOrder: input => invoke('openOriginalOrder', input),

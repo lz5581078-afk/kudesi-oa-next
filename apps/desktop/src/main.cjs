@@ -38,29 +38,14 @@ let collectionPreferences={clientId:randomUUID(),enabled:false,paused:false};
 let collectionPreferenceWrites=Promise.resolve();
 let foregroundReads=0;
 let foregroundRevision=0;
+let foregroundTask=0;
 let clearingSource=false;
-const recordingStatuses=new Map();
+const recordingStatuses=require('./recording-status-cache.cjs').createRecordingStatusCache();
 let preparedRecordingFrame;
 let preparedRecordingCleanup;
 const recordingKey=({sourceCompany,afterSaleId})=>JSON.stringify([sourceCompany,afterSaleId]);
-function recordPlaybackIndicators(records){
-  const expiresAt=Date.now()+5*60_000;
-  for(const record of records){
-    const key=recordingKey(record);
-    recordingStatuses.delete(key);
-    if(record.recordingStatus==='available'||record.recordingStatus==='unavailable'){
-      recordingStatuses.set(key,{state:record.recordingStatus,expiresAt});
-    }
-  }
-  while(recordingStatuses.size>1200)recordingStatuses.delete(recordingStatuses.keys().next().value);
-}
-function currentRecordingStatus(identity){
-  const key=recordingKey(identity);
-  const entry=recordingStatuses.get(key);
-  if(entry&&entry.expiresAt>Date.now())return entry.state;
-  recordingStatuses.delete(key);
-  return undefined;
-}
+function recordPlaybackIndicators(records){recordingStatuses.record(records);}
+function currentRecordingStatus(identity,checkedSince=0){const entry=recordingStatuses.get(identity,true);return entry&&entry.checkedAt>=checkedSince?entry.state:undefined;}
 const collectionYieldMessage='正在查询单笔售后，已让出本机后台采集';
 const sourceBusy=()=>clearingSource || foregroundReads>0 || mounted || !!preparedRecordingFrame ||
   (!!sourceWindow&&!sourceWindow.isDestroyed()&&sourceWindow.isFocused());
@@ -74,9 +59,12 @@ function saveCollectionPreferences(next){
 }
 
 async function runForeground(action){
+  localReader?.cancelPending();sourceWindowReader?.cancelPending();
+  readGeneration++;
   foregroundReads++;
   foregroundRevision++;
-  try{return await action();}
+  const task=++foregroundTask;
+  try{const result=await action();if(task!==foregroundTask)throw new Error('Query superseded');return result;}
   finally{foregroundReads--;}
 }
 
@@ -339,13 +327,14 @@ function openSourceWindow(autoEnter=true){
   return true;
 }
 async function withOriginalSource(action){
+  const revision=foregroundTask;
   if(!openSourceWindow(false))throw new Error('聚水潭会话正在清除，请稍后再试');
   const target=sourceWindow;
   const reader=sourceWindowReader;
   target.oaOpeningSale=(target.oaOpeningSale??0)+1;
   try{
     const result=await action(reader);
-    if(target.isDestroyed())return false;
+    if(target.isDestroyed()||revision!==foregroundTask)return false;
     showWindow(target);
     return result;
   }catch(error){
@@ -377,7 +366,6 @@ function runRecordingScript(frame, fn, ...args){
 function openOriginalVideo(identity){
   return withOriginalSource(async reader=>{
     const opened=await reader.sale(identity,async frame=>{
-      if(currentRecordingStatus(identity)==='unavailable')throw new Error('\u805a\u6c34\u6f6d\u663e\u793a\u8fd9\u7b14\u552e\u540e\u65e0\u5f55\u50cf');
       return runRecordingScript(frame,locateJushuitanField,identity.afterSaleId,null,true);
     },{includeHistory:true});
     if(opened)return true;
@@ -453,16 +441,21 @@ function clearPreparedRecording(){
   }
 }
 async function prepareRecording(identity){
+  const task=foregroundTask;
   await clearPreparedRecording();
-  const generation=++readGeneration;
+  if(task!==foregroundTask)return {state:'missing'};
+  const generation=++readGeneration,checkedSince=Date.now();
   try{
     let result=await localReader.sale(identity,async frame=>{
-      if(currentRecordingStatus(identity)==='unavailable')return {state:'unavailable'};
+
       const script='('+prepareJushuitanRecording.toString()+')('+JSON.stringify(identity.afterSaleId)+','+locateJushuitanField.toString()+')';
       const prepared=await frame.executeJavaScript(script,true);
+      if(generation!==readGeneration){await runRecordingScript(frame,dismissJushuitanRecording).catch(()=>{});return {state:'missing'};}
       if(prepared.state==='ready')preparedRecordingFrame=frame;
       return prepared;
     },{includeHistory:true});
+    if(generation!==readGeneration)return {state:'missing'};
+    if(result.state==='missing'&&currentRecordingStatus(identity,checkedSince)==='unavailable')return {state:'unavailable'};
     if(result.state==='missing'&&currentRecordingStatus(identity)==='available'){
       result=await prepareClassicRecording(identity,generation);
       if(result.state==='missing')return {...result,hasRecording:true};
@@ -593,7 +586,7 @@ async function openAndReadDocument(frame,identity,kind,discount=false){
     const found=await frame.executeJavaScript(`(${openVisibleOrder.toString()})(${args})`,true);
     if(!found)throw new Error(`未找到这笔售后对应的${docTitle}入口`);
     const deadline=Date.now()+8000;
-    while(Date.now()<deadline){
+    while(Date.now()<deadline&&generation===readGeneration){
       const surfaces=[view.webContents,...[...popups].filter(p=>!p.isDestroyed()&&!p.oaBackground&&p.oaReadGeneration===generation).map(p=>p.webContents)];
       for(const contents of surfaces){
         for(const detail of contents.mainFrame.framesInSubtree){
@@ -689,6 +682,10 @@ ipcMain.handle('oa:desktop',async(event,command,value)=>{
   if(background&&!['preferences','prepareLatest','joinCollection','latest','jushuitanStatus'].includes(command))throw new Error('后台采集不可操作原单或桌面');
   if(command==='latest'&&!background)throw new Error('最新协同轮次只能由后台采集器执行');
   switch(command) {
+    case 'cancelRead': {
+      if(!foreground)throw new Error('无权限取消售后查询');
+      localReader?.cancelPending();sourceWindowReader?.cancelPending();readGeneration++;foregroundRevision++;foregroundTask++;return true;
+    }
     case 'copyText': return writeTextClipboard(value);
     case 'mount': {
       const factor=workspace.webContents.getZoomFactor();
@@ -748,8 +745,8 @@ ipcMain.handle('oa:desktop',async(event,command,value)=>{
         typeof row.sourceCompany!=='string'||!row.sourceCompany.trim()||row.sourceCompany.length>100))
         throw new Error('录像状态查询参数无效');
       return value.flatMap(({afterSaleId,sourceCompany})=>{
-        const state=currentRecordingStatus({afterSaleId,sourceCompany});
-        return state?[{afterSaleId,sourceCompany,state}]:[];
+        const status=recordingStatuses.get({afterSaleId,sourceCompany});
+        return status?[{afterSaleId,sourceCompany,state:status.state,checkedAt:status.checkedAt}]:[];
       });
     }
     case 'prepareRecording':

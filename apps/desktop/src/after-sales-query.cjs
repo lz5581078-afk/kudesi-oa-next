@@ -141,6 +141,9 @@ function latestPage(records,start,end,hasNext){
 }
 function createReader(contents,ensure,watch,observeRecordings){
  let queue=Promise.resolve();
+ let revision=0,executingRevision=0;
+ const checkpoint=()=>{if(executingRevision!==revision)throw new Error('查询已切换，以最新点击为准');};
+ const cancelPending=()=>{revision++;panelRow=undefined;latestCursor=undefined;};
  let latestCursor;
  let panelRow;
  let refundDismissal;
@@ -171,13 +174,15 @@ function createReader(contents,ensure,watch,observeRecordings){
   if(current.sourceCompany!==sourceCompany)throw new Error('聚水潭公司与已确认来源不一致，已停止读取');
  }
  async function ready(query){
+  checkpoint();
   assertCompany(await ensure(),query.sourceCompany);
+  checkpoint();
   const currentList=await listFrame(query.kind);
   if(currentList)return currentList;
   const navigate=()=>runDom(contents.mainFrame,'navigate',query);
   let navigation=await navigate();
   const until=Date.now()+20000;let f,attempts=0;
-  while(Date.now()<until){await pause(350);if(!navigation.opened&&attempts++<20)navigation=await navigate();f=await listFrame(query.kind);if(navigation.opened&&f)return f;}
+  while(Date.now()<until){checkpoint();await pause(350);checkpoint();if(!navigation.opened&&attempts++<20)navigation=await navigate();f=await listFrame(query.kind);if(navigation.opened&&f)return f;}
   throw new Error('售后页面未就绪，请在本机连接窗口打开对应售后列表');
  }
  async function settled(f,{localPage=false,shouldContinue,exactSale}){
@@ -210,6 +215,8 @@ function createReader(contents,ensure,watch,observeRecordings){
   throw new Error('聚水潭查询未完成，当前结果未作为最新数据提交');
  }
  async function queryPage(input,latest=false,shouldContinue=()=>{},panelLookup=false){
+  const externalCheck=shouldContinue;
+  shouldContinue=()=>{checkpoint();externalCheck();};
   shouldContinue();
   panelRow=undefined;
   const query=validateQuery(input,latest),f=await ready(query);
@@ -292,10 +299,14 @@ function createReader(contents,ensure,watch,observeRecordings){
   const records=[...rows.values()];
   if(movedPage&&records.some(r=>previousIds.has(r.afterSaleId)))throw new Error('原页面尚未返回新页数据，未提交重复的上一页');
   if(query.value&&records.some(s=>(query.field==='afterSaleId'?s.afterSaleId:s.internalOrderId)!==query.value))throw new Error('查询条件尚未生效，未返回其他订单的数据');
-  const unchecked=records.filter(record=>!record.recordingStatus).map(record=>record.afterSaleId);
-  if(recordings&&unchecked.length){
-   const statuses=new Map(await recordings('read',unchecked));
-   for(const record of records)if(!record.recordingStatus&&statuses.has(record.afterSaleId))record.recordingStatus=statuses.get(record.afterSaleId);
+  const recordingIds=records.map(record=>record.afterSaleId);
+  if(recordings&&recordingIds.length){
+   const statuses=new Map(await recordings('read',recordingIds));
+   // A successful batch is stronger evidence than the icon's initial grey state.
+   for(const record of records){
+    if(statuses.has(record.afterSaleId))record.recordingStatus=statuses.get(record.afterSaleId);
+    else if(record.recordingStatus==='unavailable')delete record.recordingStatus;
+   }
   }
   const finalState=await runDom(f,'state');if(finalState.error)throw new Error('聚水潭查询失败：'+finalState.error);
   const transport=watch?.state();
@@ -318,7 +329,12 @@ function createReader(contents,ensure,watch,observeRecordings){
   return {...result,total:state.total,page:state.page,pageSize:state.pageSize,sourceCompany:query.sourceCompany,kind:query.kind};
  }
  function enqueue(action){
-  const task=queue.then(action).finally(()=>watch?.stop());
+  const requestedRevision=revision;
+  const task=queue.then(async()=>{
+   if(requestedRevision!==revision)throw new Error('查询已切换，以最新点击为准');
+   executingRevision=requestedRevision;
+   const result=await action();checkpoint();return result;
+  }).finally(()=>watch?.stop());
   queue=task.catch(()=>{});
   return task;
  }
@@ -330,6 +346,7 @@ function createReader(contents,ensure,watch,observeRecordings){
      waybill!==undefined&&(!logistics||!isTrackingWaybill(waybill)))
    throw new Error('物流查询参数无效');
   const read=async frame=>{
+   checkpoint();
    const refund=kind==='refund';
    // Leave time for the original hover dismissal before an immediate repeat.
    if(refund&&refundDismissal?.frame===frame){
@@ -385,6 +402,7 @@ function createReader(contents,ensure,watch,observeRecordings){
     }
     const frame=await listFrame(query.kind);
     if(!frame)throw new Error('聚水潭售后列表已切换');
+    checkpoint();
     const result=await readOrder(frame);
     assertCompany(await ensure(false),sourceCompany);
     return result;
@@ -404,6 +422,7 @@ function createReader(contents,ensure,watch,observeRecordings){
     const frame=await listFrame(query.kind);
     if(!frame)throw new Error('聚水潭售后列表已切换');
     assertCompany(await ensure(false),sourceCompany);
+    checkpoint();
     return openSale(frame);
   });
  }
@@ -415,6 +434,7 @@ function createReader(contents,ensure,watch,observeRecordings){
    const deadline=Date.now()+15000;
    let submitted=false;
    while(!submitted&&Date.now()<deadline){
+    checkpoint();
     const filter=(frame.framesInSubtree??contents.mainFrame.framesInSubtree).find(candidate=>
      allowedJst(candidate.url)&&/\/aftersale_filter\.aspx$/i.test(new URL(candidate.url).pathname));
     if(filter)try{submitted=(await runDom(filter,'classicRecordingSearch',query)).queried;}
@@ -425,6 +445,7 @@ function createReader(contents,ensure,watch,observeRecordings){
    const run=open=>frame.executeJavaScript(`(${classicRecordingAction.toString()})(${JSON.stringify(query.value)},${open})`,true);
    const resultsDeadline=Date.now()+8500;
    while(Date.now()<resultsDeadline){
+    checkpoint();
     if((await run(false)).state==='found'){
      assertCompany(await ensure(false),query.sourceCompany);
      return run(true);
@@ -434,7 +455,7 @@ function createReader(contents,ensure,watch,observeRecordings){
    return {state:'missing'};
   });
  }
- return {openCurrent,hasCurrent:async()=>!!await listFrame('current'),
+ return {cancelPending,openCurrent,hasCurrent:async()=>!!await listFrame('current'),
   query:(q,latest=false,shouldContinue)=>enqueue(()=>queryPage(q,latest,shouldContinue)),
   panel:input=>enqueue(()=>panel(input)),order,sale,classicRecording};
 }

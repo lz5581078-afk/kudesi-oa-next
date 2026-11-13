@@ -15,8 +15,9 @@ async function expressRecordingResponse(command, afterSaleIds = []) {
       return !url.username && !url.password && url.origin + url.pathname === endpoint;
     } catch { return false; }
   };
-  const available = new Set();
-  const checked = new Set();
+  const states = new Map();
+  const latest = new Map();
+  let sequence = 0;
   let active = true;
   let pending = 0;
   function normalizeIds(values) {
@@ -29,16 +30,21 @@ async function expressRecordingResponse(command, afterSaleIds = []) {
     try { return normalizeIds(JSON.parse(raw)); }
     catch { return null; }
   }
-  function capture(body, scope) {
-    if (!active || body?.success !== true) return;
+  function begin(scope) {
+    const version=++sequence;
+    for(const id of scope??[]){latest.set(id,version);states.delete(id);}
+    return version;
+  }
+  function capture(body, scope, version) {
+    if (!active || !scope || body?.success !== true) return;
     const returned = normalizeIds(body.data);
-    if (!returned) return;
-    for (const id of returned) {
-      if (!scope || scope.has(id)) available.add(id);
-    }
-    // A complete successful batch returns only the IDs with recordings.
-    if (scope && body.hasNext === false && [...returned].every(id => scope.has(id))) {
-      for (const id of scope) checked.add(id);
+    if (!returned || [...returned].some(id=>!scope.has(id))) return;
+    for(const id of scope){
+      if(latest.get(id)!==version)continue;
+      if(returned.has(id))states.set(id,'available');
+      // This endpoint returns the complete set of IDs with recordings, not a page.
+      // The source UI tests membership in data; it does not require hasNext.
+      else if(body.hasNext===undefined||body.hasNext===false)states.set(id,'unavailable');
     }
   }
 
@@ -55,10 +61,11 @@ async function expressRecordingResponse(command, afterSaleIds = []) {
   function send(...args) {
     if (!watched.has(this)) return originalSend.apply(this, args);
     const scope = requestScope(args[0]);
+    const version=begin(scope);
     const complete = () => {
       pending--;
       if (!active || this.status < 200 || this.status >= 300 || !matches(this.responseURL)) return;
-      try { capture(this.responseType === 'json' ? this.response : JSON.parse(this.responseText), scope); }
+      try { capture(this.responseType === 'json' ? this.response : JSON.parse(this.responseText), scope, version); }
       catch { /* An unusable response leaves the recording status unknown. */ }
     };
     this.addEventListener('loadend', complete, {once: true});
@@ -77,13 +84,15 @@ async function expressRecordingResponse(command, afterSaleIds = []) {
     let scope = Promise.resolve(requestScope(options?.body));
     if (options?.body === undefined && typeof input?.clone === 'function') {
       try { scope = input.clone().text().then(requestScope).catch(() => null); }
-      catch { /* A consumed request still permits positive results. */ }
+      catch { /* A consumed request cannot establish the recording identity. */ }
     }
+    const version=++sequence;
+    scope=scope.then(ids=>{for(const id of ids??[]){if((latest.get(id)??0)<version){latest.set(id,version);states.delete(id);}}return ids;});
     const result = originalFetch.apply(this, arguments);
     pending++;
     void result.then(response => {
       if (active && response.ok && matches(response.url)) {
-        return Promise.all([response.clone().json(), scope]).then(([body, ids]) => capture(body, ids));
+        return Promise.all([response.clone().json(), scope]).then(([body, ids]) => capture(body, ids, version));
       }
     }).catch(() => {}).finally(() => { pending--; });
     return result;
@@ -95,11 +104,10 @@ async function expressRecordingResponse(command, afterSaleIds = []) {
   window[key] = {
     async read(requested) {
       const deadline = Date.now() + 550;
-      while (active && pending && !requested.every(id => available.has(id)) && Date.now() < deadline) {
+      while (active && pending && Date.now() < deadline) {
         await new Promise(resolve => setTimeout(resolve, 50));
       }
-      return requested.flatMap(id => available.has(id) ? [[id,'available']] :
-        checked.has(id) ? [[id,'unavailable']] : []);
+      return requested.flatMap(id => states.has(id) ? [[id,states.get(id)]] : []);
     },
     stop() {
       active = false;

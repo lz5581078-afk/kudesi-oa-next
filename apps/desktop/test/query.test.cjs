@@ -224,7 +224,7 @@ test('极速版仅将完整成功批次内缺席的售后单标为没视频',asy
  const fetch=async(url,{body})=>{
   const [id]=JSON.parse(body);
   return {ok:true,url,clone:()=>({json:async()=>({
-   success:id!=='85110005',hasNext:id==='85110004',data:id==='85110001'?[85110001]:[],
+   success:id!=='85110005',...(id==='85110001'||id==='85110006'?{}:{hasNext:id==='85110004'}),data:id==='85110001'?[85110001]:[],
   })})};
  };
  window.fetch=fetch;
@@ -247,4 +247,61 @@ test('极速版仅将完整成功批次内缺席的售后单标为没视频',asy
   assert.ok(result.records.every(row=>!Object.hasOwn(row,'recordingStatus')));
   assert.equal(window.fetch,fetch);
  }finally{window.close();}
+});
+
+
+test('视频响应按最新请求取证，旧成功不能覆盖新批次或失败',async()=>{
+ const {expressRecordingResponse}=require('../src/jushuitan-recording-response.cjs');
+ const d=dom('', 'https://sc.scm121.com/afterSales');
+ const url='https://sc.scm121.com/api/company/after-sale/ipc/has-video';
+ const pending=[];
+ d.window.fetch=()=>new Promise(resolve=>pending.push(resolve));
+ const execute=(command,ids=[])=>d.window.eval(`(${expressRecordingResponse.toString()})(${JSON.stringify(command)},${JSON.stringify(ids)})`);
+ const respond=async(index,body)=>{pending[index]({ok:true,url,clone:()=>({json:async()=>body})});await new Promise(resolve=>setTimeout(resolve,0));};
+ try{
+  await execute('start');
+  const request=body=>d.window.fetch(url,{method:'POST',body:JSON.stringify(body)});
+  void request(['85110001']);void request(['85110001']);
+  await respond(1,{success:true,hasNext:false,data:[]});
+  await respond(0,{success:true,hasNext:false,data:[85110001]});
+  assert.equal(JSON.stringify(await execute('read',['85110001'])),JSON.stringify([['85110001','unavailable']]));
+  void request(['85110001']);await respond(2,{success:false,data:[]});
+  assert.equal(JSON.stringify(await execute('read',['85110001'])),'[]');
+  void request({unknown:'85110002'});await respond(3,{success:true,hasNext:false,data:[85110002]});
+  assert.equal(JSON.stringify(await execute('read',['85110002'])),'[]');
+ }finally{await execute('stop');d.window.close();}
+});
+
+test('切换查询取消正在等待的旧任务并跳过中间排队任务',async()=>{
+ const {createReader}=require('../src/after-sales-query.cjs');
+ const d=dom('<button id="search">搜索</button><table><thead><tr><th>售后单号</th><th>内部订单号</th></tr></thead><tbody><tr><td>85110001</td><td>4400001</td></tr></tbody></table><div>共1条</div>');
+ const frame={url:'https://www.erp321.com/afterSales',parent:null,executeJavaScript:async script=>d.window.eval(script)};frame.framesInSubtree=[frame];
+ let release,started;const entered=new Promise(resolve=>{started=resolve;});const gate=new Promise(resolve=>{release=resolve;});let calls=0,searches=0;
+ d.window.document.querySelector('#search').onclick=()=>searches++;
+ const reader=createReader({mainFrame:frame},async()=>{if(calls++===0){started();await gate;}return {state:'authenticated',sourceCompany:base.sourceCompany};});
+ try{
+  const old=reader.query(base);const oldRejected=assert.rejects(old,/查询已切换/);await entered;
+  reader.cancelPending();const middle=reader.query(base);const middleRejected=assert.rejects(middle,/查询已切换/);
+  reader.cancelPending();const latest=reader.query(base);release();
+  await Promise.all([oldRejected,middleRejected]);assert.equal((await latest).records[0].afterSaleId,'85110001');assert.equal(searches,1);
+ }finally{d.window.close();}
+});
+
+
+test('成功的无分页视频批次覆盖旧图标，批次中缺席的单号明确为没视频',async()=>{
+ const {createReader}=require('../src/after-sales-query.cjs');
+ const d=dom(`<button id="search">搜索</button><table><thead><tr><th>售后单号</th><th>内部订单号</th><th>录像状态</th></tr></thead><tbody>
+ <tr><td>85110001</td><td>4400001</td><td>无录像</td></tr>
+ <tr><td>85110002</td><td>4400002</td><td>有录像</td></tr>
+ </tbody></table><div>共2条</div>`);
+ const url='https://sc.scm121.com/api/company/after-sale/ipc/has-video';
+ d.window.fetch=async()=>({ok:true,url,clone:()=>({json:async()=>({success:true,data:[85110001]})})});
+ d.window.document.querySelector('#search').onclick=()=>{void d.window.fetch(url,{method:'POST',body:JSON.stringify([85110001,85110002])});};
+ const frame={url:'https://innerorder.scm121.com/afterSales',parent:null,executeJavaScript:async script=>d.window.eval(script)};frame.framesInSubtree=[frame];
+ const observed=[];
+ const reader=createReader({mainFrame:frame},async()=>({state:'authenticated',sourceCompany:base.sourceCompany}),undefined,rows=>observed.push(...rows));
+ try{
+  await reader.query({...base,sourceColumns:true});
+  assert.deepEqual(observed.map(row=>row.recordingStatus),['available','unavailable']);
+ }finally{d.window.close();}
 });

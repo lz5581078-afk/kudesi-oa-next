@@ -13,6 +13,8 @@ function readJushuitanRecordingStatus(row, headers) {
     getComputedStyle(element).visibility !== 'hidden' && !element.closest('[hidden],[aria-hidden="true"]');
   const controlColumns = new Set(['售后单号','内部订单号','操作']);
   const values = new Set();
+  const saleCell=row.children[headers.indexOf('售后单号')];
+  const afterSaleId=(saleCell?.innerText??saleCell?.textContent??'').match(/\d{4,40}/)?.[0];
 
   function collect(raw, isStatusCell) {
     const label = String(raw ?? '').trim()
@@ -25,15 +27,24 @@ function readJushuitanRecordingStatus(row, headers) {
     if (!visible(cell)) continue;
     const statusCell = columnNames.has(headers[index]);
     const controlColumn = controlColumns.has(headers[index]);
-    if (statusCell || controlColumn) collect(cell.innerText ?? cell.textContent, statusCell);
+    if (statusCell || controlColumn&&!cell.children.length) collect(cell.innerText ?? cell.textContent, statusCell);
     const attributes='[title],[aria-label],[data-original-title],img[alt]';
     const selector=statusCell||controlColumn?attributes+',button,[role="status"],a,span':attributes;
     const elements = [cell,...cell.querySelectorAll(selector)];
     for (const element of elements) {
       if (!visible(element)) continue;
+      const camera=element.closest('[ipc_info]');
+      if(camera){
+        try{
+          const info=JSON.parse(camera.getAttribute('ipc_info'));
+          if(!afterSaleId||String(info?.biz_id)!==afterSaleId)continue;
+          if(info.has_ipc_video===false&&element.getAttribute('title')==='点击观看视频')continue;
+        }
+        catch{continue;}
+      }
       for (const attribute of ['title','aria-label','data-original-title','alt']) {
         const label=element.getAttribute(attribute);
-        const tooltipStatus=attribute!=='alt'&&videoTooltips.get(label?.trim());
+        const tooltipStatus=(camera||statusCell||controlColumn)&&attribute!=='alt'&&videoTooltips.get(label?.trim());
         if(tooltipStatus)values.add(tooltipStatus);
         else if(statusCell||controlColumn||/^(?:视频监控|录像状态|是否有录像)\s*[:：]/.test(label||''))collect(label,statusCell);
       }

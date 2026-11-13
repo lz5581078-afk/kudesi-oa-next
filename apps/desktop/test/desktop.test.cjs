@@ -384,7 +384,7 @@ test('售后列表只采用原页明确显示的录像状态',()=>{
  window.HTMLElement.prototype.getClientRects=function(){return this.closest('[hidden]')?[]:[{}];};
  try {
   const raw=window.eval(`(${extractVisible.toString()})(null,${readJushuitanRecordingStatus.toString()})`);
-  assert.deepEqual(Array.from(raw.rows,record=>record.recordingStatus),['available','unavailable',undefined,undefined,'available','unavailable',undefined]);
+  assert.deepEqual(Array.from(raw.rows,record=>record.recordingStatus),['available','unavailable',undefined,undefined,undefined,'unavailable',undefined]);
   assert.equal(raw.rows.some(record=>Object.hasOwn(record.fields,'录像状态')),false);
  } finally {window.close();}
 });
@@ -626,4 +626,19 @@ test('OA 录像只挂载本次在对应行打开的播放器，关闭时停止�
  assert.equal(doc.querySelector('[data-oa-recording-root]'),null);
  assert.ok(doc.getElementById('older'));
  window.close();
+});
+
+
+test('录像图标携带的售后身份必须匹配当前行',()=>{
+ const {readJushuitanRecordingStatus}=require('../src/jushuitan-recording-status.cjs');
+ const d=new JSDOM(`<table><tbody><tr><td>85110001</td><td><span ipc_info='{"biz_id":85110002,"has_ipc_video":true}' title="点击观看视频"></span></td></tr></tbody></table>`,{runScripts:'outside-only'});
+ d.window.HTMLElement.prototype.getClientRects=()=>[{}];
+ const read=()=>d.window.eval(`(${readJushuitanRecordingStatus.toString()})(document.querySelector('tr'),['售后单号','操作'])`);
+ try{
+  assert.equal(read(),undefined);
+  d.window.document.querySelector('span').setAttribute('ipc_info',JSON.stringify({biz_id:85110001,has_ipc_video:true}));
+  assert.equal(read(),'available');
+  d.window.document.querySelector('span').setAttribute('ipc_info',JSON.stringify({biz_id:85110001,has_ipc_video:false}));
+  assert.equal(read(),undefined);
+ }finally{d.window.close();}
 });
