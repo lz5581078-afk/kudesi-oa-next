@@ -25,7 +25,7 @@ test('a mixed result with an absent number cannot identify which other number su
     [{number:good,status:'failed',message:'聚水潭未找到这个运单号'}]);
 });
 
-function fixture({option='不限平台', sourceCompany='来源公司', claimed=true}={}) {
+function fixture({option='不区分平台', sourceCompany='来源公司', claimed=true}={}) {
   const dom=new JSDOM('<button id="open">单号回收</button>',{runScripts:'outside-only'});
   const w=dom.window;
   w.HTMLElement.prototype.getClientRects=function(){
@@ -52,7 +52,7 @@ function fixture({option='不限平台', sourceCompany='来源公司', claimed=t
     w.document.getElementById('confirm').onclick=()=>{
       assert.equal(w.document.querySelector('textarea').value,good+'\n'+bad);
       assert.equal(w.document.querySelector('input[type="checkbox"]').checked,true);
-      assert.equal(w.document.querySelector('.ant-select-selection-item').textContent,'不限平台');
+      assert.equal(w.document.querySelector('.ant-select-selection-item').textContent,'不区分平台');
       submits++;
       w.document.body.insertAdjacentHTML('beforeend','<div role="dialog">'+
         '<div class="ant-modal-title">单号回收结果</div>回收成功1,回收失败1,不存在0'+
@@ -99,4 +99,13 @@ test('desktop rejects a different signed-in company before touching the form',as
   await assert.rejects(executeWaybillRecovery(f.options),/来源不一致/);
   assert.equal(f.submits(),0);
   assert.deepEqual(f.calls.map(call=>call.action),['prepare','result']);
+});
+
+test('a different platform option is never submitted', async t => {
+  const f = fixture({option:'淘宝'});
+  t.mock.method(globalThis, 'fetch', f.responses);
+  await assert.rejects(executeWaybillRecovery(f.options), /未提供「不区分平台」/);
+  assert.equal(f.submits(), 0);
+  assert.deepEqual(f.calls.map(call => call.action), ['prepare', 'result']);
+  assert.equal(f.calls.at(-1).data.submitted, false);
 });

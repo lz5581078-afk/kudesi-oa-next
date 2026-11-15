@@ -52,7 +52,7 @@ function interactWithRecoveryForm(action, numbers) {
   const forceInput=force?.querySelector('input[type="checkbox"]');
   const selected=selector?.querySelector('.ant-select-selection-item,.ant-cascader-picker-label,[class*="selection-item"]');
   const selectedText=clean(selected || selector);
-  const selectedPlatform=selectedText==='不限平台' || platform?.value==='不限平台';
+  const selectedPlatform=selectedText==='不区分平台' || platform?.value==='不区分平台';
   const exactNumbers=field?.value.split(/[\s,，]+/).filter(Boolean).join('\n')===numbers.join('\n');
 
   if(action==='open') {
@@ -75,7 +75,7 @@ function interactWithRecoveryForm(action, numbers) {
   }
   if(action==='choose') {
     if(selectedPlatform) return true;
-    const options=matches(document,'[role="option"],.ant-select-item-option,[class*="-select-item-option"],.ant-cascader-menu-item','不限平台');
+    const options=matches(document,'[role="option"],.ant-select-item-option,[class*="-select-item-option"],.ant-cascader-menu-item','不区分平台');
     return clickOnly(options.filter(node=>!options.some(other=>other!==node && node.contains(other))));
   }
   if(action==='fill') {
@@ -163,7 +163,7 @@ async function executeWaybillRecovery({origin,input,open,company}) {
     };
     if(!await step('open')) throw new Error('未找到唯一的聚水潭单号回收入口');
     await waitFor(()=>step('platform'),8_000,'聚水潭未打开按单回收表单');
-    await waitFor(()=>step('choose'),6_000,'当前聚水潭未提供「不限平台」选项');
+    await waitFor(()=>step('choose'),6_000,'当前聚水潭未提供「不区分平台」选项');
     await waitFor(()=>step('fill'),5_000,'未能填写指定运单或勾选强制回收');
     await waitFor(()=>step('ready'),5_000,'表单单号、平台或强制回收选项核对失败');
     if(await company(window)!==task.sourceCompany) throw new Error('聚水潭登录公司已变化');
