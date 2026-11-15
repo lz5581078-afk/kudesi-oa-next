@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('oaDesktop', Object.freeze({
   jushuitanStatus: () => invoke('jushuitanStatus'),
   ...(surface === 'after-sales' ? {
     cancelRead: () => invoke('cancelRead'),
+    recoverWaybills: input => invoke('recoverWaybills', input),
     openSourceAfterSales: () => invoke('openSourceAfterSales'),
     openOriginalSale: input => invoke('openOriginalSale', input),
     openOriginalOrder: input => invoke('openOriginalOrder', input),

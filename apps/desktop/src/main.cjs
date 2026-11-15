@@ -20,6 +20,7 @@ const {focusRecordingFrame,prepareJushuitanRecording,dismissJushuitanRecording}=
 const { locateJushuitanField } = require('./jushuitan-source-field.cjs');
 const {readGoodsImages,readPublicGoodsImage}=require('./goods-images.cjs');
 const {readAfterSalesPanel}=require('./after-sales-panels.cjs');
+const {executeWaybillRecovery}=require('./jushuitan-waybill-recovery.cjs');
 app.setAppUserModelId('com.kudesi.oa.desktop');
 let win, workspace, view, localHost, latestView, collector, localReader, latestReader, shot, tray, origin, jstSession, mounted = false, quitting = false;
 let sourceWindow, sourceWindowReader, pendingSource = process.argv.some(isAfterSalesSourceLaunch);
@@ -38,6 +39,7 @@ let sourceNavigationPending = false, sourceNavigation;
 let collectionPreferences={clientId:randomUUID(),enabled:false,paused:false};
 let collectionPreferenceWrites=Promise.resolve();
 let foregroundReads=0;
+let waybillRecoveryRunning=false;
 let foregroundRevision=0;
 let foregroundTask=0;
 let clearingSource=false;
@@ -60,6 +62,7 @@ function saveCollectionPreferences(next){
 }
 
 async function runForeground(action){
+  if(waybillRecoveryRunning) throw new Error('聚水潭正在回收单号，请稍后再查');
   localReader?.cancelPending();sourceWindowReader?.cancelPending();
   readGeneration++;
   foregroundReads++;
@@ -849,6 +852,33 @@ ipcMain.handle('oa:desktop',async(event,command,value)=>{
       if(!foreground)throw new Error('请在实时售后窗口读取明细');
       return runForeground(()=>localReader.panel(value));
     }
+    case 'recoverWaybills': {
+      if(!foreground) throw new Error('请在 OA 桌面售后窗口执行回收');
+      if(sourceBusy()) throw new Error('聚水潭窗口正在使用，请稍后重试');
+      waybillRecoveryRunning=true;
+      foregroundReads++;
+      foregroundRevision++;
+      try {
+        return await executeWaybillRecovery({
+          origin,input:value,
+          open:async ()=>{
+            const target=new BrowserWindow({show:false,width:1200,height:850,webPreferences:{
+              session:jstSession,sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false,
+            }});
+            guardJst(target.webContents);
+            target.once('closed',()=>sourceLoads.delete(target));
+            try {await ensureView(target);return target;}
+            catch(error){target.destroy();throw error;}
+          },
+          company:async target=>{
+            const state=await sourceStatus(target);
+            if(state.state==='authenticated') return state.sourceCompany;
+            const ready=await prepare(target,false,true);
+            return ready.sourceCompany;
+          },
+        });
+      } finally {waybillRecoveryRunning=false;foregroundReads--;}
+    }
     case 'openSourceWindow': return openSourceWindow();
     case 'preferences': return {shortcut:accelerator,registered:globalShortcut.isRegistered(accelerator),collection:collectionPreferences};
     case 'collection': {
@@ -930,6 +960,7 @@ ipcMain.handle('oa:desktop',async(event,command,value)=>{
       await fs.writeFile(path.join(app.getPath('userData'),'shortcut.json'),JSON.stringify({accelerator:value}));return true;
     }
     case 'clearLogin':
+      if(waybillRecoveryRunning) throw new Error('请等待聚水潭单号回收任务结束');
       if(clearingSource)return false;
       clearingSource=true;
       try{
