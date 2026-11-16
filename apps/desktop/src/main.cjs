@@ -22,6 +22,7 @@ const {readGoodsImages,readPublicGoodsImage}=require('./goods-images.cjs');
 const {readAfterSalesPanel}=require('./after-sales-panels.cjs');
 const {executeWaybillRecovery}=require('./jushuitan-waybill-recovery.cjs');
 const {readOrderRemark,executeOrderRemark}=require('./jushuitan-order-remark.cjs');
+const {assertDedicatedTaskAvailable}=require('./source-task-gate.cjs');
 app.setAppUserModelId('com.kudesi.oa.desktop');
 let win, workspace, view, localHost, latestView, collector, localReader, latestReader, shot, tray, origin, jstSession, mounted = false, quitting = false;
 let sourceWindow, sourceWindowReader, pendingSource = process.argv.some(isAfterSalesSourceLaunch);
@@ -857,8 +858,8 @@ ipcMain.handle('oa:desktop',async(event,command,value)=>{
     case 'readOrderRemark':
     case 'saveOrderRemark':
     case 'recoverWaybills': {
-      if(!foreground) throw new Error('请在 OA 桌面售后窗口执行回收');
-      if(sourceBusy()) throw new Error('聚水潭窗口正在使用，请稍后重试');
+      if(!foreground) throw new Error('请在 OA 桌面售后窗口执行此操作');
+      assertDedicatedTaskAvailable(command,{clearingSource,writeRunning:waybillRecoveryRunning,sharedWindowBusy:sourceBusy()});
       waybillRecoveryRunning=true;
       foregroundReads++;
       foregroundRevision++;
