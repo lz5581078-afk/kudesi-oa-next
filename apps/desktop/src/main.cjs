@@ -21,6 +21,7 @@ const { locateJushuitanField } = require('./jushuitan-source-field.cjs');
 const {readGoodsImages,readPublicGoodsImage}=require('./goods-images.cjs');
 const {readAfterSalesPanel}=require('./after-sales-panels.cjs');
 const {executeWaybillRecovery}=require('./jushuitan-waybill-recovery.cjs');
+const {readOrderRemark,executeOrderRemark}=require('./jushuitan-order-remark.cjs');
 app.setAppUserModelId('com.kudesi.oa.desktop');
 let win, workspace, view, localHost, latestView, collector, localReader, latestReader, shot, tray, origin, jstSession, mounted = false, quitting = false;
 let sourceWindow, sourceWindowReader, pendingSource = process.argv.some(isAfterSalesSourceLaunch);
@@ -62,7 +63,7 @@ function saveCollectionPreferences(next){
 }
 
 async function runForeground(action){
-  if(waybillRecoveryRunning) throw new Error('聚水潭正在回收单号，请稍后再查');
+  if(waybillRecoveryRunning) throw new Error('聚水潭正在执行写入任务，请稍后再查');
   localReader?.cancelPending();sourceWindowReader?.cancelPending();
   readGeneration++;
   foregroundReads++;
@@ -355,6 +356,7 @@ function handleLaunch(args=[]) {
   else openMain();
 }
 function openSourceWindow(autoEnter=true){
+  if(waybillRecoveryRunning)throw new Error('聚水潭正在执行写入任务，请稍后打开原页面');
   if(clearingSource)return false;
   foregroundRevision++;
   if(sourceWindow&&!sourceWindow.isDestroyed()){
@@ -852,6 +854,8 @@ ipcMain.handle('oa:desktop',async(event,command,value)=>{
       if(!foreground)throw new Error('请在实时售后窗口读取明细');
       return runForeground(()=>localReader.panel(value));
     }
+    case 'readOrderRemark':
+    case 'saveOrderRemark':
     case 'recoverWaybills': {
       if(!foreground) throw new Error('请在 OA 桌面售后窗口执行回收');
       if(sourceBusy()) throw new Error('聚水潭窗口正在使用，请稍后重试');
@@ -859,7 +863,8 @@ ipcMain.handle('oa:desktop',async(event,command,value)=>{
       foregroundReads++;
       foregroundRevision++;
       try {
-        return await executeWaybillRecovery({
+        const execute=command==='readOrderRemark'?readOrderRemark:command==='saveOrderRemark'?executeOrderRemark:executeWaybillRecovery;
+        return await execute({
           origin,input:value,
           open:async ()=>{
             const target=new BrowserWindow({show:false,width:1200,height:850,webPreferences:{
@@ -875,6 +880,17 @@ ipcMain.handle('oa:desktop',async(event,command,value)=>{
             if(state.state==='authenticated') return state.sourceCompany;
             const ready=await prepare(target,false,true);
             return ready.sourceCompany;
+          },
+          locate:async(target,identity,reload)=>{
+            if(reload)await target.loadURL('https://www.erp321.com/epaas');
+            const reader=createReader(target.webContents,(wait=true)=>prepare(target,false,wait),requestWatch.forContents(target.webContents.id),recordPlaybackIndicators);
+            return reader.order(identity,async frame=>{
+              const original=await frame.executeJavaScript('('+locateJushuitanField.toString()+')(...'+JSON.stringify([identity.afterSaleId,'原订单备注/旗帜',false,'read'])+')');
+              if(!original||typeof original.remark!=='string')throw new Error('原订单备注列未完整显示，请在聚水潭显示该列');
+              const opened=await frame.executeJavaScript('('+locateJushuitanField.toString()+')(...'+JSON.stringify([identity.afterSaleId,'原订单备注/旗帜',false,'open'])+')',true);
+              if(!opened)throw new Error('未找到这笔订单的原备注编辑入口');
+              return {frame,original};
+            });
           },
         });
       } finally {waybillRecoveryRunning=false;foregroundReads--;}
@@ -960,7 +976,7 @@ ipcMain.handle('oa:desktop',async(event,command,value)=>{
       await fs.writeFile(path.join(app.getPath('userData'),'shortcut.json'),JSON.stringify({accelerator:value}));return true;
     }
     case 'clearLogin':
-      if(waybillRecoveryRunning) throw new Error('请等待聚水潭单号回收任务结束');
+      if(waybillRecoveryRunning) throw new Error('请等待聚水潭写入任务结束');
       if(clearingSource)return false;
       clearingSource=true;
       try{

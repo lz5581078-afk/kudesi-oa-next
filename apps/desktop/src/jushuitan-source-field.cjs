@@ -88,6 +88,12 @@ function locateJushuitanField(afterSaleId, column, openVideo = false, action = '
       if (openVideo) return activateVideo(row);
       const cell = row.children[columnIndex];
       if (!visible(cell)) continue;
+      if(action==='read'&&column==='原订单备注/旗帜'){
+        const copy=cell.cloneNode(true);
+        copy.querySelectorAll('svg,button,[role="button"]').forEach(node=>node.remove());
+        copy.querySelectorAll('br').forEach(node=>node.replaceWith('\n'));
+        return {remark:String(copy.textContent??'').replace(/\r\n?/g,'\n').trim()};
+      }
       if(action==='attachment'||(action==='open'&&(pencilColumns.has(column)||column==='操作'||column==='拒绝原因'))){
         const matches=fieldControl(cell);
         return matches.length===1&&activate(matches[0]);
@@ -121,7 +127,8 @@ function locateJushuitanField(afterSaleId, column, openVideo = false, action = '
     }
     if (!validHeaders(headings)) continue;
     const rows = [...table.tBodies].flatMap(body=>[...body.rows]);
-    if (selectCell(rows, headings)) return true;
+    const result=selectCell(rows, headings);
+    if (result) return result;
   }
 
   const legacyHeaders = new Set([...document.querySelectorAll('._jt_cell_head')].map(element=>element.parentElement));
@@ -130,7 +137,8 @@ function locateJushuitanField(afterSaleId, column, openVideo = false, action = '
     if (!validHeaders(headings)) continue;
     let scope = header.parentElement;
     for (let depth=0; scope && !scope.querySelector('._jt_row') && depth<4; depth++) scope=scope.parentElement;
-    if (scope && selectCell(scope.querySelectorAll('._jt_row'), headings)) return true;
+    const result=scope&&selectCell(scope.querySelectorAll('._jt_row'), headings);
+    if (result) return result;
   }
   return false;
 }
