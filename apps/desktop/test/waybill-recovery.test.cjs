@@ -25,9 +25,16 @@ test('a mixed result with an absent number cannot identify which other number su
     [{number:good,status:'failed',message:'聚水潭未找到这个运单号'}]);
 });
 
-function fixture({option='不区分平台', sourceCompany='来源公司', claimed=true}={}) {
+function fixture({option='不区分平台', sourceCompany='来源公司', claimed=true, delayed=false, icon=false, duplicate=false}={}) {
   const dom=new JSDOM('<button id="open">单号回收</button>',{runScripts:'outside-only'});
   const w=dom.window;
+  const entry=w.document.getElementById('open');
+  if(icon) entry.innerHTML='<svg aria-hidden="true"></svg>单号回收';
+  if(duplicate) w.document.body.insertAdjacentHTML('beforeend','<a>单号回收</a>');
+  if(delayed) {
+    entry.hidden=true;
+    setTimeout(()=>{entry.hidden=false;},450);
+  }
   w.HTMLElement.prototype.getClientRects=function(){
     return this.closest('[hidden]')?[]:[{}];
   };
@@ -83,6 +90,30 @@ test('desktop submits the exact two numbers and reports each result to OA',async
   assert.deepEqual(f.calls.map(call=>call.action),['prepare','begin','result']);
   assert.equal(f.calls[2].data.submitted,true);
   assert.deepEqual(rows,[{number:good,status:'succeeded'},{number:bad,status:'failed',message:'已发货'}]);
+});
+
+test('waits for the menu rendered after its iframe exists',async t=>{
+  const f=fixture({delayed:true});
+  t.mock.method(globalThis,'fetch',f.responses);
+  await executeWaybillRecovery(f.options);
+  assert.equal(f.submits(),1);
+  assert.deepEqual(f.calls.map(call=>call.action),['prepare','begin','result']);
+});
+
+test('finds a unique exact menu label with a decorative child icon',async t=>{
+  const f=fixture({icon:true});
+  t.mock.method(globalThis,'fetch',f.responses);
+  await executeWaybillRecovery(f.options);
+  assert.equal(f.submits(),1);
+});
+
+test('distinct duplicate visible entries fail before claiming or submitting',async t=>{
+  const f=fixture({duplicate:true});
+  t.mock.method(globalThis,'fetch',f.responses);
+  await assert.rejects(executeWaybillRecovery(f.options),/多个单号回收入口/);
+  assert.equal(f.submits(),0);
+  assert.deepEqual(f.calls.map(call=>call.action),['prepare','result']);
+  assert.equal(f.calls.at(-1).data.submitted,false);
 });
 
 test('OA claim rejection leaves the ERP form unsubmitted',async t=>{

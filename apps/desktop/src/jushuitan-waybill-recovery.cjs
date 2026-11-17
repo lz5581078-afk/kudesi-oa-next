@@ -57,7 +57,13 @@ function interactWithRecoveryForm(action, numbers) {
 
   if(action==='open') {
     if(form) return true;
-    return clickOnly(matches(document,'button,a,span,div,p','单号回收').filter(node=>!node.children.length));
+    if(forms.length>1) throw new Error('聚水潭同时显示多个单号回收窗口，未提交回收');
+    // An icon inside a menu label is not a second entry. Keep the innermost
+    // exact label, but never guess between two distinct visible entries.
+    const labels=matches(document,'button,a,span,div,p,[role="menuitem"]','单号回收');
+    const entries=labels.filter(node=>!labels.some(other=>other!==node&&node.contains(other)));
+    if(entries.length>1) throw new Error('聚水潭显示多个单号回收入口，无法唯一确定，未提交回收');
+    return clickOnly(entries);
   }
   if(!form) return false;
   if(action==='platform') {
@@ -161,7 +167,9 @@ async function executeWaybillRecovery({origin,input,open,company}) {
       if(!isRecoveryHomeFrame(frame.url)) throw new Error('聚水潭首页已变化');
       return frame.executeJavaScript('('+interactWithRecoveryForm.toString()+')(...'+JSON.stringify([action,task.numbers])+')');
     };
-    if(!await step('open')) throw new Error('未找到唯一的聚水潭单号回收入口');
+    // The frame exists before its asynchronously loaded menu. Retry discovery
+    // only; once an entry is clicked, do not click it again while the form loads.
+    await waitFor(()=>step('open'),12_000,'聚水潭首页加载后仍未显示单号回收入口，请核对该账号菜单权限；未提交回收');
     await waitFor(()=>step('platform'),8_000,'聚水潭未打开按单回收表单');
     await waitFor(()=>step('choose'),6_000,'当前聚水潭未提供「不区分平台」选项');
     await waitFor(()=>step('fill'),5_000,'未能填写指定运单或勾选强制回收');
