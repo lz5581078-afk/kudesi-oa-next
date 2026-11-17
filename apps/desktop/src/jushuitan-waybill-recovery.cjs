@@ -58,6 +58,17 @@ function interactWithRecoveryForm(action, numbers) {
   if(action==='open') {
     if(form) return true;
     if(forms.length>1) throw new Error('聚水潭同时显示多个单号回收窗口，未提交回收');
+    if(dialogs.length) {
+      const reminders=dialogs.filter(dialog=>clean(dialog.querySelector('.ant-modal-title,[class$="-modal-title"],[id^="rcDialogTitle"]'))==='订购到期或即将到期店铺/异常提醒');
+      if(dialogs.length===1 && reminders.length===1) {
+        // Close this observed informational overlay only. Do not follow its
+        // purchase, reauthorize, or permanent "do not remind" actions.
+        const close=[...reminders[0].querySelectorAll('button[aria-label="Close"],button[aria-label="关闭"]')]
+          .filter(button=>visible(button)&&!button.disabled);
+        if(clickOnly(close)) return false;
+      }
+      throw new Error('聚水潭首页有未处理弹窗，请关闭提示后重试；未提交回收');
+    }
     // An icon inside a menu label is not a second entry. Keep the innermost
     // exact label, but never guess between two distinct visible entries.
     const labels=matches(document,'button,a,span,div,p,[role="menuitem"]','单号回收');

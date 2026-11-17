@@ -25,10 +25,18 @@ test('a mixed result with an absent number cannot identify which other number su
     [{number:good,status:'failed',message:'聚水潭未找到这个运单号'}]);
 });
 
-function fixture({option='不区分平台', sourceCompany='来源公司', claimed=true, delayed=false, icon=false, duplicate=false}={}) {
+function fixture({option='不区分平台', sourceCompany='来源公司', claimed=true, delayed=false, icon=false, duplicate=false, reminder=false, unknownDialog=false}={}) {
   const dom=new JSDOM('<button id="open">单号回收</button>',{runScripts:'outside-only'});
   const w=dom.window;
   const entry=w.document.getElementById('open');
+  if(reminder || unknownDialog) {
+    entry.setAttribute('aria-hidden','true');
+    w.document.body.insertAdjacentHTML('beforeend','<div role="dialog"><div class="ant-modal-title">'+
+      (reminder?'订购到期或即将到期店铺/异常提醒':'其他确认')+'</div><button aria-label="Close">关闭</button></div>');
+    w.document.querySelector('[aria-label="Close"]').onclick=()=>{
+      w.document.querySelector('[role="dialog"]').remove();entry.removeAttribute('aria-hidden');
+    };
+  }
   if(icon) entry.innerHTML='<svg aria-hidden="true"></svg>单号回收';
   if(duplicate) w.document.body.insertAdjacentHTML('beforeend','<a>单号回收</a>');
   if(delayed) {
@@ -114,6 +122,22 @@ test('distinct duplicate visible entries fail before claiming or submitting',asy
   assert.equal(f.submits(),0);
   assert.deepEqual(f.calls.map(call=>call.action),['prepare','result']);
   assert.equal(f.calls.at(-1).data.submitted,false);
+});
+
+test('closes only the observed expiry reminder before discovering the inert homepage entry',async t=>{
+  const f=fixture({reminder:true});
+  t.mock.method(globalThis,'fetch',f.responses);
+  await executeWaybillRecovery(f.options);
+  assert.equal(f.submits(),1);
+  assert.deepEqual(f.calls.map(call=>call.action),['prepare','begin','result']);
+});
+
+test('unknown dialogs are never automatically confirmed or dismissed',async t=>{
+  const f=fixture({unknownDialog:true});
+  t.mock.method(globalThis,'fetch',f.responses);
+  await assert.rejects(executeWaybillRecovery(f.options),/未处理弹窗/);
+  assert.equal(f.submits(),0);
+  assert.deepEqual(f.calls.map(call=>call.action),['prepare','result']);
 });
 
 test('OA claim rejection leaves the ERP form unsubmitted',async t=>{
