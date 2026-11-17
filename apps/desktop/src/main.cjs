@@ -859,7 +859,7 @@ ipcMain.handle('oa:desktop',async(event,command,value)=>{
     case 'saveOrderRemark':
     case 'recoverWaybills': {
       if(!foreground) throw new Error('请在 OA 桌面售后窗口执行此操作');
-      assertDedicatedTaskAvailable(command,{clearingSource,writeRunning:waybillRecoveryRunning,sharedWindowBusy:sourceBusy()});
+      assertDedicatedTaskAvailable({clearingSource,writeRunning:waybillRecoveryRunning});
       waybillRecoveryRunning=true;
       foregroundReads++;
       foregroundRevision++;
