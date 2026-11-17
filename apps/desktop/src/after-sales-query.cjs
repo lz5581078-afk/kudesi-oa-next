@@ -161,8 +161,11 @@ function createReader(contents,ensure,watch,observeRecordings){
   }
   return null;
  }
- async function openCurrent(){
-  if(await listFrame('current'))return true;
+ async function openCurrent(canContinue=()=>true){
+  if(!canContinue())return false;
+  const current=await listFrame('current');
+  if(!canContinue())return false;
+  if(current)return true;
   if(!allowedJst(contents.mainFrame.url))return false;
   const result=await runDom(contents.mainFrame,'navigate',{kind:'current'});
   return result.opened;
@@ -173,16 +176,28 @@ function createReader(contents,ensure,watch,observeRecordings){
   if(!current?.sourceCompany)throw new Error('聚水潭尚未登录或登录已失效，请打开连接窗口完成登录');
   if(current.sourceCompany!==sourceCompany)throw new Error('聚水潭公司与已确认来源不一致，已停止读取');
  }
- async function ready(query){
-  checkpoint();
-  assertCompany(await ensure(),query.sourceCompany);
-  checkpoint();
+ async function ready(query,check=checkpoint){
+  check();
+  const session=await ensure();
+  check();
+  assertCompany(session,query.sourceCompany);
   const currentList=await listFrame(query.kind);
+  check();
   if(currentList)return currentList;
   const navigate=()=>runDom(contents.mainFrame,'navigate',query);
   let navigation=await navigate();
-  const until=Date.now()+20000;let f,attempts=0;
-  while(Date.now()<until){checkpoint();await pause(350);checkpoint();if(!navigation.opened&&attempts++<20)navigation=await navigate();f=await listFrame(query.kind);if(navigation.opened&&f)return f;}
+  const until=Date.now()+20000;
+  let attempts=0;
+  while(Date.now()<until){
+   check();
+   await pause(350);
+   check();
+   if(!navigation.opened&&attempts++<20)navigation=await navigate();
+   check();
+   const frame=await listFrame(query.kind);
+   check();
+   if(navigation.opened&&frame)return frame;
+  }
   throw new Error('售后页面未就绪，请在本机连接窗口打开对应售后列表');
  }
  async function settled(f,{localPage=false,shouldContinue,exactSale}){
@@ -191,6 +206,7 @@ function createReader(contents,ensure,watch,observeRecordings){
   while(Date.now()<until){
    shouldContinue();
    const s=await runDom(f,'state');
+   shouldContinue();
    if(s.error)throw new Error('聚水潭查询失败：'+s.error);
    const transport=watch?.state();
    if(lastRequest!==transport?.started){stable=0;lastRequest=transport?.started;}
@@ -219,7 +235,7 @@ function createReader(contents,ensure,watch,observeRecordings){
   shouldContinue=()=>{checkpoint();externalCheck();};
   shouldContinue();
   panelRow=undefined;
-  const query=validateQuery(input,latest),f=await ready(query);
+  const query=validateQuery(input,latest),f=await ready(query,shouldContinue);
   const recordings=observeRecordings&&query.kind==='current'&&new URL(f.url).pathname==='/afterSales'
    ? (command,ids)=>f.executeJavaScript(`(${expressRecordingResponse.toString()})(${JSON.stringify(command)},${JSON.stringify(ids??[])})`).catch(()=>[])
    : null;

@@ -17,6 +17,23 @@ test('a disposed ERP frame does not hide the current after-sales list',async()=>
  current.framesInSubtree=[gone,current];
  assert.equal(await createReader({mainFrame:current}).hasCurrent(),true);
 });
+test('background preparation does not navigate once a priority task starts during frame inspection',async()=>{
+ const {createReader}=require('../src/after-sales-query.cjs');
+ const d=dom('<button>售后（极速版）</button>','https://www.erp321.com/epaas');
+ let canContinue=true, clicks=0;
+ d.window.document.querySelector('button').onclick=()=>clicks++;
+ const frame={url:'https://www.erp321.com/epaas',parent:null,executeJavaScript:async script=>{
+  const result=d.window.eval(script);
+  if(script.includes('"state"'))canContinue=false;
+  return result;
+ }};
+ frame.framesInSubtree=[frame];
+ try {
+  assert.equal(await createReader({mainFrame:frame}).openCurrent(()=>canContinue),false);
+  assert.equal(canContinue,false);
+  assert.equal(clicks,0);
+ }finally{d.window.close();}
+});
 test('query only clicks safe search controls and never financial operation buttons',()=>{
  const d=dom('<table><thead><tr><th>售后单号</th><th>内部订单号</th></tr></thead></table><input placeholder="请输入售后单号"><button id="search">搜索</button><button id="refund">同意退款</button><button id="receipt">确认收货</button>');
  let searched=0,financial=0;d.window.document.querySelector('#search').onclick=()=>searched++;for(const id of ['refund','receipt'])d.window.document.getElementById(id).onclick=()=>financial++;

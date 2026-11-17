@@ -42,6 +42,7 @@ let collectionPreferences={clientId:randomUUID(),enabled:false,paused:false};
 let collectionPreferenceWrites=Promise.resolve();
 let foregroundReads=0;
 let waybillRecoveryRunning=false;
+let activeRemarkRead;
 let foregroundRevision=0;
 let foregroundTask=0;
 let clearingSource=false;
@@ -63,13 +64,19 @@ function saveCollectionPreferences(next){
   return saved;
 }
 
-async function runForeground(action){
-  if(waybillRecoveryRunning) throw new Error('聚水潭正在执行写入任务，请稍后再查');
-  localReader?.cancelPending();sourceWindowReader?.cancelPending();
+function cancelForegroundReads(){
+  localReader?.cancelPending();
+  sourceWindowReader?.cancelPending();
   readGeneration++;
-  foregroundReads++;
   foregroundRevision++;
-  const task=++foregroundTask;
+  foregroundTask++;
+}
+
+async function runForeground(action){
+  if(waybillRecoveryRunning||activeRemarkRead) throw new Error('聚水潭窗口正在处理任务，请稍后再查');
+  cancelForegroundReads();
+  foregroundReads++;
+  const task=foregroundTask;
   try{const result=await action();if(task!==foregroundTask)throw new Error('Query superseded');return result;}
   finally{foregroundReads--;}
 }
@@ -140,12 +147,16 @@ async function prepare(target,retryLogin=false,wait=false){
   return {...status,sourceCompany:status.sourceCompany??''};
 }
 async function prepareCollection(){
- if(sourceBusy()||collectionPreferences.paused)return {sourceCompany:''};
+ const revision=foregroundRevision;
+ const canContinue=()=>revision===foregroundRevision&&!sourceBusy()&&!collectionPreferences.paused;
+ if(!canContinue())return {sourceCompany:''};
  const result=await prepare(latestView,true);
+ if(!canContinue())return {sourceCompany:''};
  if(!result.sourceCompany)return result;
- if(await latestReader.hasCurrent())return result;
- await latestReader.openCurrent();
- return await latestReader.hasCurrent()?result:{sourceCompany:''};
+ await latestReader.openCurrent(canContinue);
+ if(!canContinue())return {sourceCompany:''};
+ const hasCurrent=await latestReader.hasCurrent();
+ return hasCurrent&&canContinue()?result:{sourceCompany:''};
 }
 const icon = path.join(__dirname, '../build/icon.png');
 function reloadPage(contents, ignoreCache = false) {
@@ -374,8 +385,9 @@ function openSourceWindow(autoEnter=true){
     if(entering||target.oaOpeningSale)return;
     entering=true;
     try{
-      for(let attempt=0;attempt<20&&!target.isDestroyed()&&!target.oaOpeningSale;attempt++){
-        try{if(await reader.openCurrent())break;}catch{/* login or ERP tabs are still loading */}
+      const canContinue=()=>!waybillRecoveryRunning&&!target.isDestroyed()&&!target.oaOpeningSale;
+      for(let attempt=0;attempt<20&&canContinue();attempt++){
+        try{if(await reader.openCurrent(canContinue))break;}catch{/* login or ERP tabs are still loading */}
         await new Promise(resolve=>setTimeout(resolve,400));
       }
     }finally{entering=false;}
@@ -601,11 +613,13 @@ async function createWindow() {
 function openSourceAfterSales(){
   if(!mounted)return false;
   sourceNavigationPending=true;
+  if(waybillRecoveryRunning)return false;
   if(!sourceNavigation)sourceNavigation=(async()=>{
     await ensureView(view);
-    for(let attempt=0;attempt<20&&mounted&&sourceNavigationPending;attempt++){
+    const canContinue=()=>!waybillRecoveryRunning&&mounted&&sourceNavigationPending;
+    for(let attempt=0;attempt<20&&canContinue();attempt++){
       try{
-        if(await localReader.openCurrent()){sourceNavigationPending=false;return true;}
+        if(await localReader.openCurrent(canContinue)&&canContinue()){sourceNavigationPending=false;return true;}
       }catch{/* The original site may be navigating after sign-in. */}
       await new Promise(resolve=>setTimeout(resolve,400));
     }
@@ -758,7 +772,7 @@ ipcMain.handle('oa:desktop',async(event,command,value)=>{
   switch(command) {
     case 'cancelRead': {
       if(!foreground)throw new Error('无权限取消售后查询');
-      localReader?.cancelPending();sourceWindowReader?.cancelPending();readGeneration++;foregroundRevision++;foregroundTask++;return true;
+      cancelForegroundReads();return true;
     }
     case 'copyText': return writeTextClipboard(value);
     case 'mount': {
@@ -859,22 +873,35 @@ ipcMain.handle('oa:desktop',async(event,command,value)=>{
     case 'saveOrderRemark':
     case 'recoverWaybills': {
       if(!foreground) throw new Error('请在 OA 桌面售后窗口执行此操作');
-      assertDedicatedTaskAvailable({clearingSource,writeRunning:waybillRecoveryRunning});
-      waybillRecoveryRunning=true;
+      const recovering=command==='recoverWaybills';
+      const readingRemark=command==='readOrderRemark';
+      assertDedicatedTaskAvailable({clearingSource,writeRunning:waybillRecoveryRunning||(!recovering&&!!activeRemarkRead)});
+      const remarkRead=readingRemark?new AbortController():undefined;
+      if(remarkRead)activeRemarkRead=remarkRead;
+      else waybillRecoveryRunning=true;
       foregroundReads++;
-      foregroundRevision++;
+      if(recovering){
+        cancelForegroundReads();
+        activeRemarkRead?.abort(new Error('已优先处理快递单号回收，请稍后重查备注'));
+      } else foregroundRevision++;
       try {
         const execute=command==='readOrderRemark'?readOrderRemark:command==='saveOrderRemark'?executeOrderRemark:executeWaybillRecovery;
-        return await execute({
+        const result=await execute({
           origin,input:value,
           open:async ()=>{
+            remarkRead?.signal.throwIfAborted();
             const target=new BrowserWindow({show:false,width:1200,height:850,webPreferences:{
               session:jstSession,sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false,
             }});
             guardJst(target.webContents);
-            target.once('closed',()=>sourceLoads.delete(target));
+            const closeRead=()=>{if(!target.isDestroyed())target.destroy();};
+            remarkRead?.signal.addEventListener('abort',closeRead,{once:true});
+            target.once('closed',()=>{
+              sourceLoads.delete(target);
+              remarkRead?.signal.removeEventListener('abort',closeRead);
+            });
             try {await ensureView(target);return target;}
-            catch(error){target.destroy();throw error;}
+            catch(error){closeRead();throw error;}
           },
           company:async target=>{
             const state=await sourceStatus(target);
@@ -894,7 +921,18 @@ ipcMain.handle('oa:desktop',async(event,command,value)=>{
             });
           },
         });
-      } finally {waybillRecoveryRunning=false;foregroundReads--;}
+        remarkRead?.signal.throwIfAborted();
+        return result;
+      } catch(error) {
+        remarkRead?.signal.throwIfAborted();
+        throw error;
+      } finally {
+        if(remarkRead){
+          if(activeRemarkRead===remarkRead)activeRemarkRead=undefined;
+        }else waybillRecoveryRunning=false;
+        foregroundReads--;
+        if(sourceNavigationPending)void openSourceAfterSales().catch(()=>{});
+      }
     }
     case 'openSourceWindow': return openSourceWindow();
     case 'preferences': return {shortcut:accelerator,registered:globalShortcut.isRegistered(accelerator),collection:collectionPreferences};
@@ -939,6 +977,7 @@ ipcMain.handle('oa:desktop',async(event,command,value)=>{
       return latestReader.query(value,true,check);
     }
     case 'refresh': {
+      if(waybillRecoveryRunning)throw new Error('聚水潭正在执行写入任务，请稍后刷新');
       if(mounted)sourceNavigationPending=true;
       if(sourceLoads.has(view))view.webContents.reload();else await ensureView(view);
       return true;
@@ -958,6 +997,7 @@ ipcMain.handle('oa:desktop',async(event,command,value)=>{
       return runForeground(()=>kind==='sale'?localReader.sale(identity,readDetail,{includeHistory:true}):localReader.order(identity,readDetail));
     }
     case 'openOrder': {
+      if(waybillRecoveryRunning)throw new Error('聚水潭正在执行写入任务，请稍后打开原单');
       readGeneration++;
       if(typeof value!=='string' || !/^\d{4,40}$/.test(value)) throw new Error('订单号无效');
       for (const frame of view.webContents.mainFrame.framesInSubtree) if(allowedJst(frame.url)&&await activeFrame(frame)) {
@@ -977,7 +1017,7 @@ ipcMain.handle('oa:desktop',async(event,command,value)=>{
       await fs.writeFile(path.join(app.getPath('userData'),'shortcut.json'),JSON.stringify({accelerator:value}));return true;
     }
     case 'clearLogin':
-      if(waybillRecoveryRunning) throw new Error('请等待聚水潭写入任务结束');
+      if(waybillRecoveryRunning||activeRemarkRead) throw new Error('请等待聚水潭任务结束');
       if(clearingSource)return false;
       clearingSource=true;
       try{
