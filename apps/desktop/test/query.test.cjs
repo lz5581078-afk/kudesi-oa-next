@@ -34,6 +34,37 @@ test('background preparation does not navigate once a priority task starts durin
   assert.equal(clicks,0);
  }finally{d.window.close();}
 });
+test('navigation skips hidden duplicate shortcuts and opens the visible express list',()=>{
+ const d=dom('<div class="groupItemWrap" style="visibility:hidden"><span>售后（极速版）</span></div><button>售后（极速版）</button>');
+ const clicks=[];
+ d.window.document.querySelector('div').onclick=()=>clicks.push('hidden');
+ d.window.document.querySelector('button').onclick=()=>clicks.push('visible');
+ try{
+  assert.equal(d.window.eval(`(${domQuery.toString()})('navigate',{kind:'current'})`).opened,true);
+  assert.deepEqual(clicks,['visible']);
+ }finally{d.window.close();}
+});
+test('a verified list can become ready without a successful menu click',async()=>{
+ const {createReader}=require('../src/after-sales-query.cjs');
+ const d=dom('<p>演示公司 [客服]</p><button>搜索</button><table hidden><thead><tr><th>售后单号</th><th>内部订单号</th></tr></thead></table><div>共0条</div>');
+ const table=d.window.document.querySelector('table');
+ let navigationAttempts=0;
+ const frame={url:'https://www.erp321.com/epaas',executeJavaScript:async script=>{
+  if(script.includes(')("navigate",')){
+   assert.equal(++navigationAttempts,1);
+   table.hidden=false;
+   return {opened:false};
+  }
+  if(script.includes(')("state",')&&table.hidden)return {hasList:false};
+  return d.window.eval(script);
+ }};
+ frame.framesInSubtree=[frame];
+ try{
+  const result=await createReader({mainFrame:frame},async()=>({state:'authenticated',sourceCompany:base.sourceCompany})).query(base);
+  assert.deepEqual(result.records,[]);
+  assert.equal(navigationAttempts,1);
+ }finally{d.window.close();}
+});
 test('query only clicks safe search controls and never financial operation buttons',()=>{
  const d=dom('<table><thead><tr><th>售后单号</th><th>内部订单号</th></tr></thead></table><input placeholder="请输入售后单号"><button id="search">搜索</button><button id="refund">同意退款</button><button id="receipt">确认收货</button>');
  let searched=0,financial=0;d.window.document.querySelector('#search').onclick=()=>searched++;for(const id of ['refund','receipt'])d.window.document.getElementById(id).onclick=()=>financial++;

@@ -42,8 +42,8 @@ function domQuery(command,query){
    return {opened:false};
   }
   const names=query.kind==='history'?['历史售后退货退款','历史售后单']:['售后（极速版）','售后(极速版)'];
-  const matches=[...document.querySelectorAll('a,button,span,div,li,p,[role="menuitem"]')].filter(e=>names.some(s=>exact(e,s)));
-  const entry=matches.map(e=>e.closest('[class*="groupItemWrap"]')||e.querySelector('[class*="groupItemWrap"]')).find(Boolean)||matches.find(visible);
+  const matches=[...document.querySelectorAll('a,button,span,div,li,p,[role="menuitem"]')].filter(e=>visible(e)&&names.some(s=>exact(e,s)));
+  const entry=matches.map(e=>e.closest('[class*="groupItemWrap"]')||e.querySelector('[class*="groupItemWrap"]')).find(visible)||matches[0];
   if(entry){entry.click();return {opened:true};}
   return {opened:false};
  }
@@ -192,13 +192,13 @@ function createReader(contents,ensure,watch,observeRecordings){
    check();
    await pause(350);
    check();
-   if(!navigation.opened&&attempts++<20)navigation=await navigate();
-   check();
    const frame=await listFrame(query.kind);
    check();
-   if(navigation.opened&&frame)return frame;
+   if(frame)return frame;
+   if(!navigation.opened&&attempts++<20)navigation=await navigate();
   }
-  throw new Error('售后页面未就绪，请在本机连接窗口打开对应售后列表');
+  const listName={current:'售后（极速版）',history:'历史售后列表',classic:'售后退货退款'}[query.kind];
+  throw new Error(`聚水潭「${listName}」未就绪，请打开该列表后重试`);
  }
  async function settled(f,{localPage=false,shouldContinue,exactSale}){
   let stable=0,lastRequest;
