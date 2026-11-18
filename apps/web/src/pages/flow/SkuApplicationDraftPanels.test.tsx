@@ -14,7 +14,7 @@ const row:BatchBoard['items'][number]={runId:8,canEditDraft:true,specIndex:0,spe
 const board=(items=[row]):BatchBoard=>({ref:'Bdraft',batchKey:'Bdraft',batchName:'合成草稿',requesterName:'合成运营',total:items.length,runCount:items.length,applicationHeader:header,counts:{draft:items.length,running:0,completed:0,ended:0,returned:0,mine:0},me:{isRequester:true,holdStepKey:null,holdStepName:'',holdCount:0,canReturnAll:false},items,history:[]});
 const detail:RunDetailDto={id:8,templateKey:'sku-batch-apply',templateLabel:'SKU批量申请',title:'合成草稿',status:'draft',revision:1,requesterId:4,requesterName:'合成运营',createdAt:'2026-11-04',finishedAt:null,dueAt:null,payload:{batchName:'合成草稿',specs:[{name:'规格甲',main:[],gift:[]}]},refLabels:{},fields:[],stepFields:{},activeStep:null,steps:[],events:[],ccs:[],links:{docId:null,docNo:null,borrowRecordId:null},me:{canPass:false,canReturn:false,canCancel:false,canReject:false,returnBlockedReason:null,cancelBlockedReason:null,canResubmit:false,canWithdraw:false,canTransfer:false,stepFields:[]}};
 let current:BatchBoard;
-beforeEach(()=>{current=board();call.mockReset();call.mockImplementation(async path=>{if(path.includes('/applications/'))return current;if(path.includes('kind=meta'))return {scenarios:[],platforms:[],brands:[{id:5,name:'原默认品牌'}],bundleCategories:[]};if(path==='/flow/runs/8')return detail;return {ok:true,headerVersion:'v2'};});});
+beforeEach(()=>{current=board();call.mockReset();call.mockImplementation(async path=>{if(path.includes('/applications/'))return current;if(path.includes('kind=meta'))return {scenarios:[],platforms:[],brands:[{id:5,name:'原默认品牌'},{id:6,name:'规格独立品牌'}],bundleCategories:[]};if(path==='/flow/runs/8')return detail;return {ok:true,headerVersion:'v2'};});});
 afterEach(()=>{cleanup();vi.restoreAllMocks();});
 const Page=()=> <MemoryRouter><SkuBatchPanel sourceLayout={false} batchKey="Bdraft" onClose={()=>undefined} onChanged={()=>undefined}/></MemoryRouter>;
 it('真实规格编辑器只保存明细，失败保留名称和1000字运营需求，关闭先确认',async()=>{
@@ -35,8 +35,8 @@ it('删除最后规格沿真实删除接口携带版本和原因，刷新仍保�
  render(<Page/>);fireEvent.click(await screen.findByRole('button',{name:'删除未提交规格'}));const dialog=screen.getByRole('dialog',{name:'删除未提交规格'});fireEvent.change(within(dialog).getByLabelText('原因'),{target:{value:'不再申请此规格'}});call.mockImplementation(async(path,options)=>{if(path==='/flow/runs/8/draft'&&options?.method==='DELETE'){current=board([]);return {ok:true,headerVersion:'v2'};}if(path.includes('/applications/'))return current;return {scenarios:[],platforms:[]};});fireEvent.click(within(dialog).getByRole('button',{name:'确认删除'}));await screen.findByText('尚无规格');expect(screen.getByRole('button',{name:'添加规格'})).toBeTruthy();expect(call.mock.calls.find(([path])=>path==='/flow/runs/8/draft')?.[1]).toEqual(expect.objectContaining({method:'DELETE',body:{revision:1,reason:'不再申请此规格'}}));
 });
 it('规格品牌使用真实ID选项，单独覆盖随规格保存；空选恢复申请默认而非删除公共品牌',async()=>{
- render(<Page/>);fireEvent.click(await screen.findByRole('button',{name:'运营配置'}));const editor=await screen.findByRole('region',{name:'规格资料配置'});await within(editor).findByLabelText('内部规格名称');const brand=within(editor).getByLabelText('规格 规格甲 组合品牌');await within(editor).findByRole('option',{name:'原默认品牌'});fireEvent.change(brand,{target:{value:'5'}});expect(within(editor).getByText('本规格单独设置')).toBeTruthy();fireEvent.click(within(editor).getByRole('button',{name:'保存明细'}));await waitFor(()=>expect(screen.queryByRole('region',{name:'规格资料配置'})).toBeNull());const request=call.mock.calls.find(([path])=>path==='/flow/runs/8/draft');expect(request?.[1]).toEqual(expect.objectContaining({body:{revision:1,payload:{specs:[{name:'规格甲',main:[],gift:[],brandId:5}]}}}));
- fireEvent.click(screen.getByRole('button',{name:'运营配置'}));const reeditor=await screen.findByRole('region',{name:'规格资料配置'});await within(reeditor).findByLabelText('内部规格名称');const rebrand=within(reeditor).getByLabelText('规格 规格甲 组合品牌');fireEvent.change(rebrand,{target:{value:'5'}});fireEvent.change(rebrand,{target:{value:''}});fireEvent.click(within(reeditor).getByRole('button',{name:'保存明细'}));await waitFor(()=>expect(call.mock.calls.filter(([path])=>path==='/flow/runs/8/draft')).toHaveLength(2));expect(call.mock.calls.filter(([path])=>path==='/flow/runs/8/draft')[1][1]).toEqual(expect.objectContaining({body:{revision:1,payload:{specs:[{name:'规格甲',main:[],gift:[],brandId:undefined}]}}}));
+ render(<Page/>);fireEvent.click(await screen.findByRole('button',{name:'运营配置'}));const editor=await screen.findByRole('region',{name:'规格资料配置'});await within(editor).findByLabelText('内部规格名称');const brand=within(editor).getByLabelText('规格 规格甲 组合品牌');await within(editor).findByRole('option',{name:'原默认品牌'});expect((brand as HTMLSelectElement).value).toBe('5');fireEvent.change(brand,{target:{value:'6'}});expect(within(editor).getByText('本规格单独设置')).toBeTruthy();fireEvent.click(within(editor).getByRole('button',{name:'保存明细'}));await waitFor(()=>expect(screen.queryByRole('region',{name:'规格资料配置'})).toBeNull());const request=call.mock.calls.find(([path])=>path==='/flow/runs/8/draft');expect(request?.[1]).toEqual(expect.objectContaining({body:{revision:1,payload:{specs:[{name:'规格甲',main:[],gift:[],brandId:6}]}}}));
+ fireEvent.click(screen.getByRole('button',{name:'运营配置'}));const reeditor=await screen.findByRole('region',{name:'规格资料配置'});await within(reeditor).findByLabelText('内部规格名称');const rebrand=within(reeditor).getByLabelText('规格 规格甲 组合品牌');fireEvent.change(rebrand,{target:{value:'6'}});fireEvent.change(rebrand,{target:{value:''}});expect((rebrand as HTMLSelectElement).value).toBe('5');fireEvent.click(within(reeditor).getByRole('button',{name:'保存明细'}));await waitFor(()=>expect(call.mock.calls.filter(([path])=>path==='/flow/runs/8/draft')).toHaveLength(2));expect(call.mock.calls.filter(([path])=>path==='/flow/runs/8/draft')[1][1]).toEqual(expect.objectContaining({body:{revision:1,payload:{specs:[{name:'规格甲',main:[],gift:[],brandId:undefined}]}}}));
 });
 
 it('复制未完成规格先确认，再发真实来源版本给通用新增，不在浏览器复制仓库/财务状态',async()=>{
@@ -71,4 +71,31 @@ it('原运营导航显示当前位置与禁用边界，切换及收起均复用�
  const next=vi.fn(),close=vi.fn();render(<SkuDraftEditor sourceLayout position={0} total={2} id={8} onClose={close} onSaved={()=>undefined} onNext={next}/>);
  const region=await screen.findByRole('region',{name:'规格资料配置'}),name=await within(region).findByLabelText('内部规格名称');expect(screen.getByText('运营配置 · 第 1 / 2 个待处理规格')).toBeTruthy();expect(screen.getByRole('button',{name:'上一规格'}).hasAttribute('disabled')).toBe(true);expect(within(region).getByText('当前规格 · 资料编辑')).toBeTruthy();expect(within(region).getByRole('button',{name:'添加主商品'}).querySelector('svg')).toBeTruthy();
  fireEvent.change(name,{target:{value:'未保存规格'}});const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);fireEvent.click(screen.getByRole('button',{name:'下一规格'}));fireEvent.click(within(region).getByRole('button',{name:'收起编辑'}));expect(confirm).toHaveBeenCalledTimes(2);expect(next).not.toHaveBeenCalled();expect(close).not.toHaveBeenCalled();confirm.mockReturnValue(true);fireEvent.click(screen.getByRole('button',{name:'下一规格'}));fireEvent.click(within(region).getByRole('button',{name:'收起编辑'}));expect(next).toHaveBeenCalledTimes(1);expect(close).toHaveBeenCalledTimes(1);expect(call.mock.calls.some(([path])=>path.endsWith('/draft'))).toBe(false);
+});
+
+it('公共品牌保存后，已打开的规格带出新默认品牌并保留未保存的规格资料', async () => {
+  let run = detail;
+  call.mockImplementation(async path => {
+    if (path === '/flow/runs/8') return run;
+    if (path.includes('kind=meta')) return {
+      scenarios: [], platforms: [], brands: [{id:5,name:'原默认品牌'}, {id:6,name:'新默认品牌'}], bundleCategories: [],
+    };
+    return {ok:true};
+  });
+  const props = {id:8, sourceLayout:true, onClose:vi.fn(), onSaved:vi.fn()};
+  const rendered = render(<SkuDraftEditor {...props} applicationHeader={header}/>);
+  const editor = await screen.findByRole('region', {name:'规格资料配置'});
+  const note = await within(editor).findByLabelText('运营需求');
+  fireEvent.change(note, {target:{value:'尚未保存的要求'}});
+  run = {...detail, revision:2, payload:{...detail.payload, brandId:6}};
+  rendered.rerender(<SkuDraftEditor {...props} applicationHeader={{...header,headerVersion:'v2',shared:{brandId:6}}}/>);
+  const brand = within(editor).getByLabelText('规格 规格甲 组合品牌');
+  await waitFor(() => expect((brand as HTMLSelectElement).value).toBe('6'));
+  expect((note as HTMLTextAreaElement).value).toBe('尚未保存的要求');
+  const save = within(editor).getByRole('button', {name:'保存明细'});
+  await waitFor(() => expect((save as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(save);
+  await waitFor(() => expect(call.mock.calls.find(([path])=>path==='/flow/runs/8/draft')?.[1]).toEqual(
+    expect.objectContaining({body:{revision:2,payload:{specs:[{name:'规格甲',main:[],gift:[],note:'尚未保存的要求'}]}}}),
+  ));
 });

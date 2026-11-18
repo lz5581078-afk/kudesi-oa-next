@@ -91,8 +91,16 @@ function LineRows({ lines, names, onChange,sourceQuantity=false }: { sourceQuant
 }
 
 function SkuSpecBrand({spec,defaultBrand,sharedBrand,brands,onChange}:{spec:SkuSpec;defaultBrand:unknown;sharedBrand:boolean;brands:Array<{id:number;name:string;code?:string}>;onChange:(id:number|undefined)=>void}){
- const inherited=brands.find(brand=>brand.id===Number(defaultBrand));
- return <label><span>组合品牌 *</span><select aria-label={`规格 ${spec.name||'未命名'} 组合品牌`} value={spec.brandId??''} onChange={event=>onChange(event.target.value?Number(event.target.value):undefined)}><option value="">{inherited?`使用默认品牌：${inherited.name}`:'请选择组合品牌'}</option>{brands.map(brand=><option key={brand.id} value={brand.id}>{brand.name}{brand.code?`（${brand.code}）`:''}</option>)}</select><small>{spec.brandId?'本规格单独设置':sharedBrand?'使用本申请统一品牌':inherited?'使用主商品品牌':'请为本规格选择品牌'}</small></label>;
+ const inherited = brands.find(brand => brand.id === Number(defaultBrand));
+ const selected = spec.brandId ?? inherited?.id ?? '';
+ return <label><span>组合品牌 *</span>
+   <select aria-label={`规格 ${spec.name || '未命名'} 组合品牌`} value={selected}
+     onChange={event => onChange(event.target.value ? Number(event.target.value) : undefined)}>
+     <option value="">{inherited ? `沿用默认品牌：${inherited.name}` : '请选择组合品牌'}</option>
+     {brands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}{brand.code ? `（${brand.code}）` : ''}</option>)}
+   </select>
+   <small>{spec.brandId ? '本规格单独设置' : sharedBrand ? '使用本申请统一品牌' : inherited ? '使用主商品品牌' : '请为本规格选择品牌'}</small>
+ </label>;
 }
 
 /** 运营填：申请名称、场景、平台、规格清单（每个规格 = 主商品 + 赠品）。 */
