@@ -24,6 +24,7 @@ const {executeWaybillRecovery}=require('./jushuitan-waybill-recovery.cjs');
 const {readOrderRemark,executeOrderRemark}=require('./jushuitan-order-remark.cjs');
 const {assertDedicatedTaskAvailable}=require('./source-task-gate.cjs');
 app.setAppUserModelId('com.kudesi.oa.desktop');
+const {withCollectionDeadline}=require('./collection-deadline.cjs');
 let win, workspace, view, localHost, latestView, collector, localReader, latestReader, shot, tray, origin, jstSession, mounted = false, quitting = false;
 let sourceWindow, sourceWindowReader, pendingSource = process.argv.some(isAfterSalesSourceLaunch);
 const popups = new Set();
@@ -148,15 +149,39 @@ async function prepare(target,retryLogin=false,wait=false){
 }
 async function prepareCollection(){
  const revision=foregroundRevision;
- const canContinue=()=>revision===foregroundRevision&&!sourceBusy()&&!collectionPreferences.paused;
- if(!canContinue())return {sourceCompany:''};
- const result=await prepare(latestView,true);
- if(!canContinue())return {sourceCompany:''};
+ const target=latestView,reader=latestReader;
+ const canContinue=()=>target===latestView&&revision===foregroundRevision&&!sourceBusy()&&!collectionPreferences.paused;
+ if(!canContinue())return {sourceCompany:'',busy:true};
+ const result=await prepare(target,true);
+ if(!canContinue())return {sourceCompany:'',busy:true};
  if(!result.sourceCompany)return result;
- await latestReader.openCurrent(canContinue);
- if(!canContinue())return {sourceCompany:''};
- const hasCurrent=await latestReader.hasCurrent();
- return hasCurrent&&canContinue()?result:{sourceCompany:''};
+ await reader.openCurrent(canContinue);
+ if(!canContinue())return {sourceCompany:'',busy:true};
+ const hasCurrent=await reader.hasCurrent();
+ return hasCurrent&&canContinue()?result:{state:'checking',sourceCompany:''};
+}
+function createCollectionView(){
+ const target=new WebContentsView({webPreferences:{session:jstSession,sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
+ target.setBounds({x:0,y:0,width:1440,height:1000});
+ guardJst(target.webContents,true);
+ target.webContents.on('did-finish-load',()=>sourceReadyAt.set(target,Date.now()));
+ latestView=target;
+ latestReader=createReader(target.webContents,(retry=true)=>prepare(target,retry,retry),requestWatch.forContents(target.webContents.id),recordPlaybackIndicators);
+ collector.contentView.addChildView(target);
+ target.setVisible(true);
+}
+function resetCollectionView(target){
+ if(target!==latestView||!collector||collector.isDestroyed())return;
+ collector.contentView.removeChildView(target);
+ if(!target.webContents.isDestroyed())target.webContents.close();
+ for(const popup of popups)if(popup.oaBackground&&!popup.isDestroyed())popup.close();
+ createCollectionView();
+}
+function boundedCollectionRead(operation,ms,message){
+ const target=latestView;
+ return withCollectionDeadline(operation,ms,()=>{
+  try{resetCollectionView(target);}catch(error){console.warn('[售后后台采集] 后台窗口重建失败',error.message);}
+ },message);
 }
 const icon = path.join(__dirname, '../build/icon.png');
 function reloadPage(contents, ignoreCache = false) {
@@ -569,12 +594,8 @@ async function createWindow() {
   view = new WebContentsView({ webPreferences:{session:jstSession,sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false} });
   view.setBounds({x:0,y:0,width:1440,height:1000});
   localHost.contentView.addChildView(view); view.setVisible(true); view.webContents.setZoomFactor(1); guardJst(view.webContents);
-  latestView=new WebContentsView({webPreferences:{session:jstSession,sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
-  latestView.setBounds({x:0,y:0,width:1440,height:1000});
-  guardJst(latestView.webContents,true);
   localReader=createReader(view.webContents,(retry=true)=>prepare(view,retry&&!mounted,retry),requestWatch.forContents(view.webContents.id),recordPlaybackIndicators);
-  latestReader=createReader(latestView.webContents,(retry=true)=>prepare(latestView,retry,retry),requestWatch.forContents(latestView.webContents.id),recordPlaybackIndicators);
-  for(const target of [view,latestView])target.webContents.on('did-finish-load',()=>sourceReadyAt.set(target,Date.now()));
+  view.webContents.on('did-finish-load',()=>sourceReadyAt.set(view,Date.now()));
   const resumeSourceNavigation=()=>{if(mounted&&sourceNavigationPending)void openSourceAfterSales().catch(()=>{});};
   view.webContents.on('did-finish-load',resumeSourceNavigation);
   view.webContents.on('did-navigate-in-page',resumeSourceNavigation);
@@ -591,7 +612,7 @@ async function createWindow() {
     .catch(error=>console.error('无法保存本机采集设置',error.code));
   // An ordinary OA renderer owns its auth session. The native process never handles OA bearer tokens.
   collector=new BrowserWindow({show:false,width:1440,height:1000,webPreferences:{...rendererPreferences('collector'),backgroundThrottling:false}});
-  collector.contentView.addChildView(latestView);latestView.setVisible(true);
+  createCollectionView();
   collector.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   collector.webContents.on('will-navigate',e=>{try{if(new URL(e.url).origin!==origin)e.preventDefault();}catch{e.preventDefault();}});
   if(!localAcceptance())void collector.loadURL(origin+desktopRoutes.collector)
@@ -943,12 +964,12 @@ ipcMain.handle('oa:desktop',async(event,command,value)=>{
       return true;
     }
     case 'prepare': return prepare(view);
-    case 'prepareLatest': return prepareCollection();
+    case 'prepareLatest': return boundedCollectionRead(prepareCollection,16_000,'后台售后极速版准备超时，已重建后台窗口');
     case 'joinCollection': {
       if(!background||!value||!Number.isSafeInteger(value.companyId)||value.companyId<1||
         typeof value.sourceCompany!=='string'||!value.sourceCompany||value.sourceCompany.length>100)return false;
       if(collectionPreferences.companyId&&collectionPreferences.companyId!==value.companyId)return false;
-      const {sourceCompany}=await prepareCollection();
+      const {sourceCompany}=await boundedCollectionRead(prepareCollection,16_000,'后台售后极速版准备超时，已重建后台窗口');
       if(sourceCompany!==value.sourceCompany||collectionPreferences.paused||sourceBusy()||
         (collectionPreferences.companyId&&collectionPreferences.companyId!==value.companyId))return false;
       const next={...collectionPreferences,companyId:value.companyId,sourceCompany,enabled:true};
@@ -968,13 +989,18 @@ ipcMain.handle('oa:desktop',async(event,command,value)=>{
       return runForeground(()=>localReader.query({...value,sourceColumns:true},true));
     }
     case 'latest': {
-      const revision=foregroundRevision;
+      const revision=foregroundRevision,target=latestView,reader=latestReader;
       const check=()=>{
-        if(sourceBusy()||revision!==foregroundRevision)throw new Error(collectionYieldMessage);
+        if(target!==latestView||sourceBusy()||revision!==foregroundRevision)throw new Error(collectionYieldMessage);
         if(collectionPreferences.paused)throw new Error('本机最新采集已暂停');
       };
       check();
-      return latestReader.query(value,true,check);
+      const historical=typeof value?.value==='string'&&value.value.length>0;
+      if(historical&&(value.kind!=='current'||value.field!=='afterSaleId'||(value.page??1)!==1||!/^\d{4,80}$/.test(value.value)))
+        throw new Error('旧售后回查只允许按售后单号精确读取');
+      const input=historical?{...value,from:undefined,until:undefined}:value;
+      return boundedCollectionRead(()=>reader.query(input,!historical,check),historical?10_000:24_000,
+       historical?'旧售后回查超时，已重建后台窗口':'读取最新售后超时，已重建后台窗口');
     }
     case 'refresh': {
       if(waybillRecoveryRunning)throw new Error('聚水潭正在执行写入任务，请稍后刷新');
